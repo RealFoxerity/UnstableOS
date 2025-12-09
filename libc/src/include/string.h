@@ -4,7 +4,8 @@
 #include <stdint.h>
 int atoi(const char * nptr);
 
-void itoad(uint32_t i, char * out);
+void itoad(uint32_t i, char * out); // signed int
+void itoaud(uint32_t i, char * out); // unsigned int
 
 void ctoax(uint8_t i, char * out);
 void itoax(uint32_t i, char * out);

@@ -27,6 +27,7 @@ void thread_queue_unblock(thread_queue_t * thread_queue) {
     reschedule();
 }
 
+// pprocess and thread here to allow adding other threads than current
 void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, enum pstatus_t new_status) {
     spinlock_acquire(&thread_queue->queue_lock);
 

@@ -15,6 +15,7 @@
 #include "include/kernel_sched.h"
 #include "include/timer.h"
 #include "../libc/src/include/stdlib.h"
+#include "include/kernel_tty_io.h"
 
 // clang is insanely annoying, used because uint32_t is smaller than native pointer size (64 bit int) on my machine
 #pragma clang diagnostic ignored "-Wint-to-pointer-cast"
@@ -86,11 +87,17 @@ void kernel_print_cpu_info() {
     }
 
     // get vendor id
-    unsigned long vendor1, vendor2, vendor3, largest_supported;
+    unsigned long vendor1, vendor2, vendor3, largest_supported, largest_supported_ext;
     asm volatile (
         "cpuid\n\t"
         :"=b" (vendor1), "=d"(vendor2), "=c"(vendor3), "=a"(largest_supported)
         :"a"(CPUID_VENDOR_ID)
+    );
+
+    asm volatile (
+        "cpuid\n\t"
+        :"=a"(largest_supported_ext)
+        :"a"(CPUID_HIGHEST_EXT_FUNC)
     );
 
     char vendor_id[13];
@@ -99,16 +106,15 @@ void kernel_print_cpu_info() {
     memcpy(vendor_id+8, &vendor3, 4);
     vendor_id[12] = 0;
 
-    kprintf("Kernel: CPU info:\nRunning %s\n", vendor_id);
+    kprintf("Kernel: CPU info:\nRunning %s, highest CPUID func 0x%x, extended func 0x%x\n", vendor_id, largest_supported, largest_supported_ext);
 
 // not checking max supported CPUID, because a) if we boot with grub, this becomes 0 for some reason, and b) what we are testing is below the minimal supported anyway
 
     unsigned long cpu_signature, cpu_feature_flags_1, cpu_feature_flags_2, cpu_additional_features;
     asm volatile (
-        "mov %0, %%eax\n\t"
         "cpuid\n\t"
         :"=a"(cpu_signature), "=d"(cpu_feature_flags_1), "=c"(cpu_feature_flags_2), "=b"(cpu_additional_features)
-        :"r"(CPUID_PROCESSOR_INFO_FEATURES)
+        :"a"(CPUID_PROCESSOR_INFO_FEATURES)
     );
 
     unsigned long family_id = 0;
@@ -151,6 +157,33 @@ void kernel_print_cpu_info() {
             kprintf("UNK ");
     }
     kprintf("rev %d\n", CPUID_1_GET_STEPPING(cpu_signature));
+
+
+    if (largest_supported_ext >= CPUID_VENDOR_FULL_3) {
+        uint32_t full_brand_name[12 + 1] = {0}; // 48 ascii string, 1 to be null terminated
+
+        asm volatile (
+            "mov %0, %%eax\n\t"
+            "cpuid\n\t"
+            :"=a"(full_brand_name[0]), "=b"(full_brand_name[1]), "=c"(full_brand_name[2]), "=d"(full_brand_name[3])
+            :"a"(CPUID_VENDOR_FULL_1)
+        );
+        asm volatile (
+            "mov %0, %%eax\n\t"
+            "cpuid\n\t"
+            :"=a"(full_brand_name[4]), "=b"(full_brand_name[5]), "=c"(full_brand_name[6]), "=d"(full_brand_name[7])
+            :"a"(CPUID_VENDOR_FULL_2)
+        );
+        asm volatile (
+            "mov %0, %%eax\n\t"
+            "cpuid\n\t"
+            :"=a"(full_brand_name[8]), "=b"(full_brand_name[9]), "=c"(full_brand_name[10]), "=d"(full_brand_name[11])
+            :"a"(CPUID_VENDOR_FULL_3)
+        );
+
+        kprintf("Full name: %s\n", (char *)full_brand_name);
+    }
+
     if (CPUID_1_FFLAGS_D_GET_HTT(cpu_feature_flags_1)) {
         kprintf("Kernel: Hyper-threading enabled\n\t%d logical processors installed\n", CPUID_1_GET_ADD_LOGICAL_PROC(cpu_additional_features));
     } else kprintf("Kernel: Hyper-threading not enabled\n");
@@ -243,7 +276,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
         }
     }
     kernel_mem_top = page_frame_alloc_init(mbd, total_usable, (void*)boot_mem_top);
-    kprintf("Kernel: Total usable RAM: %d bytes\n", pf_get_free_memory()); //total_usable);
+    kprintf("Kernel: Total usable RAM: %u bytes\n", pf_get_free_memory()); //total_usable);
 
     setup_paging(total_usable, boot_mem_top);
 
@@ -263,11 +296,11 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     if (program.pd_vaddr == NULL) panic("Exec format error!\n");
 
     scheduler_init();
+    tty_alloc_kernel_console();
 
     scheduler_add_process(program, 3);
 
 
-    void * test = kalloc(0);
     kalloc_print_heap_objects();
 
     while (1) {

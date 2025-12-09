@@ -34,10 +34,14 @@
 #define I_ISBLK(mode) (((mode) & __ITMODE_MASK) == __ITMODE_BLK)
 #define I_ISCHAR(mode) (((mode) & __ITMODE_MASK) == __ITMODE_CHAR)
 
+#define O_RDONLY 1
+#define O_WRONLY 2
+#define O_RDWR 3
+
 struct inode_t {
     size_t id; // unique identifier *for a given filesystem*
 
-    unsigned short mode;
+    unsigned short mode; // O_*
 
     size_t instances; // how many descriptors (and therefore processes) use this inode, 0 is considered an unused inode
     size_t hardlinks; // how many hardlinks point to this file, including the file itself
@@ -95,9 +99,11 @@ extern inode_t * kernel_inodes[INODE_LIMIT_KERNEL];
 extern superblock_t * kernel_superblocks[FS_LIMIT_KERNEL];
 
 extern spinlock_t kernel_inode_lock;
+extern spinlock_t kernel_fd_lock;
 extern spinlock_t kernel_superblock_lock;
 
 inode_t * get_free_inode();
+file_descriptor_t * get_free_fd();
 
 ssize_t sys_read(unsigned int fd, void * buf, size_t count);
 ssize_t sys_write(unsigned int fd, const void * buf, size_t count);

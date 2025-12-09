@@ -30,8 +30,11 @@ size_t fmt_handler_printf(const char * s, va_list * args) { // caller has to cal
             fmt_buf[0] = '%';
             fmt_buf[1] = '\0';
             return padding_delta+1;
+        case 'u':
         case 'd':
-            itoad(va_arg(*args, uint32_t), fmt_buf);
+            if (*s == 'u') itoaud(va_arg(*args, uint32_t), fmt_buf);
+            else itoad(va_arg(*args, uint32_t), fmt_buf);
+            
             if (padding > (long)strlen(fmt_buf)) {
                 if (padding + strlen(fmt_buf) + 1 > PRINTF_MAX_FORMAT_OUT) 
                     padding = PRINTF_MAX_FORMAT_OUT - strlen(fmt_buf) - 1;

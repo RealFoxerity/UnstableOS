@@ -25,6 +25,8 @@ spinlock_t scheduler_lock = {0};
 // a address space change
 // TODO: Check whether scheduler works for ring 1 and 2
 
+// TODO: Completely rewrite signals
+
 //#define kprintf(fmt, ...) kprintf("Scheduler: "fmt, ##__VA_ARGS__)
 
 void reschedule() {
@@ -43,7 +45,7 @@ __attribute__((naked)) void kernel_idle() { // in case all processes/threads are
 
 // process_list->prev = last item in the (doubly) linked list, last item has ->next NULL so we know when we reach the end
 process_t * process_list = NULL;
-
+process_t * kernel_task = NULL;
 process_t * current_process = NULL;
 thread_t * current_thread = NULL;
 
@@ -244,7 +246,7 @@ void scheduler_add_process(struct program program, uint8_t ring) {
 
 #define KERNEL_ARGV0 "kernel/core"
 static inline void register_kernel_task(context_t * context) {
-    process_t * kernel_task = kalloc(sizeof(process_t));
+    kernel_task = kalloc(sizeof(process_t));
     if (!kernel_task) panic("Not enough memory for kernel task!");
     memset(kernel_task, 0, sizeof(process_t));
 
@@ -344,6 +346,37 @@ static void inline switch_context(process_t * pprocess, thread_t * thread, conte
     );
 }
 
+void signal_process_group(pid_t process_group, unsigned short signal) {
+    if (signal >= __sig_last) return; // not a valid signal
+    spinlock_acquire(&scheduler_lock);
+    process_t * signaled = process_list;
+    thread_t * signaled_thread = NULL;
+    while (signaled != NULL) {
+        if (signaled->pgrp == process_group) {
+            signaled->signal |= GET_SIG_MASK(signal);
+            if (after_signal_states[signal] == SCHED_STOPPED) {
+                signaled->is_stopped = 1;
+                continue;
+            }
+            else if (after_signal_states[signal] == SCHED_RUNNABLE) {
+                signaled->is_stopped = 0;
+                continue;
+            }
+
+            signaled_thread = signaled->threads;
+            while (signaled_thread != NULL) {
+                signaled_thread->status = after_signal_states[signal];
+                signaled_thread = signaled_thread->next;
+            }
+        }
+        signaled = signaled->next;
+    }
+
+    spinlock_release(&scheduler_lock);
+    asm volatile("sti;");
+    reschedule();
+}
+
 void schedule(context_t * context) {
     spinlock_acquire(&scheduler_lock);
 
@@ -375,7 +408,7 @@ void schedule(context_t * context) {
     //scheduler_print_processes();
 
     scheduler_start:
-    current_process = process_list;
+    current_process = process_list; // halts here with KVM and -cpu host on AMD Ryzen 7 5700, no clue why
 
     while (current_process != NULL) {
         current_thread = current_process->threads;
@@ -405,7 +438,7 @@ void schedule(context_t * context) {
                         goto scheduler_start;
                         break;
                     }
-                case SCHED_CLEANUP:
+                case SCHED_CLEANUP: // this means that threads can still run a while before the one calling exit() gets scheduled
                     if (current_process->pid == 0) {
                         panic("Tried to kill kernel");
                     } else if (current_process->pid == 1) {

@@ -16,7 +16,8 @@ static void cleanup_inode_list() { // acquire lock before this
     }
 }
 
-inode_t * get_free_inode() { // acquire lock before this, sets the inode instance count to 1
+// acquire lock before this, sets the inode instance count to 1
+inode_t * get_free_inode() {
     //cleanup_inode_list(); 
     // considering a single inode is 40 bytes, and thus the entire list is 328K, i don't think we need the cleanup
 
