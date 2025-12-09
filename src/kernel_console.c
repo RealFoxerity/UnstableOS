@@ -1,8 +1,12 @@
 #include <stddef.h>
 #include <stdint.h>
+#include "include/devs.h"
+#include "include/kernel.h"
+#include "include/kernel_tty_io.h"
 #include "include/keyboard.h"
 #include "include/vga.h"
 #include "../libc/src/include/string.h"
+#include "../libc/src/include/ctype.h"
 #include "include/kernel_tty.h"
 #include "include/lowlevel.h"
 
@@ -94,10 +98,9 @@ static inline void vga_scroll_line() {
 
 void vga_write(const char * s, size_t len) {
     for (int i = 0; i < len; i++) {
-        if (s[i] == 0x7F) { // delete
-            vga_put_char(' ', vga_color, vga_x, vga_y);
-            continue;
-        }
+        //if (s[i] == 0x7F) { // delete, should theoretically do nothing, commented out because it produces a nice house character :3
+        //    continue;
+        //}
         if (s[i] == '\r') {
             vga_x = 0; continue;
         }
@@ -197,20 +200,25 @@ static const char scancode_to_char[256] = {
     0, 0, 0, 0, 0, 0, 0, 0,
 }; // currently shift = numlock just to test
 
-void tty_key_input(uint32_t scancode) {
+void tty_console_input(uint32_t scancode) { // convert ps2 input into normal ascii for terminal use
     if (scancode & KEY_RELEASED_MASK) return;
-    char is_shift = (scancode & KEY_MOD_LSHIFT_MASK || scancode & KEY_MOD_RSHIFT_MASK) ^ ((scancode & KEY_MOD_CAPSLOCK_MASK) != 0);
+    char is_shift = (scancode & KEY_MOD_LSHIFT_MASK || scancode & KEY_MOD_RSHIFT_MASK);
 
-    if ((scancode & (KEY_MOD_RMETA_MASK-1)) >= KEY_MULTIMEDIA_PREV_TRACK) {
-        scancode = scancode - KEY_MULTIMEDIA_PREV_TRACK + is_shift * TTY_SHIFT_MOD_MASK + TTY_OTHERS_START;
-        scancode &= 0xFF;
-        if (scancode_to_char[scancode] != 0) vga_write(scancode_to_char + scancode, 1);
-        return;
+    if ((scancode & (KEY_MOD_RMETA_MASK-1)) >= KEY_MULTIMEDIA_PREV_TRACK) scancode = scancode - KEY_MULTIMEDIA_PREV_TRACK + TTY_OTHERS_START;
+
+    char translated_scancode = 0;
+   
+    if (isalpha(scancode_to_char[(scancode & 0xFF)])) is_shift ^= (scancode & KEY_MOD_CAPSLOCK_MASK) != 0;  // capslock works only on alphabet characters
+    
+    translated_scancode = scancode_to_char[(scancode & 0xFF) + TTY_SHIFT_MOD_MASK*is_shift];
+
+    if ((scancode & ~(KEY_MOD_RMETA_MASK-1)) == KEY_MOD_LCONTROL_MASK) { // if only holding ctrl (and or shift)
+        if (toupper(translated_scancode) >= '@' && toupper(translated_scancode) <= '_') // if char between C0 values
+            translated_scancode = toupper(translated_scancode) - '@'; // get C0 control char
+        else {
+            tty_write(GET_DEV(DEV_TTY, DEV_TTY_CONSOLE), "^", 1); // wasn't a valid ctrl escape, printing the raw escape value
+        }
     }
-
-    scancode &= 0xFF;
-    scancode += TTY_SHIFT_MOD_MASK*is_shift;
-
-
-    if (scancode_to_char[scancode] != 0) vga_write(scancode_to_char + scancode, 1);
-};
+    if ((scancode & ~(KEY_MOD_RMETA_MASK-1) & ~(KEY_MOD_LSHIFT_MASK) & ~(KEY_MOD_RSHIFT_MASK)) == KEY_MOD_LCONTROL_MASK && translated_scancode == '?') translated_scancode = '\x7F'; // can't get to ? on english layout without shift
+    if (translated_scancode != '\0') tty_write(GET_DEV(DEV_TTY, DEV_TTY_CONSOLE), &translated_scancode, 1);
+}

@@ -5,6 +5,16 @@ char isprint(char c) {
     return 0;
 }
 
+char tolower(char c) {
+    if (isupper(c)) return c + 0x20;
+    return c;
+}
+
+char toupper(char c) {
+    if (islower(c)) return c - 0x20;
+    return c;
+}
+
 char islower(char c) {
     if (c >= 'a' && c <= 'z') return 1;
     return 0;

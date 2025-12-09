@@ -33,6 +33,7 @@ Consider lowering thread count, increasing stack base address, lowering heap add
 #endif
 enum signals {
     SIGINT = 1,
+    SIGTERM,
     SIGALRM,
     SIGSTOP,
     SIGCONT,
@@ -41,7 +42,22 @@ enum signals {
     SIGTTOU, // background process group tried to write to a controlling terminal (with the option TOSTOP), default action is to pause the process
     SIGTTIN, // background process group tried to read from a controlling terminal
     SIGHUP, // controlling terminal was closed by the other side
+
+    __sig_last
 };
+
+#define GET_SIG_MASK(signal) (1<<signal)
+
+#define MASK_SIGINT GET_SIG_MASK(SIGINT)
+#define MASK_SIGTERM GET_SIG_MASK(SIGTERM)
+#define MASK_SIGALRM GET_SIG_MASK(SIGALRM)
+#define MASK_SIGSTOP GET_SIG_MASK(SIGSTOP)
+#define MASK_SIGCONT GET_SIG_MASK(SIGCONT)
+#define MASK_SIGKILL GET_SIG_MASK(SIGKILL)
+#define MASK_SIGCHLD GET_SIG_MASK(SIGCHLD)
+#define MASK_SIGTTOU GET_SIG_MASK(SIGTTOU)
+#define MASK_SIGTTIN GET_SIG_MASK(SIGTTIN)
+#define MASK_SIGHUP GET_SIG_MASK(SIGHUP)
 
 enum pstatus_t {
     SCHED_RUNNING,
@@ -56,6 +72,20 @@ enum pstatus_t {
     SCHED_CLEANUP, // process called exit() or otherwise crashed
     SCHED_ZOMBIE, // process indefinitely waiting on parent process to collect exit code left in the process_t struct
 } typedef pstatus_t;
+
+#pragma clang diagnostic ignored "-Wc99-designator"
+static const char after_signal_states[__sig_last] = {
+    [SIGINT] = SCHED_RUNNABLE,
+    [SIGTERM] = SCHED_CLEANUP,
+    [SIGALRM] = SCHED_RUNNABLE,
+    [SIGSTOP] = SCHED_STOPPED,
+    [SIGCONT] = SCHED_RUNNABLE,
+    [SIGKILL] = SCHED_CLEANUP,
+    [SIGCHLD] = SCHED_RUNNABLE,
+    [SIGTTOU] = SCHED_STOPPED,
+    [SIGTTIN] = SCHED_STOPPED,
+    [SIGHUP] = SCHED_CLEANUP
+};
 
 #define FD_LIMIT_PROCESS 128
 
@@ -143,6 +173,8 @@ struct process_t {
 
     file_descriptor_t * fds[FD_LIMIT_PROCESS];
 
+
+    char is_stopped;
     thread_t * threads;
     
     struct process_t * prev;
@@ -172,10 +204,11 @@ void kernel_destroy_thread(process_t * parent_process, thread_t * current_thread
 thread_t *  kernel_create_thread(process_t * parent_process, void (* entry_point)(void*), void * arg);
 extern process_t * current_process;
 extern thread_t * current_thread;
+extern process_t * kernel_task;
 
 extern spinlock_t scheduler_lock;
 
 void thread_queue_unblock(thread_queue_t * thread_queue);
 void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, enum pstatus_t new_status);
-
+void signal_process_group(pid_t process_group, unsigned short signal);
 #endif

@@ -552,7 +552,7 @@ static const char ps2_sc2_to_1_lookup[256] = {
 };
 
 
-extern void tty_key_input(uint32_t scancode);
+extern void tty_console_input(uint32_t scancode);
 
 void keyboard_driver(char device_num) {
     uint32_t out = 0;
@@ -702,5 +702,5 @@ void keyboard_driver(char device_num) {
     
     if (out == (KEY_DELETE | KEY_MOD_LCONTROL_MASK | KEY_MOD_RALT_MASK)) kernel_reset_system();
 
-    tty_key_input(out);
+    tty_console_input(out);
 }

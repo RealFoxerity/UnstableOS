@@ -42,6 +42,23 @@ void itoad(uint32_t i, char * out) {
     out[ctr+1] = '\0';
 }
 
+void itoaud(uint32_t i, char * out) {
+    char temp;
+    int ctr = 0;
+    for (; ; ctr++) {
+        out[ctr] = '0' + i % 10;
+        i /= 10;
+        if (i == 0) break;
+    }
+
+    for (int i = 0; i <= ctr/2; i++) {
+        temp = out[i];
+        out[i] = out[ctr-i];
+        out[ctr-i] = temp; 
+    }
+    out[ctr+1] = '\0';
+}
+
 static inline char get_nibble(char value) {
     if (value >= 10) return 'A' + value - 10;
     else return '0' + value;
