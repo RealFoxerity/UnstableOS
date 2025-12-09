@@ -1,0 +1,145 @@
+// a copy of kalloc
+#include <stdint.h>
+#include <stddef.h>
+#include <stdalign.h>
+
+#include "include/string.h"
+#include "include/stdio.h"
+#include "include/stdlib.h"
+
+#define MALLOC_MAGIC "MAL"
+
+enum malloc_flags {
+    MALLOC_CHUNK_USED = 1,
+    MALLOC_FIRST_CHUNK = 2, // prev_chunk = heap_struct_start
+    MALLOC_LAST_CHUNK = 4 // next_chunk = heap_top
+};
+
+#define MALLOC_ALIGNMENT sizeof(unsigned long)
+
+struct malloc_heap_header { // aligning so that we try to avoid alignment check
+    char magic[3];
+    uint8_t flags;
+    alignas(MALLOC_ALIGNMENT) struct malloc_heap_header * prev_chunk;
+    alignas(MALLOC_ALIGNMENT) struct malloc_heap_header * next_chunk;
+};
+
+static void * heap_base = NULL;
+
+void malloc_prepare(void * heap_struct_start, void * heap_top) {
+    heap_base = heap_struct_start;
+    *(struct malloc_heap_header*)heap_struct_start = (struct malloc_heap_header) {
+        .flags = MALLOC_FIRST_CHUNK | MALLOC_LAST_CHUNK,
+        .prev_chunk = heap_struct_start,
+        .next_chunk = heap_top
+    };
+    memcpy(((struct malloc_heap_header*)heap_struct_start)->magic, MALLOC_MAGIC, 3);
+}
+
+#pragma clang diagnostic ignored "-Wignored-attributes"
+void * __attribute__((malloc, malloc(free))) malloc(size_t size) {
+    if (size % MALLOC_ALIGNMENT != 0) size = size + MALLOC_ALIGNMENT - size%MALLOC_ALIGNMENT;
+
+    struct malloc_heap_header * current_heap_object = heap_base;
+    while (current_heap_object->flags & MALLOC_CHUNK_USED || current_heap_object->next_chunk - current_heap_object < size + sizeof(struct malloc_heap_header)*2) { // one for the current struct, one for the newly generated at the start of the next chunk
+        if (current_heap_object->next_chunk == NULL) {
+            printf("malloc() current_heap_object->next_chunk == NULL\n");
+            exit(255);
+        }
+        if (current_heap_object->flags & MALLOC_LAST_CHUNK) return NULL; // not enough free space on the stack and considering we do overcommitment, there's nothing we can do
+
+        current_heap_object = current_heap_object->next_chunk;
+    }
+    current_heap_object->flags |= MALLOC_CHUNK_USED;
+
+    struct malloc_heap_header * next_heap_object = (struct malloc_heap_header*)((void *)current_heap_object + sizeof(struct malloc_heap_header) + size);
+
+    *next_heap_object = (struct malloc_heap_header) {
+        .flags = 0 | (current_heap_object->flags & MALLOC_LAST_CHUNK),
+        .prev_chunk = current_heap_object,
+        .next_chunk = current_heap_object->next_chunk
+    };
+    memcpy(next_heap_object->magic, MALLOC_MAGIC, 3);
+
+    if (current_heap_object->flags & MALLOC_LAST_CHUNK) current_heap_object->flags ^= MALLOC_LAST_CHUNK;
+    current_heap_object->next_chunk = next_heap_object;
+    return (void*)current_heap_object + sizeof(struct malloc_heap_header);
+}
+
+void free(void * p) {
+    if (p == NULL) return;
+    struct malloc_heap_header * current_heap_object = (struct malloc_heap_header * ) (p - sizeof(struct malloc_heap_header));
+
+    if (memcmp(current_heap_object->magic, MALLOC_MAGIC, 3) != 0) {
+        printf("free() tried to free non-heap object\n");
+        exit(255);
+    }
+
+    if (current_heap_object->prev_chunk == NULL) {
+        printf("free() current_heap_object->prev_chunk == NULL\n");
+        exit(255);
+    }
+
+    if (!(current_heap_object->flags & MALLOC_CHUNK_USED)) {
+        printf("free() double free\n");
+        exit(255);
+    }
+
+    current_heap_object->flags &= ~MALLOC_CHUNK_USED;
+
+    if (current_heap_object->flags & MALLOC_FIRST_CHUNK) {
+        if (current_heap_object->flags & MALLOC_LAST_CHUNK) return;
+        if (current_heap_object->next_chunk->flags & MALLOC_CHUNK_USED) return;
+        
+
+        current_heap_object->flags |= current_heap_object->next_chunk->flags & MALLOC_LAST_CHUNK;
+        current_heap_object->next_chunk = current_heap_object->next_chunk->next_chunk;
+        
+        if (!(current_heap_object->flags & MALLOC_LAST_CHUNK))
+            current_heap_object->next_chunk->prev_chunk = current_heap_object;
+
+        return;
+    } else if (current_heap_object->flags & MALLOC_LAST_CHUNK) {
+        if (current_heap_object->prev_chunk->flags & MALLOC_CHUNK_USED) return;
+        current_heap_object->prev_chunk->next_chunk = current_heap_object->next_chunk;
+        current_heap_object->prev_chunk->flags |= MALLOC_LAST_CHUNK;
+        return;
+    } else {
+        if (!(current_heap_object->next_chunk->flags & MALLOC_CHUNK_USED)) {
+            current_heap_object->flags |= current_heap_object->next_chunk->flags & MALLOC_LAST_CHUNK;
+
+            current_heap_object->next_chunk = current_heap_object->next_chunk->next_chunk;
+            if (current_heap_object->flags & MALLOC_LAST_CHUNK) return;
+
+            current_heap_object->next_chunk->prev_chunk = current_heap_object;
+        }
+        if (!(current_heap_object->prev_chunk->flags & MALLOC_CHUNK_USED)) {
+            current_heap_object->prev_chunk->flags |= current_heap_object->flags & MALLOC_LAST_CHUNK;
+
+            current_heap_object->prev_chunk->next_chunk = current_heap_object->next_chunk;
+            if (current_heap_object->flags & MALLOC_LAST_CHUNK) return;
+
+            current_heap_object->next_chunk->prev_chunk = current_heap_object->prev_chunk;
+        }
+    }
+}
+
+
+void malloc_print_heap_objects() {
+    struct malloc_heap_header * current_heap_object = heap_base;
+
+    do {
+        printf("malloc: Heap 0x%x - 0x%x, size %x, prev: 0x%x, ", current_heap_object, current_heap_object->next_chunk, (unsigned long)current_heap_object->next_chunk - (unsigned long)current_heap_object - sizeof(struct malloc_heap_header), current_heap_object->prev_chunk);
+        if (current_heap_object->flags & MALLOC_CHUNK_USED) printf("U, ");
+        if (current_heap_object->flags & MALLOC_FIRST_CHUNK) printf("FC, ");
+        if (current_heap_object->flags & MALLOC_LAST_CHUNK) printf("LC, ");
+        printf("\n");
+        current_heap_object = current_heap_object->next_chunk;
+    } while (!(current_heap_object->flags & MALLOC_LAST_CHUNK));
+    
+    printf("malloc: Heap 0x%x - 0x%x, size %x, prev: 0x%x, ", current_heap_object, current_heap_object->next_chunk, (unsigned long)current_heap_object->next_chunk - (unsigned long)current_heap_object - sizeof(struct malloc_heap_header), current_heap_object->prev_chunk);
+    if (current_heap_object->flags & MALLOC_CHUNK_USED) printf("U, ");
+    if (current_heap_object->flags & MALLOC_FIRST_CHUNK) printf("FC, ");
+    if (current_heap_object->flags & MALLOC_LAST_CHUNK) printf("LC, ");
+    printf("\n");
+}
