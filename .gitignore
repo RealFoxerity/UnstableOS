@@ -1,0 +1,8 @@
+.vscode/*
+*.o
+*/*.o
+*/*/*.o
+build/*
+*/build/*
+*/*/build/*
+.clangd
