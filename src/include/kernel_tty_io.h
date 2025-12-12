@@ -2,11 +2,8 @@
 #define KERNEL_TTY_IO_H
 #include "kernel_sched.h"
 #include "kernel_ioctl.h"
+#include "devs.h"
 
-#define __TTY_SERIAL 8
-#define __TTY_CONSOLE 4
-#define __TTY_PTY 20
-#define TTY_LIMIT_KERNEL (__TTY_SERIAL + __TTY_CONSOLE + __TTY_PTY) // maximum amount of ttys opened
 #define TTY_BUFFER_SIZE 4096
 
 #define TTY_L_ECHO 1
@@ -20,9 +17,10 @@
 #define TTY_I_NLCR 4 // new line -> carriage return
 #define TTY_I_ISTRIP 8 // strip 8 bit ascii to 7 bit
 
-#define TTY_O_NLCR 1 // new line -> carriage return
-#define TTY_O_CRNL 2 // carriage return -> new line
-#define TTY_O_NLRET 4 // new line is carriage return
+#define TTY_O_POST 1 // whether to even do processing
+#define TTY_O_NLCR 2 // new line -> carriage return new line
+#define TTY_O_CRNL 4 // carriage return -> new line
+#define TTY_O_NLRET 8 // new line does also carriage return
 
 
 enum termios_control_chars { // NC non-canonical, IC canonical ("line buffered")
@@ -54,12 +52,13 @@ static const char default_control_chars[11] = { // well imagine wanting to do ct
     [TCC_VSTOP]    = '\x13',
 };
 
+typedef unsigned short tcflag_t;
 struct termios {
     char control_chars[11];
-    unsigned short imodes;
-    unsigned short omodes;
-    unsigned short cmodes;
-    unsigned short lmodes;
+    tcflag_t imodes;
+    tcflag_t omodes;
+    tcflag_t cmodes;
+    tcflag_t lmodes;
 };
 
 struct tty_queue { // FIFO
@@ -101,5 +100,6 @@ void tty_queue_putch(struct tty_queue * tq, char c);
 long tty_ioctl(dev_t dev, unsigned long cmd, unsigned long arg);
 
 long tty_write(dev_t dev, const char * s, size_t n);
+long tty_write_to_tty(const char * s, size_t n, dev_t dev);
 
 #endif

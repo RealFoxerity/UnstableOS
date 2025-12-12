@@ -17,7 +17,7 @@ void kprintf_write(const char * buf, size_t count) {
         vga_write(buf, count);
         com_write(0, buf, count);
     } else {
-        tty_write(GET_DEV(DEV_TTY, DEV_TTY_CONSOLE), buf, count);
+        tty_write(GET_DEV(DEV_MAJ_TTY_META, DEV_TTY_CONSOLE), buf, count);
     }
 }
 

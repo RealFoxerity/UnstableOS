@@ -518,12 +518,12 @@ __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_mouse(stru
 
 extern void com_recv_byte(unsigned char com);
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_com2(struct interr_frame * interrupt_frame) {
-    com_recv_byte(2);
+    com_recv_byte(1);
     pic_send_eoi(PIC_INTERR_COM2);
 }
 
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_com1(struct interr_frame * interrupt_frame) {
-    com_recv_byte(1);
+    com_recv_byte(0);
     pic_send_eoi(PIC_INTERR_COM1);
 }
 
