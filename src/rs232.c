@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "include/rs232.h"
+#include "include/devs.h"
 #include "include/kernel_tty_io.h"
 #include "include/lowlevel.h"
 #include "include/kernel.h"
@@ -102,12 +103,12 @@ long com_write(unsigned char com, const char * data, unsigned long len) {
 }
 
 void com_recv_byte(unsigned char com) { // called by interrupt
-    if (com > COM_PORTS) {
+    if (com >= COM_PORTS) {
         kprintf("Invalid COM port specified from interrupt handler (%d)!\n", com);
         return;
     }
-    char data[2] = {inb(com_addresses[com]), 0};
-    com_write(com+1, data, 1);
+    char data = inb(com_addresses[com]);
+    tty_write_to_tty(&data, 1, GET_DEV(DEV_MAJ_TTY, DEV_TTY_S0 + com));
 }
 
 long com_read(unsigned char com, char * data_out, unsigned long len) {

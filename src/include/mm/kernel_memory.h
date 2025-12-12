@@ -68,9 +68,9 @@ void setup_paging(unsigned long total_free, unsigned long ident_map_end);
 
 void kalloc_prepare(void * heap_struct_start, void * heap_top);
 
-#pragma clang diagnostic ignored "-Wignored-attributes"
+//#pragma clang diagnostic ignored "-Wignored-attributes"
 void kfree(void * p);
-void * __attribute__((malloc, malloc(kfree))) kalloc(size_t size);
+void * __attribute__((malloc /*, malloc(kfree)*/)) kalloc(size_t size);
 
 void kalloc_print_heap_objects();
 

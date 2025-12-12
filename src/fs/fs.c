@@ -60,7 +60,8 @@ ssize_t sys_write(unsigned int fd, const void * buf, size_t count) {
     kassert(file->inode->instances > (file->inode->is_mountpoint)? 1 : 0);
 
     switch (MAJOR(file->inode->device)) {
-        case DEV_TTY:
+        case DEV_MAJ_TTY_META:
+        case DEV_MAJ_TTY:
             tty_write(file->inode->device, buf, count);
             break;
         default:
