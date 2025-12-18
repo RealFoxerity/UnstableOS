@@ -1,10 +1,11 @@
+#include "include/kernel.h"
 #include "include/kernel_sched.h"
 #include "include/kernel_semaphore.h"
 #include "../libc/src/include/string.h"
 
 void thread_queue_unblock(thread_queue_t * thread_queue) {
     spinlock_acquire(&thread_queue->queue_lock);
-
+    kprintf("AL ");
     if (thread_queue->queue.parent_process == NULL) { // queue with no waiting processes
         spinlock_release(&thread_queue->queue_lock);
         return;
@@ -14,17 +15,26 @@ void thread_queue_unblock(thread_queue_t * thread_queue) {
     struct __thread_queue_inner * next = thread_queue->queue.next;
     
     thread_queue->queue.thread->status = SCHED_RUNNABLE;
+    kprintf("MR ");
 
     if (next != NULL) {
         memcpy(&thread_queue->queue, thread_queue->queue.next, sizeof(struct __thread_queue_inner));
         thread_queue->queue.prev = next->prev;
         kfree(next);
+        kprintf("AMK ");
     } else {
         memset(&thread_queue->queue, 0, sizeof(struct __thread_queue_inner));
     }
 
     spinlock_release(&thread_queue->queue_lock);
+    kprintf("REL ");
+
+    unsigned long prev_eflags;
+    asm volatile ("pushf; pop %0;" : "=R"(prev_eflags));
+    asm volatile("sti"); // have to enable interrupts for reschedule()
     reschedule();
+    kprintf("RES ");
+    asm volatile ("push %0; popf;" :: "R"(prev_eflags));
 }
 
 // pprocess and thread here to allow adding other threads than current
@@ -46,16 +56,15 @@ void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, threa
     thread_queue->queue.prev = thread_queue->queue.prev->next;
 
 
-    thread_queue->queue.prev->parent_process = pprocess;;
+    thread_queue->queue.prev->parent_process = pprocess;
     thread_queue->queue.prev->thread = thread;
 
 
     before_unlock:
     spinlock_release(&thread_queue->queue_lock);
 
-    thread->inside_kernel = 1; // sleeping from within the kernel, have to mark it as such
-
-    thread->status = new_status; // needs to be below inside_kernel = 1 in case of scheduler race
+    thread->inside_kernel = 1; // we are going to reschedule and the scheduler needs to know if we got interrupted in ring 0 or not
+    thread->status = new_status;
     kprintf("sleeping on thread id %d of process %d\n", thread->tid, pprocess->pid);
 
 
@@ -63,5 +72,6 @@ void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, threa
     asm volatile ("pushf; pop %0;" : "=R"(prev_eflags));
     asm volatile("sti"); // have to enable interrupts for reschedule()
     reschedule();
+    kprintf("ARES ");
     asm volatile ("push %0; popf;" :: "R"(prev_eflags));
 }

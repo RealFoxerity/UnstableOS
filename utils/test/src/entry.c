@@ -9,7 +9,7 @@ int test(struct uthread_args * self, void* _) {
     printf("test  ");
 
     for (int i = 0; i < 10000000; i++) {
-        for (int i = 0; i < 100; i++);
+        for (int i = 0; i < 10; i++);
     }
     printf("test #2");
     return 0;

@@ -67,14 +67,12 @@ void spinlock_acquire(spinlock_t * lock) { // sets lock = 1, acquiring it
     }
 }
 void spinlock_release(spinlock_t * lock) {lock->state = SPINLOCK_UNLOCKED;}
-static spinlock_t queue_lock = {0};
 
 void kernel_sem_post(process_t * calling_process, int sem_idx) {
     asm volatile (
         "lock incl (%0)"
     :: "R"(&calling_process->semaphores[sem_idx].value));
     thread_queue_unblock(&calling_process->semaphores[sem_idx].waiting_queue);
-    reschedule();
 }
 void kernel_sem_wait(process_t * calling_process, thread_t * calling_thread, int sem_idx) {
     int old_val, old_val2, new_count;
@@ -95,16 +93,6 @@ void kernel_sem_wait(process_t * calling_process, thread_t * calling_thread, int
             }
         } else {
             thread_queue_add(&calling_process->semaphores[sem_idx].waiting_queue, calling_process, calling_thread, SCHED_UNINTERR_SLEEP);
-
-            kprintf("sleeping on thread id %d\n", calling_thread->tid);
-
-            reschedule();
         }
     }
-    
-    asm volatile (
-        "mov $0, %%eax"
-        "lock dec (%0)"
-    :: "R"(&calling_process->semaphores[sem_idx].value)
-    :"eax");
 }
