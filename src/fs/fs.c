@@ -65,6 +65,7 @@ ssize_t sys_write(unsigned int fd, const void * buf, size_t count) {
             tty_write(file->inode->device, buf, count);
             break;
         default:
+            kprintf("unknown dev major to write to (%d)...\n", MAJOR(file->inode->device));
             return -EIO;
     }
 

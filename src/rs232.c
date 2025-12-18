@@ -11,6 +11,11 @@
 #define COM_PORTS 8
 const uint16_t com_addresses[COM_PORTS] =  {0x3F8, 0x2F8, 0x3E8, 0x2E8, 0x5F8, 0x4F8, 0x5E8, 0x4E8};
 
+enum com_state {
+    COM_UNINITIALIZED, // will just skip writes
+    COM_INITIALIZED
+};
+char com_states[COM_PORTS] = {COM_UNINITIALIZED};
 char com_init(unsigned char com, unsigned int baudrate, unsigned char data_bits, unsigned char stop_bits, unsigned char parity, unsigned char buffered_bytes) {
     if (com >= COM_PORTS) {
         kprintf("Invalid COM port to initialize specified (%d)!\n", com);
@@ -45,6 +50,7 @@ char com_init(unsigned char com, unsigned int baudrate, unsigned char data_bits,
         kprintf("Invalid requested buffered byte count for COM%d!\n", com);
         return COM_ERR_INVALID_CACHING;
     }
+    kprintf("Initializing port %d with baud rate %u\n", com, baudrate);
 
     // set the baud rate
     uint8_t brlow = baudrate&0xFF;
@@ -69,13 +75,14 @@ char com_init(unsigned char com, unsigned int baudrate, unsigned char data_bits,
     outb(com_addresses[com], 0x06); //send test byte (0x06 is just a random byte)
     io_wait();
     if (inb(com_addresses[com]) != 0x06) {
-        kprintf("COM%d failed self test!\n", com+1);
+        kprintf("COM%d failed self test!\n", com);
         return 1;
     }
 
     uint8_t modem_control = COM_MCR_OUT1 | COM_MCR_OUT2 | COM_MCR_RTS;
     outb(com_addresses[com] + COM_DELTA_MODEM_CONTROL, modem_control);
     outb(com_addresses[com] + COM_DELTA_IRQ_EN, COM_IRQ_EN_RECV_DATA_AVAIL);
+    com_states[com] = COM_INITIALIZED;
     return 0;
 }
 
@@ -95,6 +102,8 @@ long com_write(unsigned char com, const char * data, unsigned long len) {
         kprintf("Invalid COM port to write to specified (%d)!\n", com);
         return -1;
     }
+    if (com_states[com] == COM_UNINITIALIZED) return 0;
+
     for (unsigned long i = 0; i < len; i++) {
         while (!com_ready_to_write(com)); 
         outb(com_addresses[com], data[i]); 

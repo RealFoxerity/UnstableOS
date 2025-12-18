@@ -104,9 +104,10 @@ long kernel_syscall_dispatcher() {
             break;
 
         case SYSCALL_EXIT: // returns exitcode
-            kprintf("process called exit()\n");
+            kprintf("process called exit(%d)\n", arg1);
             current_process->exitcode = arg1;
         case SYSCALL_ABORT:
+            if (syscall_number == SYSCALL_ABORT) kprintf("Thread %d of process %d called abort()!\n", current_thread->tid, current_process->pid); // so that we can keep the fall-through for syscall_exit
             current_thread->status = SCHED_CLEANUP;
             asm volatile ("sti;");
             reschedule();
@@ -169,6 +170,7 @@ long kernel_syscall_dispatcher() {
             asm volatile ("sti;");
 
             kernel_sem_post(current_process, arg1);
+            kprintf("sem posted\n");
             break;
         case SYSCALL_SEM_WAIT:
             if (arg1 < 0 || arg1 >= PROGRAM_MAX_SEMAPHORES) {
@@ -185,6 +187,7 @@ long kernel_syscall_dispatcher() {
             asm volatile ("sti;");
 
             kernel_sem_wait(current_process, current_thread, arg1);
+            kprintf("sem waited\n");
             break;
         case SYSCALL_SEM_DESTROY:
             if (arg1 < 0 || arg1 >= PROGRAM_MAX_SEMAPHORES) {
@@ -236,6 +239,7 @@ long kernel_syscall_dispatcher() {
 
 
     syscall_exit:
+    asm volatile ("cli;"); // in case of scheduler race after setting inside_kernel=0
     current_thread->inside_kernel = 0;
     return return_value;
 }

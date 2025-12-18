@@ -4,8 +4,8 @@
 // header for the PIT, not APIC timer, not HPET
 
 #define TIMER_CHANNEL0_PORT 0x40
-#define TIMER_CHANNEL1_PORT 0x41
-#define TIMER_CHANNEL2_PORT 0x42
+//#define TIMER_CHANNEL1_PORT 0x41
+//#define TIMER_CHANNEL2_PORT 0x42
 #define TIMER_MODE_PORT 0x43
 
 #include <stdint.h>

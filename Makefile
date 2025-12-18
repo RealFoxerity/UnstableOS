@@ -6,7 +6,8 @@ LD		:=i686-elf-ld
 CFLAGS	:=\
 -ffreestanding -T src/linker.ld -nostdlib -lgcc -nodefaultlibs -nostartfiles -Og -g -std=gnu99 \
 -isystem src/include -isystem libc/src/include -isysroot . \
--DTARGET_I486  -Wall -Wno-unknown-pragmas
+-DTARGET_I486  -Wall -Wno-unknown-pragmas \
+-fstack-protector
 LDFLAGS	:=-T src/linker.ld
 
 OBJS=$(shell find src/ -name "*.[cs]" | sed 's/[cs]$$/o/g')

@@ -5,7 +5,7 @@
 typedef unsigned short dev_t; // major << 10 | minor   major is then 0-64 and minor 1024
 #define MAJOR(dev) (dev >> 10)
 #define MINOR(dev) (dev & 0x3FF)
-#define GET_DEV(major, minor) ((major << 10) | (minor & 0x3FF))
+#define GET_DEV(major, minor) (((major) << 10) | ((minor) & 0x3FF))
 
 #define DEV_MAJ_LIMIT (1<<6) // maximum of device major numbers allowed according to our dev_t type
 

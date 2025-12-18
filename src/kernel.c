@@ -284,22 +284,19 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     
     construct_descriptor_tables();
 
-    timer_init(0, 1000, TIMER_SQUARE_RATE); // kernel scheduler timer
     keyboard_init();
 
+    timer_init(0, 19, TIMER_RATE); // kernel scheduler timer, also enables interrupts!
     enable_interrupts();
-
-    //readelf(initrd_start, initrd_len);
-    struct program program = {0};
-    program = load_elf(initrd_start, initrd_len);
-
-    if (program.pd_vaddr == NULL) panic("Exec format error!\n");
 
     scheduler_init();
     tty_alloc_kernel_console();
 
+    //readelf(initrd_start, initrd_len);
+    struct program program = {0};
+    program = load_elf(initrd_start, initrd_len);
+    if (program.pd_vaddr == NULL) panic("Exec format error!\n");
     scheduler_add_process(program, 3);
-
 
     kalloc_print_heap_objects();
 

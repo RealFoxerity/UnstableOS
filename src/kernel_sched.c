@@ -228,6 +228,10 @@ void scheduler_add_process(struct program program, uint8_t ring) {
 
     process->threads->prev = process->threads;
 
+    memcpy(process->fds, current_process->fds, sizeof(current_process->fds));
+    for (int i = 0; i < FD_LIMIT_PROCESS; i++) {
+        if (process->fds[i] != NULL) process->fds[i]->instances++;
+    }
 
     unsigned long prev_eflags;
     asm volatile ("pushf; pop %0;" : "=R"(prev_eflags));
@@ -321,18 +325,15 @@ static void inline switch_context(process_t * pprocess, thread_t * thread, conte
         paging_apply_address_space(thread->cr3_state);
 
     // iret requires ESP and SS when returning to a different (less) privileged CPL, however not when returning to 0
-
+    // we are copying into the target processes stack because we need to pop esp even when not switching privilage levels
     if (pprocess->ring == 0 || thread->inside_kernel) {
-        memcpy(thread->context.esp, &thread->context.iret_frame, sizeof(struct interr_frame) - 2 * sizeof(void *)); // ring 0 already contains the iret frame from last interrupt since it did not switch stacks
+        memcpy(thread->context.esp, &thread->context.iret_frame, sizeof(struct interr_frame) - 2 * sizeof(void *)); // ring 0 already contains the iret frame from last interrupt since it did not switch stacks (to tss kernel stack)
     } else {
-        thread->context.esp -= sizeof(struct interr_frame);
+        thread->context.esp -= sizeof(struct interr_frame); // consequently, ring 0+ doesn't have anything there so we need to make room
         memcpy(thread->context.esp, &thread->context.iret_frame, sizeof(struct interr_frame));
     }
 
     memcpy(context, &thread->context, sizeof(context_t)-sizeof(struct interr_frame));
-
-    if (pprocess->ring == 0 || thread->inside_kernel) thread->context.esp += sizeof(struct interr_frame);
-
 
     unsigned int data_segment = thread->inside_kernel ? (GDT_KERNEL_DATA << 3) : (thread->context.iret_frame.ss);
 
@@ -379,12 +380,6 @@ void signal_process_group(pid_t process_group, unsigned short signal) {
 
 void schedule(context_t * context) {
     spinlock_acquire(&scheduler_lock);
-
-    if (current_thread != NULL) memcpy(&current_thread->context, context, sizeof(struct context_t) - ((current_process->ring == 0 || current_thread->inside_kernel) ? 2*sizeof(void *) : 0)); // ring 3 -> ring 0 causes SS and SP to be pushed
-    if (current_thread != NULL) current_thread->cr3_state = paging_get_address_space_paddr();
-    //tss_set_stack(kernel_ts_stack_top); shouldn't be needed
-
-
     if (__builtin_expect(registering_kernel_task, 0)) {
         registering_kernel_task = 0;
         register_kernel_task(context);
@@ -397,18 +392,25 @@ void schedule(context_t * context) {
     };
 
 
+    if (current_thread != NULL) memcpy(&current_thread->context, context, sizeof(struct context_t) - ((current_process->ring == 0 || current_thread->inside_kernel) ? 2*sizeof(void *) : 0)); // ring 3 -> ring 0 causes SS and SP to be pushed
+    //if (current_thread != NULL && (current_process->ring == 0 || current_thread->inside_kernel)) current_thread->context.esp += sizeof(struct interr_frame) - 2 * sizeof(void *); // for correct record keeping do something similar, this doesn't work, or at least not here
+    if (current_thread != NULL) current_thread->cr3_state = paging_get_address_space_paddr();
+    //tss_set_stack(kernel_ts_stack_top); shouldn't be needed
+
     if (current_process != NULL)
         push_process_to_end(current_process);
 
     if (current_process != NULL && current_thread != NULL && current_thread->status == SCHED_RUNNING) {
         current_thread->status = SCHED_RUNNABLE;
         push_thread_to_end(current_process, current_thread);
-    } // could've been set (eg by a syscall) to uninterruptable
+    } // status could've been set (eg by a syscall) to uninterruptable
     
     //scheduler_print_processes();
 
     scheduler_start:
-    current_process = process_list; // halts here with KVM and -cpu host on AMD Ryzen 7 5700, no clue why
+    kprintf("a");
+    current_process = process_list;
+    kprintf("b");
 
     while (current_process != NULL) {
         current_thread = current_process->threads;
@@ -426,6 +428,7 @@ void schedule(context_t * context) {
                     switch_context(current_process, current_thread, context);
                     //kprintf("Exiting scheduler with pid %d tid %d eip %x\n", current_process->pid, current_thread->tid, current_thread->context.iret_frame.ip);
                     spinlock_release(&scheduler_lock);
+                    kprintf("E P %d T %d E %x\n", current_process->pid, current_thread->tid, current_thread->context.iret_frame.ip);
                     return;
                 case SCHED_STOPPED:
                 case SCHED_INTERR_SLEEP:
@@ -433,6 +436,7 @@ void schedule(context_t * context) {
                 case SCHED_ZOMBIE:
                     break;
                 case SCHED_THREAD_CLEANUP:
+                    kprintf(" tc ");
                     kernel_destroy_thread(current_process, current_thread);
                     if (current_process->threads != NULL) {
                         goto scheduler_start;
