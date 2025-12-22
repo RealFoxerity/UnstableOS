@@ -60,6 +60,7 @@ void paging_add_page(void * target_virt_addr, unsigned int flags); // adds a sin
 void paging_unmap_page(void * virt_addr);
 void paging_unmap(void * target_virt_addr, size_t n);
 void paging_remap(void * old_virt_addr, void * new_virt_addr, unsigned int flags);
+void paging_change_flags(void * target_virt_addr, size_t n, unsigned int flags);
 
 void * paging_virt_addr_to_phys(void * virt);
 PAGE_TABLE_TYPE paging_get_pte(const void * virt_addr); // returns the value of the page table entry for a given address, 0 = not present (to check for permissions for example)
@@ -92,6 +93,9 @@ void paging_memmove_to_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr, void * data
 
 void enable_paging();
 void disable_paging();
+
+void enable_wp();
+void disable_wp();
 
 void flush_tlb();
 void flush_tlb_entry(void * vaddr);

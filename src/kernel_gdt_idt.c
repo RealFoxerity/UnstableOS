@@ -61,11 +61,11 @@ void tss_set_stack(unsigned long * new_esp) {
 #define GDT_ENTRIES 6 // NULL descriptor (used as the gdtr store), kernel code, kernel data, user code, user data, tss
 
 static uint64_t * gdt_descriptor_entries = NULL;
-static struct idt_gate *idt_descriptor_entries = NULL;
+static struct idt_gate idt_descriptor_entries[IDT_INTERR_VECTOR_COUNT] __attribute__((aligned(0x1000))) = {0};
 static struct dt_descriptor idtr = {0};
 void * kernel_ts_stack_top;
 
-void construct_descriptor_tables() { // basically we don't need this nowadays, we just create 
+void construct_descriptor_tables() {
     asm volatile ("cli");
 
     kernel_ts_stack_top = kalloc(KERNEL_TS_STACK_SIZE);
@@ -74,9 +74,9 @@ void construct_descriptor_tables() { // basically we don't need this nowadays, w
     if (kernel_ts_stack_top == NULL) panic("Not enough memory for task switch stack!\n");
 
     gdt_descriptor_entries = kalloc(sizeof(uint64_t) * GDT_ENTRIES); 
-    idt_descriptor_entries = kalloc(sizeof(struct idt_gate) * IDT_INTERR_VECTOR_COUNT); // no clue why, but last interrupt is garbage (according to copy.sh/v86 debugger) if i don't add the +1, works in qemu
+    //idt_descriptor_entries = kalloc(sizeof(struct idt_gate) * IDT_INTERR_VECTOR_COUNT);
 
-    if (gdt_descriptor_entries == NULL || idt_descriptor_entries == NULL) panic("Could not allocate enough memory for description tables!");
+    if (gdt_descriptor_entries == NULL /* || idt_descriptor_entries == NULL*/) panic("Could not allocate enough memory for description tables!");
 
     memset(gdt_descriptor_entries, 0, sizeof(uint64_t)*GDT_ENTRIES);
     memset(idt_descriptor_entries, 0, sizeof(struct idt_gate)*IDT_INTERR_VECTOR_COUNT);
@@ -163,4 +163,7 @@ void construct_descriptor_tables() { // basically we don't need this nowadays, w
         "mov $0x28, %%ax\n\n" // Lower 3 bits actually mean at what ring it's possible to call a task switch
         "ltr %%ax":::"eax"
     );
+
+    // now to protect the IDT
+    paging_change_flags(idt_descriptor_entries, sizeof(struct idt_gate) * IDT_INTERR_VECTOR_COUNT, 0);
 }
