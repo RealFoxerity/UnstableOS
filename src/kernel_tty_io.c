@@ -156,7 +156,7 @@ long tty_write(dev_t dev, const char * s, size_t n) {
         switch (MINOR(dev)) {
             case DEV_TTY_CONSOLE:
                 com_write(0, s, n); // temporary
-                vga_write(s, n); // this unfortunately writes the kernel log over any currently active vga backed tty, todo: rewrite vga_write and or this entire thing
+                //vga_write(s, n); // this unfortunately writes the kernel log over any currently active vga backed tty, todo: rewrite vga_write and or this entire thing
                 return n;
             case DEV_TTY_CURRENT:
                 // TODO: get controlling terminal inode from current processes session
