@@ -55,6 +55,16 @@ static inline void check_deadlock(sem_t * sem, process_t * pprocess) { // tested
 // NEVER TRY TO LOCK A GLOBAL SPINLOCK INSIDE NONREENTRANT INTERRUPTS
 void spinlock_waiton(spinlock_t * lock) {while (lock->state != SPINLOCK_UNLOCKED) {asm volatile ("pause");}}
 void spinlock_acquire(spinlock_t * lock) { // sets lock = 1, acquiring it
+    #ifdef TARGET_I386
+        unsigned long prev_eflags;
+        asm volatile ("pushf; pop %0;" : "=R"(prev_eflags));
+        asm volatile("cli;"); // i386, no other cores, no races anywhere (pretty lonely here...)
+
+        lock->state = SPINLOCK_LOCKED;
+
+        asm volatile ("push %0; popf;" :: "R"(prev_eflags));
+
+    #else
     while (1) {
         spinlock_waiton(lock);
 
@@ -65,6 +75,7 @@ void spinlock_acquire(spinlock_t * lock) { // sets lock = 1, acquiring it
         );
         if (!current_state) return;
     }
+    #endif
 }
 void spinlock_release(spinlock_t * lock) {lock->state = SPINLOCK_UNLOCKED;}
 
@@ -75,6 +86,18 @@ void kernel_sem_post(process_t * calling_process, int sem_idx) {
     thread_queue_unblock(&calling_process->semaphores[sem_idx].waiting_queue);
 }
 void kernel_sem_wait(process_t * calling_process, thread_t * calling_thread, int sem_idx) {
+    #ifdef TARGET_I386
+        unsigned long prev_eflags;
+        asm volatile ("pushf; pop %0;" : "=R"(prev_eflags));
+        asm volatile("cli;");
+
+        if (calling_process->semaphores[sem_idx].value > 0)
+            calling_process->semaphores[sem_idx].value --;
+        else 
+            thread_queue_add(&calling_process->semaphores[sem_idx].waiting_queue, calling_process, calling_thread, SCHED_UNINTERR_SLEEP);
+
+        asm volatile ("push %0; popf;" :: "R"(prev_eflags));
+    #else
     int old_val, old_val2, new_count;
     while (1) { // basically check whether nothing decremented the value during our attempt, cmpxchg decrements in this case
         old_val = calling_process->semaphores[sem_idx].value;
@@ -95,4 +118,5 @@ void kernel_sem_wait(process_t * calling_process, thread_t * calling_thread, int
             thread_queue_add(&calling_process->semaphores[sem_idx].waiting_queue, calling_process, calling_thread, SCHED_UNINTERR_SLEEP);
         }
     }
+    #endif
 }

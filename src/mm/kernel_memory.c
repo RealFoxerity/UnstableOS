@@ -4,6 +4,7 @@
 #include "../../libc/src/include/stdio.h" // sprintf
 #include "../include/kernel.h"
 #include "../include/mm/kernel_memory.h"
+#include "../include/vga.h"
 
 #pragma clang diagnostic ignored "-Wint-to-pointer-cast"
 #pragma clang diagnostic ignored "-Wvoid-pointer-to-int-cast"
@@ -95,7 +96,7 @@ void paging_map_phys_addr(void * src_phys_addr, void * target_virt_addr, unsigne
         dkprintf("Attempted mapping address 0x%x to already used virtual address 0x%x; pdidx: %x, ptidx: %x\nContents of page table:\n", src_phys_addr, target_virt_addr, (uint32_t)target_virt_addr >> 22, page_table_idx);
         print_page_table_entry(page_table + page_table_idx);
 
-        dpanic("Tried to remap an already mapped virtual page!");
+        dpanic("Illegal MMU operation");
     }
 
     page_table[page_table_idx] = ((uint32_t)src_phys_addr & (~(PAGE_SIZE_NO_PAE-1))) | (flags & (PAGE_SIZE_NO_PAE-1)) | PTE_PDE_PAGE_PRESENT;
@@ -129,7 +130,7 @@ void paging_add_page(void * target_virt_addr, unsigned int flags) {
         dkprintf("Attempted adding a new page to already used virtual address 0x%x; pdidx: %x, ptidx: %x\nContents of page table:\n", target_virt_addr, (uint32_t)target_virt_addr >> 22, page_table_idx);
         print_page_table_entry(page_table + page_table_idx);
 
-        dpanic("Tried to remap an already mapped virtual page!");
+        dpanic("Illegal MMU operation");
     }
 
     void * new_page = pfalloc();
@@ -154,12 +155,38 @@ void paging_map(void * target_virt_addr, size_t n, unsigned int flags) {
     }
 }
 
+void paging_change_flags(void * target_virt_addr, size_t n, unsigned int flags) {
+    target_virt_addr = (void*)((unsigned long)target_virt_addr&~(PAGE_SIZE_NO_PAE-1));
+    n += (unsigned long)target_virt_addr & (PAGE_SIZE_NO_PAE - 1);
+    if (n % PAGE_SIZE_NO_PAE != 0) n += PAGE_SIZE_NO_PAE - n % PAGE_SIZE_NO_PAE;
+
+    size_t pages = n/PAGE_SIZE_NO_PAE;
+
+    for (size_t i = 0; i < pages; i++) {
+        PAGE_TABLE_TYPE * page_table = paging_get_page_table(target_virt_addr);
+        uint32_t page_table_idx = (uint32_t)target_virt_addr >> 12 & (PAGE_TABLE_ENTRIES - 1);
+        if (!(page_table[page_table_idx] & PTE_PDE_PAGE_PRESENT)) {
+            dkprintf("Attempted changing flags on nonexistent page at vaddr 0x%x!\n", target_virt_addr);
+            dpanic("Illegal MMU operation");
+            __builtin_unreachable();
+        }
+
+        page_table[page_table_idx] &= ~(PAGE_SIZE_NO_PAE-1); // zero out flags
+        page_table[page_table_idx] |= flags & (PAGE_SIZE_NO_PAE-1);
+        page_table[page_table_idx] |= PTE_PDE_PAGE_PRESENT;
+        flush_tlb_entry(target_virt_addr);
+
+        target_virt_addr += PAGE_SIZE_NO_PAE;
+    }
+}
+
 void paging_unmap_page(void * virt_addr) {
     PAGE_TABLE_TYPE * page_table = paging_get_page_table(virt_addr);
     uint32_t page_table_idx = (uint32_t)virt_addr >> 12 & (PAGE_TABLE_ENTRIES - 1);
 
     if (!(page_table[page_table_idx] & PTE_PDE_PAGE_PRESENT)) {
-        dpanic("Tried to unmap an already unmapped virtual page!");
+        dkprintf("Tried to unmap an already unmapped virtual page at requested vaddr 0x%x!\n", virt_addr);
+        dpanic("Illegal MMU operation");
     }
     page_table[page_table_idx] = 0;
 
@@ -319,7 +346,12 @@ void setup_paging(unsigned long total_free, unsigned long ident_map_end) {
     enable_paging();
     paging_map_phys_addr(page_directory, kernel_address_space_vaddr, PTE_PDE_PAGE_WRITABLE);
 
-    kprintf("Setting up kernel heap...\n");
+    dkprintf("Remapping memory areas...\n");
+
+    // VGA text mode cache remap, won't do anything, but in case we setup write-through sometimes, vga has to be write-back otherwise huge performance penalty
+    paging_change_flags((void*)(unsigned long)VGA_TEXT_MODE_ADDR, VGA_WIDTH*VGA_HEIGHT*sizeof(uint16_t), PTE_PDE_PAGE_WRITABLE);
+
+    dkprintf("Setting up kernel heap...\n");
     paging_map(kernel_heap_base, KERNEL_HEAP_SIZE, PTE_PDE_PAGE_WRITABLE);
     kalloc_prepare(kernel_heap_base, kernel_heap_top);
     if (kernel_heap_top > kernel_mem_top) kernel_mem_top =  kernel_heap_top;
