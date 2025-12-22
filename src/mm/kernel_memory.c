@@ -254,6 +254,21 @@ static inline char is_in_bounds_pae(unsigned long val, unsigned long lower, unsi
     return 0;
 }
 
+void enable_wp() {
+    asm volatile (
+        "mov %cr0, %eax\n\t"
+        "or $0x00010000, %eax\n\t" // wp bit (16)
+        "mov %eax, %cr0\n\t"
+    );
+}
+void disable_wp() {
+    asm volatile (
+        "mov %cr0, %eax\n\t"
+        "and $0xFFFEFFFF, %eax\n\t"
+        "mov %eax, %cr0\n\t"
+    );
+}
+
 void enable_paging() {
     asm volatile (
         "mov %cr0, %eax\n\t"
@@ -350,6 +365,9 @@ void setup_paging(unsigned long total_free, unsigned long ident_map_end) {
 
     // VGA text mode cache remap, won't do anything, but in case we setup write-through sometimes, vga has to be write-back otherwise huge performance penalty
     paging_change_flags((void*)(unsigned long)VGA_TEXT_MODE_ADDR, VGA_WIDTH*VGA_HEIGHT*sizeof(uint16_t), PTE_PDE_PAGE_WRITABLE);
+
+    dkprintf("Enabling WP bit...\n");
+    enable_wp();
 
     dkprintf("Setting up kernel heap...\n");
     paging_map(kernel_heap_base, KERNEL_HEAP_SIZE, PTE_PDE_PAGE_WRITABLE);

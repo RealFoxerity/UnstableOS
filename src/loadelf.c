@@ -39,6 +39,7 @@ struct program load_elf(void * start, size_t size) { // returns VIRTUAL address 
     PAGE_DIRECTORY_TYPE * address_space = paging_create_new_address_space();
 
 
+    disable_wp(); // we copy elf contents based on their permissions, so mapping into non-writable area would page fault
     for (int i = 0; i < ehdr->program_header_entry_count; i++) {
         PH = start + ehdr->program_header_table_offset + i*ehdr->program_header_table_entry_size;
         if (PH->type == ELF_PHT_LOAD) {
@@ -47,7 +48,7 @@ struct program load_elf(void * start, size_t size) { // returns VIRTUAL address 
             paging_memcpy_to_address_space(address_space, (void*)(unsigned long)PH->vaddr, start + PH->offset, PH->size_file);
         }
     }
-
+    enable_wp();
     
     paging_map_to_address_space(address_space, PROGRAM_STACK_VADDR-PROGRAM_STACK_SIZE, PROGRAM_STACK_SIZE, PTE_PDE_PAGE_WRITABLE | PTE_PDE_PAGE_USER_ACCESS);
     paging_map_to_address_space(address_space, PROGRAM_HEAP_VADDR, PROGRAM_HEAP_START_SIZE, PTE_PDE_PAGE_WRITABLE | PTE_PDE_PAGE_USER_ACCESS);
