@@ -61,7 +61,8 @@ void tss_set_stack(unsigned long * new_esp) {
 #define GDT_ENTRIES 6 // NULL descriptor (used as the gdtr store), kernel code, kernel data, user code, user data, tss
 
 static uint64_t * gdt_descriptor_entries = NULL;
-static struct idt_gate idt_descriptor_entries[IDT_INTERR_VECTOR_COUNT] __attribute__((aligned(0x1000))) = {0};
+//static struct idt_gate idt_descriptor_entries[IDT_INTERR_VECTOR_COUNT] __attribute__((aligned(0x1000))) = {0};
+static struct idt_gate * idt_descriptor_entries = NULL;
 static struct dt_descriptor idtr = {0};
 void * kernel_ts_stack_top;
 
@@ -74,7 +75,7 @@ void construct_descriptor_tables() {
     if (kernel_ts_stack_top == NULL) panic("Not enough memory for task switch stack!\n");
 
     gdt_descriptor_entries = kalloc(sizeof(uint64_t) * GDT_ENTRIES); 
-    //idt_descriptor_entries = kalloc(sizeof(struct idt_gate) * IDT_INTERR_VECTOR_COUNT);
+    idt_descriptor_entries = kalloc(sizeof(struct idt_gate) * IDT_INTERR_VECTOR_COUNT);
 
     if (gdt_descriptor_entries == NULL /* || idt_descriptor_entries == NULL*/) panic("Could not allocate enough memory for description tables!");
 
@@ -165,5 +166,5 @@ void construct_descriptor_tables() {
     );
 
     // now to protect the IDT
-    paging_change_flags(idt_descriptor_entries, sizeof(struct idt_gate) * IDT_INTERR_VECTOR_COUNT, 0);
+    //paging_change_flags(idt_descriptor_entries, sizeof(struct idt_gate) * IDT_INTERR_VECTOR_COUNT, 0); // can't protect the idt if it's dynamically allocated because it will never be on a page boundary, maybe if I allocated around 8k and centered it onto a page boundary?
 }

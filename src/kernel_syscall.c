@@ -239,7 +239,7 @@ long kernel_syscall_dispatcher() {
 
 
     syscall_exit:
-    //asm volatile ("cli;"); // in case of scheduler race after setting inside_kernel=0
+    asm volatile ("cli;"); // in case of scheduler race after setting inside_kernel=0
     current_thread->inside_kernel = 0;
     return return_value;
 }
