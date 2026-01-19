@@ -5,7 +5,6 @@
 
 void thread_queue_unblock(thread_queue_t * thread_queue) {
     spinlock_acquire(&thread_queue->queue_lock);
-    kprintf("AL ");
     if (thread_queue->queue.parent_process == NULL) { // queue with no waiting processes
         spinlock_release(&thread_queue->queue_lock);
         return;
@@ -15,25 +14,21 @@ void thread_queue_unblock(thread_queue_t * thread_queue) {
     struct __thread_queue_inner * next = thread_queue->queue.next;
     
     thread_queue->queue.thread->status = SCHED_RUNNABLE;
-    kprintf("MR ");
 
     if (next != NULL) {
         memcpy(&thread_queue->queue, thread_queue->queue.next, sizeof(struct __thread_queue_inner));
         thread_queue->queue.prev = next->prev;
         kfree(next);
-        kprintf("AMK ");
     } else {
         memset(&thread_queue->queue, 0, sizeof(struct __thread_queue_inner));
     }
 
     spinlock_release(&thread_queue->queue_lock);
-    kprintf("REL ");
 
     unsigned long prev_eflags;
     asm volatile ("pushf; pop %0;" : "=R"(prev_eflags));
     asm volatile("sti"); // have to enable interrupts for reschedule()
     reschedule();
-    kprintf("RES ");
     asm volatile ("push %0; popf;" :: "R"(prev_eflags));
 }
 
@@ -72,6 +67,5 @@ void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, threa
     asm volatile ("pushf; pop %0;" : "=R"(prev_eflags));
     asm volatile("sti"); // have to enable interrupts for reschedule()
     reschedule();
-    kprintf("ARES ");
     asm volatile ("push %0; popf;" :: "R"(prev_eflags));
 }

@@ -104,7 +104,7 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_divide_
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_debug_trap(struct interr_frame * interrupt_frame) {
     kprintf("\n\n#### ISR: DEBUG caught! ####\n\n");
-    panic("Debug");
+    //panic("Debug");
 }
 
 #define NMI_RAM_ABORT " #### ISR: PANIC - RAM ERROR - NMI PARITY; HALTING #### "
