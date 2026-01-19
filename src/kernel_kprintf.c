@@ -14,10 +14,10 @@
 
 void kprintf_write(const char * buf, size_t count) {
     if (__builtin_expect(kernel_task == NULL || kernel_task->fds[0] == NULL || kernel_task->fds[0]->inode == NULL, 0)) {
-        //vga_write(buf, count);
+        vga_write(buf, count);
         com_write(0, buf, count);
     } else {
-        tty_write(GET_DEV(DEV_MAJ_TTY_META, DEV_TTY_CONSOLE), buf, count);
+        tty_write(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), buf, count);
     }
 }
 

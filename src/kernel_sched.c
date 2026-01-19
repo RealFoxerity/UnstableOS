@@ -408,9 +408,7 @@ void schedule(context_t * context) {
     //scheduler_print_processes();
 
     scheduler_start:
-    kprintf("a");
     current_process = process_list;
-    kprintf("b");
 
     while (current_process != NULL) {
         current_thread = current_process->threads;
@@ -428,7 +426,6 @@ void schedule(context_t * context) {
                     switch_context(current_process, current_thread, context);
                     //kprintf("Exiting scheduler with pid %d tid %d eip %x\n", current_process->pid, current_thread->tid, current_thread->context.iret_frame.ip);
                     spinlock_release(&scheduler_lock);
-                    kprintf("E P %d T %d E %x\n", current_process->pid, current_thread->tid, current_thread->context.iret_frame.ip);
                     return;
                 case SCHED_STOPPED:
                 case SCHED_INTERR_SLEEP:
@@ -436,7 +433,6 @@ void schedule(context_t * context) {
                 case SCHED_ZOMBIE:
                     break;
                 case SCHED_THREAD_CLEANUP:
-                    kprintf(" tc ");
                     kernel_destroy_thread(current_process, current_thread);
                     if (current_process->threads != NULL) {
                         goto scheduler_start;

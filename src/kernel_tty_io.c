@@ -15,9 +15,9 @@
     (tq)->head < (tq)->tail ? \
         ((tq)->tail - (tq)->head) : \
         (TTY_BUFFER_SIZE - (tq)->head + (tq)->tail)\
-    )
-#define INC(tq) ((tq)->tail = ((tq)->tail+1)%TTY_BUFFER_SIZE)
-#define DEC(tq) ((tq)->head = ((tq)->head+1)%TTY_BUFFER_SIZE)
+    )// how many elements still in queue
+#define INC(tq) ((tq)->tail = ((tq)->tail+1)%TTY_BUFFER_SIZE) // lenghtens queue
+#define DEC(tq) ((tq)->head = ((tq)->head+1)%TTY_BUFFER_SIZE) // shortens queue by removing oldest element
 extern size_t tty_com_write(tty_t * tty); // from rs232.c
 
 static tty_t kernel_console = {
@@ -43,7 +43,7 @@ void tty_alloc_kernel_console() { // for the kernel task, don't call for user pr
 
     kassert(tty_inode);
 
-    tty_inode->device = GET_DEV(DEV_MAJ_TTY_META, DEV_TTY_CONSOLE);
+    tty_inode->device = GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE);
     tty_inode->is_raw_device = 1;
     tty_inode->instances = 1;
 
@@ -63,8 +63,6 @@ tty_t * terminals[TTY_LIMIT_KERNEL] = {
     [DEV_TTY_0] = &kernel_console,
     //[DEV_TTY_S0] = &kernel_console,
     //[DEV_TTY_1] = &kernel_console,
-
-
 };
 
 // terminals[0] - terminals[3] = vga framebuffer backed tty devices, lctrl+rctrl+1-4
@@ -110,69 +108,47 @@ void tty_queue_putch(struct tty_queue * tq, char c) {
 
 long tty_ioctl(dev_t dev, unsigned long cmd, unsigned long arg);
 
-long tty_read(dev_t dev, char * s, size_t n) {
-    if (MAJOR(dev) != DEV_MAJ_TTY && MAJOR(dev) != DEV_MAJ_TTY_META) return EINVAL;
 
-    if (MAJOR(dev) == DEV_MAJ_TTY) {
-        if (MINOR(dev) >= TTY_LIMIT_KERNEL) return EINVAL;
-        
-        if (terminals[MINOR(dev)] == NULL) return EIO;
-        if (terminals[MINOR(dev)]->write == NULL) return EIO;
-    } 
+static inline void tty_translate_line(const char * s, size_t n, struct tty_queue * queue, char input) { // input=1 -> doing from outside to inside translation, input=0 -> doing from inside to outside
+
+}
+
+static inline char is_valid_tty(dev_t dev) { // checks if the device is a valid raw tty - an actual tty object, so no meta ttys
+    if (MAJOR(dev) != DEV_MAJ_TTY) return 0;
+    if (MINOR(dev) >= TTY_LIMIT_KERNEL) return 0;
+    if (terminals[MINOR(dev)] == NULL) return 0;
+    if (terminals[MINOR(dev)]->write == NULL) return 0;
+
+    return 1;
+}
+
+long tty_read(dev_t dev, char * s, size_t n) {
+    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE)) dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_S0); // kernel console can only read (which shouldn't happen anyway) from first serial
+    if (!is_valid_tty(dev)) return EINVAL;
     
     kassert(current_process);
-
-    if (MAJOR(dev) == DEV_MAJ_TTY_META) {
-        switch (MINOR(dev)) {
-            case DEV_TTY_CONSOLE:
-            case DEV_TTY_CURRENT:
-            default:
-                kprintf("reading with any meta tty not yet implemented\n");
-                return EINVAL;
-        }
-        return EINVAL; // just in case
-    } else {
-        while (current_process->pgrp != terminals[MINOR(dev)]->foreground_pgrp) {
-            signal_process_group(current_process->pgrp, SIGTTIN);
-        }
+    
+    while (current_process->pgrp != terminals[MINOR(dev)]->foreground_pgrp) {
+        signal_process_group(current_process->pgrp, SIGTTIN);
     }
+    
 
     return EIO;
 }
 
-long tty_write(dev_t dev, const char * s, size_t n) {
-    if (MAJOR(dev) != DEV_MAJ_TTY && MAJOR(dev) != DEV_MAJ_TTY_META) return EINVAL;
 
-    if (MAJOR(dev) == DEV_MAJ_TTY) {
-        if (MINOR(dev) >= TTY_LIMIT_KERNEL) return EINVAL;
-        
-        if (terminals[MINOR(dev)] == NULL) return EIO;
-        if (terminals[MINOR(dev)]->write == NULL) return EIO;
-    } 
-    
+
+long tty_write(dev_t dev, const char * s, size_t n) { // outputs data - writes data into write queue
+    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE)) {
+        com_write(0, s, n); // temporary
+        vga_write(s, n); // this unfortunately writes the kernel log over any currently active vga backed tty, todo: rewrite vga_write and or this entire thing
+        return n;
+    }
     kassert(current_process);
 
-    if (MAJOR(dev) == DEV_MAJ_TTY_META) {
-        switch (MINOR(dev)) {
-            case DEV_TTY_CONSOLE:
-                com_write(0, s, n); // temporary
-                //vga_write(s, n); // this unfortunately writes the kernel log over any currently active vga backed tty, todo: rewrite vga_write and or this entire thing
-                return n;
-            case DEV_TTY_CURRENT:
-                // TODO: get controlling terminal inode from current processes session
-                kprintf("interactions with DEV_TTY_CURRENT not yet implemented\n");
-            default:
-                return EINVAL;
-        }
-        return EINVAL; // just in case
-    } else {
-        while (current_process->pgrp != terminals[MINOR(dev)]->foreground_pgrp) {
-            signal_process_group(current_process->pgrp, SIGTTOU);
-        }
+    while (current_process->pgrp != terminals[MINOR(dev)]->foreground_pgrp) {
+        signal_process_group(current_process->pgrp, SIGTTOU);
     }
-
-    kassert(MAJOR(dev != DEV_MAJ_TTY_META));
-
 
 
     if (terminals[MINOR(dev)]->write != NULL)
@@ -181,28 +157,8 @@ long tty_write(dev_t dev, const char * s, size_t n) {
         return n;
 }
 long tty_write_to_tty(const char * s, size_t n, dev_t dev) { // writes data into read queue of a tty, aka recv input
-    if (MAJOR(dev) != DEV_MAJ_TTY && MAJOR(dev) != DEV_MAJ_TTY_META) return EINVAL;
-
-    if (MAJOR(dev) == DEV_MAJ_TTY) {
-        if (MINOR(dev) >= TTY_LIMIT_KERNEL) return EINVAL;
-        
-        if (terminals[MINOR(dev)] == NULL) return EIO;
-        if (terminals[MINOR(dev)]->write == NULL) return EIO;
-    } 
-    
-    if (MAJOR(dev) == DEV_MAJ_TTY_META) {
-        switch (MINOR(dev)) {
-            case DEV_TTY_CONSOLE: // assuming dev_tty_console is both ttyS0 and tty0, tty0 because that has a visual representation, todo: fix
-                return tty_write_to_tty(s, n, GET_DEV(DEV_MAJ_TTY, DEV_TTY_0));
-            case DEV_TTY_CURRENT:
-                kprintf("interactions with DEV_TTY_CURRENT not yet implemented\n");
-            default:
-                return EINVAL;
-        }
-        return EINVAL; // just in case
-    }
-
-    kassert(MAJOR(dev != DEV_MAJ_TTY_META));
+    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE)) dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_0);
+        // since the underlying tty is the same for S0 and 0, having both would input stuff 2 times
 
     for (int i = 0; i < n; i++) {
         tty_queue_putch(&terminals[MINOR(dev)]->iqueue, s[i]);

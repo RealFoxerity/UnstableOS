@@ -216,9 +216,9 @@ void tty_console_input(uint32_t scancode) { // convert ps2 input into normal asc
         if (toupper(translated_scancode) >= '@' && toupper(translated_scancode) <= '_') // if char between C0 values
             translated_scancode = toupper(translated_scancode) - '@'; // get C0 control char
         else {
-            tty_write(GET_DEV(DEV_MAJ_TTY_META, DEV_TTY_CONSOLE), "^", 1); // wasn't a valid ctrl escape, printing the raw escape value
+            tty_write(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), "^", 1); // wasn't a valid ctrl escape, printing the raw escape value
         }
     }
     if ((scancode & ~(KEY_MOD_RMETA_MASK-1) & ~(KEY_MOD_LSHIFT_MASK) & ~(KEY_MOD_RSHIFT_MASK)) == KEY_MOD_LCONTROL_MASK && translated_scancode == '?') translated_scancode = '\x7F'; // can't get to ? on english layout without shift
-    if (translated_scancode != '\0') tty_write(GET_DEV(DEV_MAJ_TTY_META, DEV_TTY_CONSOLE), &translated_scancode, 1);
+    if (translated_scancode != '\0') tty_write(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), &translated_scancode, 1);
 }

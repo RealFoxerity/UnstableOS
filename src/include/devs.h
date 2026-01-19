@@ -13,7 +13,6 @@ enum dev_maj {
     DEV_MAJ_MEM,
     DEV_MAJ_BLOCK,
     DEV_MAJ_TTY,
-    DEV_MAJ_TTY_META, // not exact devices but instead mnemonics
 };
 
 
@@ -41,11 +40,9 @@ enum dev_tty_min {
     /*
     DEV_PTY_1 - DEV_PTY_19
     */
-};
-
-enum dev_tty_meta_min {
-    DEV_TTY_CONSOLE, // /dev/console, kernel console
-    DEV_TTY_CURRENT, // /dev/tty, currently used tty
+    
+    DEV_TTY_CURRENT = 254, // current controlling terminal
+    DEV_TTY_CONSOLE = 255 // the kernel log
 };
 
 

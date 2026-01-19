@@ -12,6 +12,8 @@
 #include "include/kernel_semaphore.h"
 #include "include/fs/fs.h"
 
+#include "include/kernel_gdt_idt.h"
+
 #define kprintf(fmt, ...) kprintf("Kernel Routines: "fmt, ##__VA_ARGS__)
 
 extern void clear_screen_fatal(); // kernel_interrupts.c
@@ -58,18 +60,20 @@ long sys_getpgid(pid_t target_pid) {
     else return ESRCH;
 }
 
-long kernel_syscall_dispatcher();
+long kernel_syscall_dispatcher(struct interr_frame * interrupt_frame);
 __attribute__((naked, no_caller_saved_registers)) void interr_syscall(struct interr_frame * interrupt_frame) {
     asm volatile (
         "push %ebp;"
         "mov %esp, %ebp;"
+        "push %esp;" // the interrupt_frame argument
         "call kernel_syscall_dispatcher;"
+        "pop %esp;"
         "pop %ebp;"
         "iret;"
     );
 }
 
-long kernel_syscall_dispatcher() {
+long kernel_syscall_dispatcher(struct interr_frame * interrupt_frame) {
     long return_value = ENOSYS;
     
     enum syscalls syscall_number;
@@ -85,6 +89,8 @@ long kernel_syscall_dispatcher() {
     );
 
     // keep code below assignments otherwise the registers could be overwritten
+    kassert(current_process);
+    kassert(current_thread);
 
     switch (syscall_number) {
         case SYSCALL_YIELD:
@@ -170,7 +176,6 @@ long kernel_syscall_dispatcher() {
             asm volatile ("sti;");
 
             kernel_sem_post(current_process, arg1);
-            kprintf("sem posted\n");
             break;
         case SYSCALL_SEM_WAIT:
             if (arg1 < 0 || arg1 >= PROGRAM_MAX_SEMAPHORES) {
@@ -187,7 +192,6 @@ long kernel_syscall_dispatcher() {
             asm volatile ("sti;");
 
             kernel_sem_wait(current_process, current_thread, arg1);
-            kprintf("sem waited\n");
             break;
         case SYSCALL_SEM_DESTROY:
             if (arg1 < 0 || arg1 >= PROGRAM_MAX_SEMAPHORES) {
@@ -241,5 +245,27 @@ long kernel_syscall_dispatcher() {
     syscall_exit:
     asm volatile ("cli;"); // in case of scheduler race after setting inside_kernel=0
     current_thread->inside_kernel = 0;
+
+    switch (current_process->ring) { // somehow reentrant syscalls break segment selectors upon exit, TODO: figure out why?
+        case 0:
+            asm volatile (
+                "mov %0, %%ds;"
+                "mov %0, %%es;"
+                "mov %0, %%fs;"
+                "mov %0, %%gs;"
+                ::"R"(GDT_KERNEL_DATA<<3)
+            );
+            break;
+        case 3:
+        default: // ring 1 and 2
+            asm volatile (
+                "mov %0, %%ds;"
+                "mov %0, %%es;"
+                "mov %0, %%fs;"
+                "mov %0, %%gs;"
+                ::"R"((GDT_USER_DATA<<3) | 3)
+            );
+            break;
+    }
     return return_value;
 }

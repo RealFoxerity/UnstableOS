@@ -55,9 +55,13 @@ static inline void check_deadlock(sem_t * sem, process_t * pprocess) { // tested
 // NEVER TRY TO LOCK A GLOBAL SPINLOCK INSIDE NONREENTRANT INTERRUPTS
 void spinlock_waiton(spinlock_t * lock) {while (lock->state != SPINLOCK_UNLOCKED) {asm volatile ("pause");}}
 void spinlock_acquire(spinlock_t * lock) { // sets lock = 1, acquiring it
-    #ifdef TARGET_I386
+    #ifdef TARGET_I386 // TODO: test if actually works, i suspect it doesn't
         unsigned long prev_eflags;
         asm volatile ("pushf; pop %0;" : "=R"(prev_eflags));
+
+        asm volatile("sti;");
+        while (lock->state != SPINLOCK_UNLOCKED) reschedule();
+
         asm volatile("cli;"); // i386, no other cores, no races anywhere (pretty lonely here...)
 
         lock->state = SPINLOCK_LOCKED;
