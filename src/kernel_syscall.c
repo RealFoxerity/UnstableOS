@@ -60,33 +60,25 @@ long sys_getpgid(pid_t target_pid) {
     else return ESRCH;
 }
 
-long kernel_syscall_dispatcher(struct interr_frame * interrupt_frame);
+long kernel_syscall_dispatcher(struct interr_frame * interrupt_frame, enum syscalls syscall_number, long arg1, long arg2, long arg3);
 __attribute__((naked, no_caller_saved_registers)) void interr_syscall(struct interr_frame * interrupt_frame) {
     asm volatile (
         "push %ebp;"
         "mov %esp, %ebp;"
-        "push %esp;" // the interrupt_frame argument
+        "push %edx;" // arg3
+        "push %esi;" // arg2
+        "push %edi;" // arg1
+        "push %eax;" // syscall_number
+        "push %esp;" // interrupt_frame
         "call kernel_syscall_dispatcher;"
-        "pop %esp;"
+        "addl $0x14, %esp;" // 5 unsigned longs (args)
         "pop %ebp;"
         "iret;"
     );
 }
 
-long kernel_syscall_dispatcher(struct interr_frame * interrupt_frame) {
+long kernel_syscall_dispatcher(struct interr_frame * interrupt_frame, enum syscalls syscall_number, long arg1, long arg2, long arg3) {
     long return_value = ENOSYS;
-    
-    enum syscalls syscall_number;
-    long arg1, arg2, arg3;
-
-    asm volatile (
-        "movl %%eax, %0;"
-        "movl %%edi, %1;"
-        "movl %%esi, %2;"
-        "movl %%edx, %3;"
-        :"=m"(syscall_number), "=m"(arg1), "=m"(arg2), "=m"(arg3):
-        :"eax", "edi", "esi", "edx"
-    );
 
     // keep code below assignments otherwise the registers could be overwritten
     kassert(current_process);

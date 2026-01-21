@@ -17,6 +17,7 @@
 #include "include/timer.h"
 #include "../libc/src/include/stdlib.h"
 #include "include/kernel_tty_io.h"
+#include "include/vga.h"
 
 // clang is insanely annoying, used because uint32_t is smaller than native pointer size (64 bit int) on my machine
 #pragma clang diagnostic ignored "-Wint-to-pointer-cast"
@@ -25,8 +26,11 @@
 
 #define tty_write(buf, count) tty_write(buf, count); com_write(1, buf, count);
 
-void panic(char * reason) {
-    kprintf("\n\n##############################\nKernel Panic: %s", reason);
+void panic(char * reason) { // using vga_write and com_write in case we don't have tty at that point and/or it would cause a recursive panic/deadlock
+    char errmsg[128];
+    sprintf(errmsg, "\n\n##############################\nKernel Panic: %s", reason);
+    vga_write(errmsg, strlen(errmsg));
+    com_write(0, errmsg, strlen(errmsg));
     asm volatile (
         "cli\n\t"
         "hlt\n\t"
