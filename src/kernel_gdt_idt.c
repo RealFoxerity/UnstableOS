@@ -128,7 +128,7 @@ void construct_descriptor_tables() {
 
     asm volatile (
         "lidt %0\n\t"
-        "sti"
+        //"sti"
         :: "m"(idtr)
     );
 

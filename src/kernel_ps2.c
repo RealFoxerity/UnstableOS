@@ -18,6 +18,13 @@ struct ps2_device {
 static struct ps2_device ps2_present_devices[2];
 
 
+enum driver_states {
+    PS2_UNINITIALIZED,
+    PS2_INITIALIZED,
+    PS2_DRIVER_RUNNING,
+};
+enum driver_states ps2_driver_state = PS2_UNINITIALIZED; 
+
 #define PS2_ID_WAIT_AMOUNT 3
 #define PS2_RETRY_COUNT 3
 
@@ -53,9 +60,46 @@ void kernel_reset_system() {
 
 
 
+static inline char ps2_disable_scanning(char device_num) {
+    uint8_t res_byte;
+    for (int i = 0; i <= PS2_RETRY_COUNT; i++) {
+        if (i == PS2_RETRY_COUNT) {
+            kprintf("Error: PS/2 device %d refused to disable scanning\n");
+            return 0;
+        }
+        if (device_num == 2) ps2_prepare_send_port_2();
+        ps2_wait_until_ready_w();
+        outb(PS2_DATA_PORT, PS2_COMMAND_DISABLE_SCANNING);
+        ps2_wait_until_ready_r();
+        if ((res_byte = inb(PS2_DATA_PORT)) == PS2_RESPONSE_ACK) break;
+        else if (res_byte != PS2_RESPONSE_RESEND_LAST_BYTE) {
+            kprintf("Warning: PS/2 device %d responded with garbage to disable scan command, attempt %d/3\n", device_num, i+1);
+        }
+    }
+    return 1;
+}
+static inline char ps2_enable_scanning(char device_num) {
+    uint8_t res_byte;
+    for (int i = 0; i <= PS2_RETRY_COUNT; i++) {
+        if (i == PS2_RETRY_COUNT){
+            kprintf("Error: PS/2 device %d refused to enable scanning\n");
+            return 0;
+        }
+        if (device_num == 2) ps2_prepare_send_port_2();
+        ps2_wait_until_ready_w();
+        outb(PS2_DATA_PORT, PS2_COMMAND_ENABLE_SCANNING);
+        ps2_wait_until_ready_r();
+        if ((res_byte = inb(PS2_DATA_PORT)) == PS2_RESPONSE_ACK) break;
+        else if (res_byte != PS2_RESPONSE_RESEND_LAST_BYTE) {
+            kprintf("Warning: PS/2 device %d responded with garbage to enable scanning command, attempt %d/3\n", device_num, i+1);
+        }
+    }
+    return 1;
+}
+
 static inline char test_ps2_device(char device_num) {
+    if (!ps2_disable_scanning(device_num)) return 0;
     enum ps2_controller_port_test_response test_status;
-    
     outb(PS2_COMM_PORT, device_num == 1?PS2_CONTROLLER_COMMAND_TEST_PORT1:PS2_CONTROLLER_COMMAND_TEST_PORT2);
     ps2_wait_until_ready_r();
     test_status = inb(PS2_DATA_PORT);
@@ -63,6 +107,7 @@ static inline char test_ps2_device(char device_num) {
     switch (test_status) {
         case PS2_CONTROLLER_TEST_PASSED:
             kprintf("device %d passed port test, enabling\n", device_num);
+            if (!ps2_enable_scanning(device_num)) return 0;
             return 1;
         case PS2_CONTROLLER_TEST_CLK_LINE_LOW:
             kprintf("Device %d failed port test: clock line stuck low\n", device_num);
@@ -126,28 +171,18 @@ static inline char ps2_keyboard_set_cs1(uint8_t device_num) {
     return 1;
 }
 
+
+static inline void ps2_errored_device(char device_num) {
+    kprintf("Disabling device %d\n", device_num);
+    outb(PS2_COMM_PORT, device_num == 1 ? PS2_CONTROLLER_COMMAND_DISABLE_PORT1:PS2_CONTROLLER_COMMAND_DISABLE_PORT2);
+}
+
 static inline void gather_ps2_device_info(uint8_t device_num) { // todo: implement timer and checking bit 1 of status register
     uint8_t res_byte;
-    for (int i = 0; i <= PS2_RETRY_COUNT; i++) {
-        if (i == PS2_RETRY_COUNT) {
-            errored:
-            kprintf("Error: PS/2 device %d broken/unresponsive, disabling device\n", device_num);
-            outb(PS2_COMM_PORT, device_num == 1 ? PS2_CONTROLLER_COMMAND_DISABLE_PORT1:PS2_CONTROLLER_COMMAND_DISABLE_PORT2);
-            return;
-        }
-        if (device_num == 2) ps2_prepare_send_port_2();
-        ps2_wait_until_ready_w();
-        outb(PS2_DATA_PORT, PS2_COMMAND_DISABLE_SCANNING);
-        ps2_wait_until_ready_r();
-        if ((res_byte = inb(PS2_DATA_PORT)) == PS2_RESPONSE_ACK) break;
-        else if (res_byte != PS2_RESPONSE_RESEND_LAST_BYTE) {
-            kprintf("Warning: PS/2 device %d responded with garbage to disable scan command, attempt %d/3\n", device_num, i+1);
-        }
-    }
-
-    if (device_num == 2) {
-        outb(PS2_COMM_PORT, PS2_CONTROLLER_COMMAND_WRITE_PORT2_IN_BUF);
-        ps2_wait_until_ready_w();
+    if (!ps2_disable_scanning(device_num)) {
+        errored:
+        ps2_errored_device(device_num);
+        return;
     }
 
     for (int i = 0; i < PS2_RETRY_COUNT; i++) {
@@ -249,31 +284,19 @@ static inline void gather_ps2_device_info(uint8_t device_num) { // todo: impleme
     }
 
     normal:
-    for (int i = 0; i <= PS2_RETRY_COUNT; i++) {
-        if (i == PS2_RETRY_COUNT) goto errored;
-        if (device_num == 2) ps2_prepare_send_port_2();
-        ps2_wait_until_ready_w();
-        outb(PS2_DATA_PORT, PS2_COMMAND_ENABLE_SCANNING);
-        ps2_wait_until_ready_r();
-        if ((res_byte = inb(PS2_DATA_PORT)) == PS2_RESPONSE_ACK) break;
-        else if (res_byte != PS2_RESPONSE_RESEND_LAST_BYTE) {
-            kprintf("Warning: PS/2 device %d responded with garbage to enable scanning command, attempt %d/3\n", device_num, i+1);
-        }
-    }
+    if (!ps2_enable_scanning(device_num)) goto errored;
     ps2_present_devices[device_num - 1].present = 1;
     ps2_present_devices[device_num - 1].type = have_byte_2?id_minor : id_major;
 } 
 
 void keyboard_init() {
-    uint32_t interr_enabled = 0;
+    uint32_t prev_eflags = 0;
     asm volatile (
         "pushf\n\t"
-        "andl $"STR(IA_32_EFL_SYSTEM_INTER_EN) ", (%%esp)\n\t"
         "pop %0\n\t"
         "cli"
-        : "=r"(interr_enabled)
+        : "=r"(prev_eflags)
     );
-
 
     // implement check acpi
 
@@ -347,7 +370,9 @@ void keyboard_init() {
     outb(PS2_DATA_PORT, config_byte);
     io_wait();
 
-    if (interr_enabled) asm volatile ("sti");
+    ps2_driver_state = PS2_INITIALIZED;
+
+    asm volatile ("push %0; popf;" ::"R"(prev_eflags));
 }
 
 static const uint8_t ps2_sc2_2byte_to_1_lookup[256] = {
@@ -731,11 +756,14 @@ static void keyboard_driver_loop() {
     }
 }
 
-char driver_running = 0;
 void keyboard_driver(char device_num) {
-    if (__builtin_expect(!driver_running, 0)) {
+    if (__builtin_expect(ps2_driver_state == PS2_UNINITIALIZED, 0)) {
+        pic_send_eoi(PIC_INTERR_KEYBOARD);
+        return;
+    }
+    if (__builtin_expect(ps2_driver_state == PS2_INITIALIZED, 0)) {
         ps2_driver_thread = kernel_create_thread(kernel_task, keyboard_driver_loop, NULL);
-        driver_running = 1;
+        ps2_driver_state = PS2_DRIVER_RUNNING;
     }
     //if (pending_device != -1) {
     //    kprintf("Warning: PS/2 driver not keeping up with user input!\n"); // can't printf, could deadlock the tty if the keyboard interrupt fires while the current task is holding a tty lock

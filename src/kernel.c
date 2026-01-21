@@ -212,6 +212,8 @@ void kernel_thread_test(void* _) {
 }
 
 void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
+    disable_interrupts();
+
     boot_mem_top = (uint32_t)&_kernel_top; // the lowest free address
     void * initrd_start = NULL;
     unsigned long initrd_len = 0;
@@ -289,12 +291,12 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     
     construct_descriptor_tables();
 
-    asm volatile ("sti"); // enable software interrupts, but not yet external pic interrupts
+    enable_interrupts();
     scheduler_init();
 
-    keyboard_init();
-
     timer_init(0, 1000/KERNEL_TIMER_RESOLUTION_MSEC, TIMER_RATE); // kernel scheduler timer, also enables pic interrupts
+
+    keyboard_init();
 
     tty_alloc_kernel_console();
 
