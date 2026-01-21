@@ -714,13 +714,18 @@ static void keyboard_driver_internal(char device_num) {
 
 spinlock_t ps2_pending_lock = {0};
 char pending_device = -1;
+
+thread_t * ps2_driver_thread = NULL;
+
 static void keyboard_driver_loop() {
+    kassert(ps2_driver_thread);
     while (1) {
-        if (pending_device == -1) reschedule();
+        if (__builtin_expect(pending_device == -1, 0)) reschedule();
         else {
             spinlock_acquire(&ps2_pending_lock);
             keyboard_driver_internal(pending_device);
             pending_device = -1;
+            ps2_driver_thread->status = SCHED_UNINTERR_SLEEP; // thread locking shouldn't be needed if we lock the ps2_pending_lock each time
             spinlock_release(&ps2_pending_lock);
         }
     }
@@ -729,7 +734,7 @@ static void keyboard_driver_loop() {
 char driver_running = 0;
 void keyboard_driver(char device_num) {
     if (__builtin_expect(!driver_running, 0)) {
-        kernel_create_thread(kernel_task, keyboard_driver_loop, NULL);
+        ps2_driver_thread = kernel_create_thread(kernel_task, keyboard_driver_loop, NULL);
         driver_running = 1;
     }
     //if (pending_device != -1) {
@@ -738,5 +743,6 @@ void keyboard_driver(char device_num) {
 
     spinlock_acquire(&ps2_pending_lock);
     pending_device = device_num;
+    ps2_driver_thread->status = SCHED_RUNNABLE;
     spinlock_release(&ps2_pending_lock);
 }

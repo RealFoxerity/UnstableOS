@@ -106,8 +106,7 @@ char tty_queue_getch(struct tty_queue * tq) {
 
 void tty_queue_putch(struct tty_queue * tq, char c) {
     kassert(tq->head < TTY_BUFFER_SIZE && tq->tail < TTY_BUFFER_SIZE);
-
-    //spinlock_acquire(&tq->queue_lock);
+    spinlock_acquire(&tq->queue_lock);
     while (FULL(tq)) { // buffer full
         kprintf("tty buffer full, flushing\n");
         #if TTY_QUEUE_MODE == 0
@@ -122,7 +121,7 @@ void tty_queue_putch(struct tty_queue * tq, char c) {
     tq->buffer[tq->tail] = c;
     INC(tq);
     thread_queue_unblock(&tq->read_queue); // same as above
-    //spinlock_release(&tq->queue_lock);
+    spinlock_release(&tq->queue_lock);
 } 
 
 void tty_flush_input(tty_t * tty) { // flush for reading on new line or EOF in case of canonical/line buffered mode

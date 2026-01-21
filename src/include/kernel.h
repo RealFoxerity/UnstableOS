@@ -13,14 +13,14 @@
 
 #define kabort() {asm volatile ("mov %0, %%eax; int $" STR(SYSCALL_INTERR) :: "r"(SYSCALL_ABORT)); asm volatile ("1:; hlt; jmp 1b");} // hlt loop if interrupts were disabled and thus syscall wouldn't fire
 
-// unfortunately 
+// most probably it doesn't matter anyway, so just kill the kernel at that point...
 #define kassert(cond) {\
     if (!(cond)) {\
-        kprintf("Kernel assertion `"#cond"` failed in %s()! [" __FILE__ ":" STR(__LINE__) "]\n", __func__);\
-        kabort();\
+        char errmsg[128];\
+        sprintf(errmsg, "Kernel assertion `"#cond"` failed in %s()! [" __FILE__ ":" STR(__LINE__) "]\n", __func__);\
+        panic(errmsg);\
     }\
 }
-
 
 #define PATH_MAX 4096
 
