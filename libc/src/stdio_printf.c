@@ -23,7 +23,7 @@ size_t fmt_handler_printf(const char * s, va_list * args) { // caller has to cal
         if (*s == '-') s++;
         while (isdigit(*s)) s++;
     }
-    padding_delta -= (unsigned long)s;
+    padding_delta = (unsigned long)s - padding_delta;
 
     switch (*s) {
         case '%':
@@ -57,7 +57,7 @@ size_t fmt_handler_printf(const char * s, va_list * args) { // caller has to cal
             if (*(s+1) == 'h') ctoax(va_arg(*args, int), fmt_buf); // int because minimum argument is always int
             else stoax(va_arg(*args, int), fmt_buf);
             fmt_buf[*(s+1) == 'h'?2:4] = '\0';
-            return padding_delta + *(s+1) == 'h'?3:2;
+            return padding_delta + ((*(s+1) == 'h')?3:2);
         case 'x':
             itoax(va_arg(*args, uint32_t), fmt_buf);
             fmt_buf[8] = '\0';

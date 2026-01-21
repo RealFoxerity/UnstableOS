@@ -1,3 +1,6 @@
+#include "include/kernel_interrupts.h"
+#include "include/kernel_sched.h"
+#include "include/kernel_spinlock.h"
 #include "include/keyboard.h"
 #include "include/ps2_keyboard.h"
 #include "include/lowlevel.h"
@@ -554,13 +557,14 @@ static const char ps2_sc2_to_1_lookup[256] = {
 
 extern void tty_console_input(uint32_t scancode);
 
-void keyboard_driver(char device_num) {
+
+static void keyboard_driver_internal(char device_num) {
     uint32_t out = 0;
 
     uint8_t current_byte = inb(PS2_DATA_PORT);
     if (ps2_present_devices[device_num-1].present == 0) {
         kprintf("Recieved an interrupt for a disabled device! Ignoring\n");
-        return;
+        goto exit;
     }
     enum ps2_internal_states * internal_state;
     if (device_num == 1) 
@@ -648,7 +652,7 @@ void keyboard_driver(char device_num) {
                 else *internal_state = PS2_NORMAL;
             */
             *internal_state = PS2_WAITING_FOR_PAUSE_2;
-            return;
+            goto exit;
         case PS2_WAITING_FOR_PAUSE_2:
             if (ps2_present_devices[device_num-1].scan_code_set == 2) {
                 if (current_byte == PS2_SC2_3B_PAUSE_2) out = KEY_PAUSE;
@@ -666,16 +670,16 @@ void keyboard_driver(char device_num) {
                 else kprintf("Warning: recieved garbage data from %d instead of ACK (recv %hhx)\n", device_num, current_byte);
             }
             *internal_state = PS2_NORMAL;
-            return;
+            goto exit;
         case PS2_WAITING_FOR_ECHO:
             if (current_byte != PS2_RESPONSE_ECHO) {
                 kprintf("ERROR: RECIEVED GARBAGE DATA FROM %d INSTEAD OF ECHO (recv %hhx); DISABLING DEVICE\n", device_num, current_byte);
                 outb(PS2_COMM_PORT, device_num == 1?PS2_CONTROLLER_COMMAND_DISABLE_PORT1:PS2_CONTROLLER_COMMAND_DISABLE_PORT2);
                 ps2_present_devices[device_num-1].present = 0;
-                return;
+                goto exit;
             }
             *internal_state = PS2_NORMAL;
-            return;
+            goto exit;
 
         
 
@@ -703,4 +707,36 @@ void keyboard_driver(char device_num) {
     if (out == (KEY_DELETE | KEY_MOD_LCONTROL_MASK | KEY_MOD_RALT_MASK)) kernel_reset_system();
 
     tty_console_input(out);
+
+    exit:
+    pic_send_eoi(PIC_INTERR_KEYBOARD);
+}
+
+spinlock_t ps2_pending_lock = {0};
+char pending_device = -1;
+static void keyboard_driver_loop() {
+    while (1) {
+        if (pending_device == -1) reschedule();
+        else {
+            spinlock_acquire(&ps2_pending_lock);
+            keyboard_driver_internal(pending_device);
+            pending_device = -1;
+            spinlock_release(&ps2_pending_lock);
+        }
+    }
+}
+
+char driver_running = 0;
+void keyboard_driver(char device_num) {
+    if (__builtin_expect(!driver_running, 0)) {
+        kernel_create_thread(kernel_task, keyboard_driver_loop, NULL);
+        driver_running = 1;
+    }
+    //if (pending_device != -1) {
+    //    kprintf("Warning: PS/2 driver not keeping up with user input!\n"); // can't printf, could deadlock the tty if the keyboard interrupt fires while the current task is holding a tty lock
+    //}
+
+    spinlock_acquire(&ps2_pending_lock);
+    pending_device = device_num;
+    spinlock_release(&ps2_pending_lock);
 }

@@ -4,6 +4,8 @@
 #include "../../libc/src/include/stdio.h"
 #include "devs.h"
 
+#define KERNEL_TIMER_RESOLUTION_MSEC 40
+
 #define KERNEL_VERSION "UnstableOS v0.01"
 
 #define __STR_INNER(x) #x

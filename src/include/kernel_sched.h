@@ -33,6 +33,7 @@ Consider lowering thread count, increasing stack base address, lowering heap add
 #endif
 enum signals {
     SIGINT = 1,
+    SIGQUIT,
     SIGTERM,
     SIGALRM,
     SIGSTOP,
@@ -49,6 +50,7 @@ enum signals {
 #define GET_SIG_MASK(signal) (1<<signal)
 
 #define MASK_SIGINT GET_SIG_MASK(SIGINT)
+#define MASK_SIGQUIT GET_SIG_MASK(SIGQUIT)
 #define MASK_SIGTERM GET_SIG_MASK(SIGTERM)
 #define MASK_SIGALRM GET_SIG_MASK(SIGALRM)
 #define MASK_SIGSTOP GET_SIG_MASK(SIGSTOP)
@@ -76,6 +78,7 @@ enum pstatus_t {
 #pragma clang diagnostic ignored "-Wc99-designator"
 static const char after_signal_states[__sig_last] = {
     [SIGINT] = SCHED_RUNNABLE,
+    [SIGQUIT] = SCHED_CLEANUP,
     [SIGTERM] = SCHED_CLEANUP,
     [SIGALRM] = SCHED_RUNNABLE,
     [SIGSTOP] = SCHED_STOPPED,
@@ -127,8 +130,6 @@ struct thread_t {
     PAGE_DIRECTORY_TYPE * cr3_state; // if a kernel routine switched address spaces and was then preempted
     context_t context;
     pstatus_t status;
-
-    char inside_kernel; // 1 = inside a reentrant kernel function, so the scheduler is supposed to skip ring 3 iret frame
 
     void * kernel_stack;
     size_t kernel_stack_size; // basically unused since we have a static stack size
@@ -196,6 +197,9 @@ void scheduler_init();
 void schedule(context_t * context);
 void scheduler_add_process(struct program program, uint8_t ring);
 void scheduler_print_process(const process_t * process);
+void scheduler_print_processes();
+
+
 void kill();
 
 void reschedule();

@@ -30,10 +30,16 @@ spinlock_t scheduler_lock = {0};
 //#define kprintf(fmt, ...) kprintf("Scheduler: "fmt, ##__VA_ARGS__)
 
 void reschedule() {
+    unsigned long prev_eflags;
+    asm volatile ("pushf; pop %0;" : "=R"(prev_eflags));
+    asm volatile("sti");
+
     asm volatile(
         "int %0;"
         ::"i"(PIC_INTERR_PIT + IDT_PIC_INTERR_START)
     );
+
+    asm volatile ("push %0; popf;" :: "R"(prev_eflags));
 }
 
 __attribute__((naked)) void kernel_idle() { // in case all processes/threads are sleeping
@@ -84,7 +90,7 @@ void print_registers(const context_t * context) {
     kprintf("ss %x\ncs %x\n", context->iret_frame.ss, context->iret_frame.cs);
 }
 
-static inline void scheduler_print_processes() {
+void scheduler_print_processes() {
     process_t * printed = process_list;
     thread_t * printed_thread;
     while (printed != NULL) {
@@ -125,7 +131,6 @@ static inline void scheduler_init_kernel_task() {
 void scheduler_init() {
     scheduler_init_idle_task();
     scheduler_init_kernel_task();
-    kprintf("Initialized\n");
 }
 
 static inline void push_process_to_end(process_t * process) {
@@ -233,17 +238,11 @@ void scheduler_add_process(struct program program, uint8_t ring) {
         if (process->fds[i] != NULL) process->fds[i]->instances++;
     }
 
-    unsigned long prev_eflags;
-    asm volatile ("pushf; pop %0;" : "=R"(prev_eflags));
-    asm volatile("cli"); // if we leave interrupts on, a PIT timer tick could lead to the scheduler deadlocking itself
-
     spinlock_acquire(&scheduler_lock);
     process_list->prev->next = process;
     process->prev = process_list->prev;
     process_list->prev = process;
     spinlock_release(&scheduler_lock);
-
-    asm volatile ("push %0; popf;" :: "R"(prev_eflags));
 
     reschedule();
 }
@@ -326,7 +325,7 @@ static void inline switch_context(process_t * pprocess, thread_t * thread, conte
 
     // iret requires ESP and SS when returning to a different (less) privileged CPL, however not when returning to 0
     // we are copying into the target processes stack because we need to pop esp even when not switching privilage levels
-    if (pprocess->ring == 0 || thread->inside_kernel) {
+    if ((thread->context.iret_frame.cs & ~3) == GDT_KERNEL_CODE << 3) { // ring 0 code segment
         memcpy(thread->context.esp, &thread->context.iret_frame, sizeof(struct interr_frame) - 2 * sizeof(void *)); // ring 0 already contains the iret frame from last interrupt since it did not switch stacks (to tss kernel stack)
     } else {
         thread->context.esp -= sizeof(struct interr_frame); // consequently, ring 0+ doesn't have anything there so we need to make room
@@ -335,7 +334,7 @@ static void inline switch_context(process_t * pprocess, thread_t * thread, conte
 
     memcpy(context, &thread->context, sizeof(context_t)-sizeof(struct interr_frame));
 
-    unsigned int data_segment = thread->inside_kernel ? (GDT_KERNEL_DATA << 3) : (thread->context.iret_frame.ss);
+    unsigned int data_segment = (thread->context.iret_frame.cs & ~3) == (GDT_KERNEL_CODE << 3) ? (GDT_KERNEL_DATA << 3) : (thread->context.iret_frame.ss);
 
     asm volatile (
         "movl %0, %%eax;"
@@ -374,12 +373,11 @@ void signal_process_group(pid_t process_group, unsigned short signal) {
     }
 
     spinlock_release(&scheduler_lock);
-    asm volatile("sti;");
     reschedule();
 }
 
 void schedule(context_t * context) {
-    spinlock_acquire(&scheduler_lock);
+    spinlock_acquire_nonreentrant(&scheduler_lock);
     if (__builtin_expect(registering_kernel_task, 0)) {
         registering_kernel_task = 0;
         register_kernel_task(context);
@@ -392,8 +390,7 @@ void schedule(context_t * context) {
     };
 
 
-    if (current_thread != NULL) memcpy(&current_thread->context, context, sizeof(struct context_t) - ((current_process->ring == 0 || current_thread->inside_kernel) ? 2*sizeof(void *) : 0)); // ring 3 -> ring 0 causes SS and SP to be pushed
-    //if (current_thread != NULL && (current_process->ring == 0 || current_thread->inside_kernel)) current_thread->context.esp += sizeof(struct interr_frame) - 2 * sizeof(void *); // for correct record keeping do something similar, this doesn't work, or at least not here
+    if (current_thread != NULL) memcpy(&current_thread->context, context, sizeof(struct context_t) - (((context->iret_frame.cs & ~3) == GDT_KERNEL_CODE << 3) ? 2*sizeof(void *) : 0)); // ring 3 -> ring 0 causes SS and SP to be pushed
     if (current_thread != NULL) current_thread->cr3_state = paging_get_address_space_paddr();
     //tss_set_stack(kernel_ts_stack_top); shouldn't be needed
 
@@ -424,7 +421,6 @@ void schedule(context_t * context) {
                                     
                     switch_task:
                     switch_context(current_process, current_thread, context);
-                    //kprintf("Exiting scheduler with pid %d tid %d eip %x\n", current_process->pid, current_thread->tid, current_thread->context.iret_frame.ip);
                     spinlock_release(&scheduler_lock);
                     return;
                 case SCHED_STOPPED:
@@ -445,7 +441,6 @@ void schedule(context_t * context) {
                         panic("Tried to kill init");
                     }
                     scheduler_remove_process(current_process); // aka any thread can terminate the whole process
-                    scheduler_print_processes();
                     goto scheduler_start; // internal reschedule()
             }
             current_thread = current_thread->next;
@@ -454,6 +449,5 @@ void schedule(context_t * context) {
     }
     current_process = idle_task;
     current_thread = idle_task->threads;
-    kprintf("Entered idle task\n");
     goto switch_task;
 }

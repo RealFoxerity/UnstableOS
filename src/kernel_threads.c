@@ -57,7 +57,7 @@ thread_t * kernel_create_thread(process_t * parent_process, void (* entry_point)
 
         *(void**)new->context.iret_frame.sp = arg;
         new->context.iret_frame.sp -= sizeof(void*);
-        kprintf("ip %x\n", entry_point);
+        kprintf("new thread entry point %x\n", entry_point);
     } else {
         *(void**)new->context.esp = arg;
         new->context.esp -= sizeof(void*);
@@ -75,7 +75,6 @@ thread_t * kernel_create_thread(process_t * parent_process, void (* entry_point)
 }
 
 void kernel_destroy_thread(process_t * parent_process, thread_t * thread) {
-    kprintf("removing thread\n");
     kfree(thread->kernel_stack - thread->kernel_stack_size);
     
     if (parent_process->ring != 0) { // ring 0 stack is the kernel_stack

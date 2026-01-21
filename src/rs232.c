@@ -91,10 +91,20 @@ static inline char com_ready_to_write(unsigned char com) {
     return inb(com_addresses[com] + COM_DELTA_LINE_STATUS) & COM_LSR_TX_HOLDING_REGISTER_EMPTY;
 }
 
-size_t tty_com_write(tty_t * tty) {
+#define EMPTY(tq) ((tq)->head == (tq)->tail)
+#define DEC(tq) ((tq)->head = ((tq)->head+1)%TTY_BUFFER_SIZE)
 
-    return com_write(tty->com_port, NULL, 0); // TODO: implement
+size_t tty_com_write(tty_t * tty) { // assumes tty queue to be locked
+    if (com_states[(int)tty->com_port] == COM_UNINITIALIZED) return 0;
 
+    size_t written = 0;
+    while (!EMPTY(&tty->oqueue)) {
+        com_write(tty->com_port, &tty->oqueue.buffer[tty->oqueue.head], 1);
+        DEC(&tty->oqueue);
+        written++;
+    }
+
+    return written;
 }
 
 long com_write(unsigned char com, const char * data, unsigned long len) {
@@ -120,7 +130,7 @@ void com_recv_byte(unsigned char com) { // called by interrupt
     tty_write_to_tty(&data, 1, GET_DEV(DEV_MAJ_TTY, DEV_TTY_S0 + com));
 }
 
-long com_read(unsigned char com, char * data_out, unsigned long len) {
+long com_read(unsigned char com, char * data_out, unsigned long len) { // i guess technically not needed assuming we allocate a TTY for every single serial port
     if (com > COM_PORTS) {
         kprintf("Invalid COM port to read from specified (%d)!\n", com);
         return -1;

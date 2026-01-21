@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#include "include/kernel_interrupts.h"
 #include "include/kernel_tty.h"
 #include "include/lowlevel.h"
 #include "include/multiboot.h"
@@ -284,12 +285,13 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     
     construct_descriptor_tables();
 
+    asm volatile ("sti"); // enable software interrupts, but not yet external pic interrupts
+    scheduler_init();
+
     keyboard_init();
 
-    timer_init(0, 19, TIMER_RATE); // kernel scheduler timer, also enables interrupts!
-    enable_interrupts();
+    timer_init(0, 1000/KERNEL_TIMER_RESOLUTION_MSEC, TIMER_RATE); // kernel scheduler timer, also enables pic interrupts
 
-    scheduler_init();
     tty_alloc_kernel_console();
 
     //readelf(initrd_start, initrd_len);
@@ -298,7 +300,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     if (program.pd_vaddr == NULL) panic("Exec format error!\n");
     scheduler_add_process(program, 3);
 
-    kalloc_print_heap_objects();
+    //kalloc_print_heap_objects();
 
     while (1) {
     }

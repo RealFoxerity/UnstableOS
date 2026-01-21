@@ -1,10 +1,23 @@
 #ifndef KERNEL_TTY_IO_H
 #define KERNEL_TTY_IO_H
+#include "kernel_spinlock.h"
 #include "kernel_sched.h"
 #include "kernel_ioctl.h"
 #include "devs.h"
 
+#define EMPTY(tq) ((tq)->head == (tq)->tail)
+#define FULL(tq) (((tq)->head == 0 && (tq)->tail == TTY_BUFFER_SIZE - 1) || (tq)->tail == (tq)->head - 1)
+#define REMAIN(tq) (\
+    (tq)->head <= (tq)->tail ? \
+        ((tq)->tail - (tq)->head) : \
+        (TTY_BUFFER_SIZE - (tq)->head + (tq)->tail)\
+    )// how many elements still in queue
+#define INC(tq) ((tq)->tail = ((tq)->tail+1)%TTY_BUFFER_SIZE) // lenghtens queue
+#define DEC(tq) ((tq)->head = ((tq)->head+1)%TTY_BUFFER_SIZE) // shortens queue by removing oldest element
+#define DEC_LAST(tq) ((tq)->tail = (TTY_BUFFER_SIZE + (tq)->tail-1)%TTY_BUFFER_SIZE) // shortens queue by removing youngest element (for VERASE, VKILL)
+
 #define TTY_BUFFER_SIZE 4096
+#define MAX_CANNON TTY_BUFFER_SIZE
 
 #define TTY_L_ECHO 1
 #define TTY_L_ICANON 2 // new line buffering
@@ -13,9 +26,14 @@
 
 // as you might have noticed, i pick from the posix standard based on how easy things are to implement
 #define TTY_I_CRNL 1 // carriage return -> new line
-#define TTY_I_IGNCR 2 // ignore carriage return 
+#define TTY_I_IGNCR 2 // ignore carriage return
 #define TTY_I_NLCR 4 // new line -> carriage return
-#define TTY_I_ISTRIP 8 // strip 8 bit ascii to 7 bit
+#define TTY_I_STRIP 8 // strip 8 bit ascii to 7 bit
+#define TTY_I_BRKINT 16 // VINTR sends sigint
+#define TTY_I_IGNBRK 32 // ignoring VINTR, trainslating into NULL byte
+//#define TTY_I_XOFF 64 // we can send VSTOP/VSTART to pause/resume the transmit of the other side TODO: implement
+#define TTY_I_XON 128 // recieving TCC_VSTOP pauses output, recieving TCC_VSTART resumes output
+#define TTY_I_XANY 256 // any recieved character resumes output
 
 #define TTY_O_POST 1 // whether to even do processing
 #define TTY_O_NLCR 2 // new line -> carriage return new line
@@ -33,12 +51,12 @@ enum termios_control_chars { // NC non-canonical, IC canonical ("line buffered")
     TCC_VQUIT,  // IC, NC   sigquit
     TCC_VSUSP,  // IC, NC   sigtstp to foreground pgrp
     TCC_VTIME,  // NC       timeout value for non-canonical mode
-    TCC_VSTART, // IC, NC   if flow control (not yet implemented) starts output again
-    TCC_VSTOP,  // IC, NC   if flow control (not yet implemented) stops output
+    TCC_VSTART, // IC, NC   if flow control starts output again
+    TCC_VSTOP,  // IC, NC   if flow control stops output
 };
 
 #define _POSIX_VDISABLE 0xFF // if ICANON, putting this value into control chars disables the function
-static const char default_control_chars[11] = { // well imagine wanting to do ctrl+c to interrupt, look at C0 escapes, use that
+static const unsigned char default_control_chars[11] = { // well imagine wanting to do ctrl+c to interrupt, look at C0 escapes, use that
     [TCC_VEOF]     = '\x04',
     [TCC_VEOL]     = '\x00',
     [TCC_VERASE]   = '\x7f',
@@ -54,16 +72,19 @@ static const char default_control_chars[11] = { // well imagine wanting to do ct
 
 typedef unsigned short tcflag_t;
 struct termios {
-    char control_chars[11];
+    unsigned char control_chars[11];
     tcflag_t imodes;
     tcflag_t omodes;
     tcflag_t cmodes;
     tcflag_t lmodes;
+
+    char input_stopped, output_stopped; // see IXON, IXOFF
 };
 
-struct tty_queue { // FIFO
+struct tty_queue {
+    spinlock_t queue_lock;
     char buffer[TTY_BUFFER_SIZE];
-    size_t head, tail;
+    size_t head, tail; // tail = pointer to the next free char
     //thread_queue_t write_queue; // see comments in kernel_tty_io.c
     thread_queue_t read_queue;
 };
@@ -80,7 +101,7 @@ struct tty_t {
 
     //unsigned short * terminal_framebuffer;
     
-    struct tty_queue iqueue, oqueue, tqueue; // input, output, translated, we cannot translate chars inplace
+    struct tty_queue iqueue, oqueue; // input, output
 
     pid_t foreground_pgrp;
     pid_t session;
