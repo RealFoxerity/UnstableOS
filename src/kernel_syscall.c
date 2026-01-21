@@ -94,8 +94,6 @@ long kernel_syscall_dispatcher(struct interr_frame * interrupt_frame) {
 
     switch (syscall_number) {
         case SYSCALL_YIELD:
-            current_thread->inside_kernel = 1;
-            asm volatile ("sti;");
             reschedule();
             break;
         case SYSCALL_CREATE_THREAD:
@@ -104,7 +102,6 @@ long kernel_syscall_dispatcher(struct interr_frame * interrupt_frame) {
         case SYSCALL_EXIT_THREAD: // returns exitcode
             kprintf("thread %d of process %d called thread_exit()\n", current_thread->tid, current_process->pid);
             current_thread->status = SCHED_THREAD_CLEANUP;
-            asm volatile ("sti;");
             reschedule();
             asm volatile ("jmp kernel_idle");
             break;
@@ -115,7 +112,6 @@ long kernel_syscall_dispatcher(struct interr_frame * interrupt_frame) {
         case SYSCALL_ABORT:
             if (syscall_number == SYSCALL_ABORT) kprintf("Thread %d of process %d called abort()!\n", current_thread->tid, current_process->pid); // so that we can keep the fall-through for syscall_exit
             current_thread->status = SCHED_CLEANUP;
-            asm volatile ("sti;");
             reschedule();
             asm volatile ("jmp kernel_idle");
             break;
@@ -125,7 +121,6 @@ long kernel_syscall_dispatcher(struct interr_frame * interrupt_frame) {
                 return_value = EFAULT;
                 break;
             }
-            current_thread->inside_kernel = 1;
             asm volatile ("sti;");
             return_value =  sys_write(arg1, (const void*)arg2, arg3);
             break;
@@ -134,12 +129,11 @@ long kernel_syscall_dispatcher(struct interr_frame * interrupt_frame) {
                 return_value = EFAULT;
                 break;
             }
-            current_thread->inside_kernel = 1;
             asm volatile ("sti;");
             return_value = sys_read(arg1, (void*)arg2, arg3);
             break;
         case SYSCALL_INTERR_RING2_PANIC:
-            if (current_process->ring > 2 && !current_thread->inside_kernel) break; // has to be at least ring 2 or has to be called within a kernel routine
+            if ((interrupt_frame->cs & ~3) == GDT_USER_CODE << 3) break; // has to be at least ring 2 or has to be called within a kernel routine
         
             clear_screen_fatal();
             vga_x = VGA_WIDTH/2 - (sizeof(SYSCALL_PANIC_TEXT)-1)/2, vga_y = VGA_HEIGHT/2;
@@ -172,7 +166,6 @@ long kernel_syscall_dispatcher(struct interr_frame * interrupt_frame) {
                 return_value = ERANGE;
                 break;
             }
-            current_thread->inside_kernel = 1;
             asm volatile ("sti;");
 
             kernel_sem_post(current_process, arg1);
@@ -188,7 +181,6 @@ long kernel_syscall_dispatcher(struct interr_frame * interrupt_frame) {
                 return_value = EINVAL;
                 break;
             }
-            current_thread->inside_kernel = 1;
             asm volatile ("sti;");
 
             kernel_sem_wait(current_process, current_thread, arg1);
@@ -222,11 +214,9 @@ long kernel_syscall_dispatcher(struct interr_frame * interrupt_frame) {
         case SYSCALL_TCGETPGRP:
         case SYSCALL_TCSETPGRP:
         case SYSCALL_OPEN:
-            current_thread->inside_kernel = 1;
             asm volatile ("sti;");
             break;
         case SYSCALL_CLOSE:
-            current_thread->inside_kernel = 1;
             asm volatile ("sti;");
             break;
         case SYSCALL_MKDIR:
@@ -243,8 +233,7 @@ long kernel_syscall_dispatcher(struct interr_frame * interrupt_frame) {
 
 
     syscall_exit:
-    asm volatile ("cli;"); // in case of scheduler race after setting inside_kernel=0
-    current_thread->inside_kernel = 0;
+    asm volatile ("cli;");
 
     switch (current_process->ring) { // somehow reentrant syscalls break segment selectors upon exit, TODO: figure out why?
         case 0:

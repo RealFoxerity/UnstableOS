@@ -460,7 +460,7 @@ static inline char pic_is_spurious(uint8_t irq) {
     return (isr & (1 << irq)) != 0;
 }
 
-static void pic_send_eoi(uint8_t irq) {
+void pic_send_eoi(uint8_t irq) {
     uint16_t port;
     if (irq < 8) port = PIC_M_COMM_ADDR;
     else {
@@ -489,8 +489,9 @@ __attribute__((naked, no_caller_saved_registers)) void interr_pic_pit(struct int
 
         "popl %eax\n\t" // get rid of argument
 
-        "mov $0x0, %eax\n\t" //PIC_INTERR_PIT, can't stringify enum :(
+        "pushl $0x0\n\t" //PIC_INTERR_PIT, can't stringify enum :(
         "call pic_send_eoi\n\t"
+        "popl %eax\n\t"
 
         "popa\n\t" // popa DISCARDS ESP so we need to manually load it
 
@@ -506,8 +507,6 @@ __attribute__((naked, no_caller_saved_registers)) void interr_pic_pit(struct int
 
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_keyboard(struct interr_frame * interrupt_frame) {
     keyboard_driver(1);
-    
-    pic_send_eoi(PIC_INTERR_KEYBOARD);
 }
 
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_mouse(struct interr_frame * interrupt_frame) {
@@ -592,9 +591,9 @@ void pic_setup(uint8_t lower_idt_off, uint8_t higher_idt_off) {
 
 
 void disable_interrupts() {
-    asm volatile ("cli");
     outb(PIC_M_DATA_ADDR, 0xFF); // masks all interrupts
     outb(PIC_S_DATA_ADDR, 0xFF);
+    asm volatile ("cli");
 }
 void enable_interrupts() {
     asm volatile ("sti");

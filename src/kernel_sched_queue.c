@@ -1,10 +1,10 @@
 #include "include/kernel.h"
 #include "include/kernel_sched.h"
-#include "include/kernel_semaphore.h"
 #include "../libc/src/include/string.h"
+#include "include/kernel_spinlock.h"
 
 void thread_queue_unblock(thread_queue_t * thread_queue) {
-    spinlock_acquire(&thread_queue->queue_lock);
+    spinlock_acquire_nonreentrant(&thread_queue->queue_lock);
     if (thread_queue->queue.parent_process == NULL) { // queue with no waiting processes
         spinlock_release(&thread_queue->queue_lock);
         return;
@@ -25,16 +25,12 @@ void thread_queue_unblock(thread_queue_t * thread_queue) {
 
     spinlock_release(&thread_queue->queue_lock);
 
-    unsigned long prev_eflags;
-    asm volatile ("pushf; pop %0;" : "=R"(prev_eflags));
-    asm volatile("sti"); // have to enable interrupts for reschedule()
     reschedule();
-    asm volatile ("push %0; popf;" :: "R"(prev_eflags));
 }
 
 // pprocess and thread here to allow adding other threads than current
 void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, enum pstatus_t new_status) {
-    spinlock_acquire(&thread_queue->queue_lock);
+    spinlock_acquire_nonreentrant(&thread_queue->queue_lock);
 
     if (thread_queue->queue.parent_process == NULL) {
         thread_queue->queue.parent_process = pprocess;
@@ -58,14 +54,8 @@ void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, threa
     before_unlock:
     spinlock_release(&thread_queue->queue_lock);
 
-    thread->inside_kernel = 1; // we are going to reschedule and the scheduler needs to know if we got interrupted in ring 0 or not
     thread->status = new_status;
     kprintf("sleeping on thread id %d of process %d\n", thread->tid, pprocess->pid);
 
-
-    unsigned long prev_eflags;
-    asm volatile ("pushf; pop %0;" : "=R"(prev_eflags));
-    asm volatile("sti"); // have to enable interrupts for reschedule()
     reschedule();
-    asm volatile ("push %0; popf;" :: "R"(prev_eflags));
 }

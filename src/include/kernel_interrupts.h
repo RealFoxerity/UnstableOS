@@ -112,7 +112,7 @@ __attribute__((naked, no_caller_saved_registers)) void interr_syscall(struct int
 void pic_setup(uint8_t lower_idt_off, uint8_t higher_idt_off); // warning, disables pic interrupts
 void pic_mask_irq(uint8_t irq_num);
 void pic_unmask_irq(uint8_t irq_num);
-
+void pic_send_eoi(uint8_t irq);
 
 void disable_interrupts();
 void enable_interrupts();

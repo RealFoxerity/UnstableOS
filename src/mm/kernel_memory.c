@@ -33,14 +33,10 @@ void flush_tlb() {
 }
 
 void flush_tlb_entry(void * vaddr) {
-    #ifdef TARGET_I386 // invlpg was defined in i486
-    flush_tlb();
-    #else
     vaddr = (void*)((unsigned long)vaddr&~(PAGE_SIZE_NO_PAE-1));
     asm volatile (
         "invlpg (%0)"
         ::"R"(vaddr));
-    #endif
 }
 
 void print_page_table_entry(void * pte) {

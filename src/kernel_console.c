@@ -84,7 +84,7 @@ void vga_clear() {
     vga_x = vga_y = 0;
     for (int i = 0; i < VGA_WIDTH; i++) {
         for (int j = 0; j < VGA_HEIGHT; j++) {
-            vga_put_char(' ', vga_color, i, j);
+            vga_put_char(0, vga_color, i, j);
         }
     }
     vga_move_cursor(0, 0);
@@ -105,6 +105,7 @@ void vga_write(const char * s, size_t len) {
             vga_x = 0; continue;
         }
         if (s[i] == '\b') {
+            delete:
             if (vga_x == 0) {
                 if (vga_y == 0) continue;
                 vga_y -= 1;
@@ -112,7 +113,13 @@ void vga_write(const char * s, size_t len) {
             } else {
                 vga_x --;
             }
-            vga_put_char(' ', vga_color, vga_x, vga_y); // assuming cursor is in front of text
+            vga_put_char(0, vga_color, vga_x, vga_y); // assuming cursor is in front of text
+            if (vga_x == 0 && vga_y == 0) continue;
+            if (vga_x == 0) {
+                if ((((unsigned short *) VGA_TEXT_MODE_ADDR)[(vga_y - 1)*VGA_WIDTH + VGA_WIDTH - 1] & 0xFF) == 0) goto delete;
+            } else {
+                if ((((unsigned short *) VGA_TEXT_MODE_ADDR)[vga_y*VGA_WIDTH + vga_x - 1] & 0xFF) == 0) goto delete;
+            }
             continue;
         }
         if (s[i] == '\t') {
@@ -216,9 +223,20 @@ void tty_console_input(uint32_t scancode) { // convert ps2 input into normal asc
         if (toupper(translated_scancode) >= '@' && toupper(translated_scancode) <= '_') // if char between C0 values
             translated_scancode = toupper(translated_scancode) - '@'; // get C0 control char
         else {
-            tty_write(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), "^", 1); // wasn't a valid ctrl escape, printing the raw escape value
+            tty_write_to_tty("^", 1, GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE)); // wasn't a valid ctrl escape, printing the raw escape value
         }
     }
     if ((scancode & ~(KEY_MOD_RMETA_MASK-1) & ~(KEY_MOD_LSHIFT_MASK) & ~(KEY_MOD_RSHIFT_MASK)) == KEY_MOD_LCONTROL_MASK && translated_scancode == '?') translated_scancode = '\x7F'; // can't get to ? on english layout without shift
-    if (translated_scancode != '\0') tty_write(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), &translated_scancode, 1);
+    if (translated_scancode != '\0') tty_write_to_tty(&translated_scancode, 1, GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE));
+}
+
+
+void console_write(tty_t * tty) {
+    while (!EMPTY(&tty->oqueue)) {
+        char checked = tty->oqueue.buffer[tty->oqueue.head+1];
+        // TODO: implement ansi escape codes
+        switch (checked) {
+            
+        }
+    }
 }

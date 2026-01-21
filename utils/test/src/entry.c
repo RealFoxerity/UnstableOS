@@ -19,6 +19,7 @@ int main() {
     printf("Trying yield()\n");
     syscall(SYSCALL_YIELD);
 
+    printf("Trying to spawn a thread\n");
     uthread_t thread = uthread_create(test, NULL);
     if (thread.thread_lock < 0) {
         printf("Failed to allocate thread!\n");

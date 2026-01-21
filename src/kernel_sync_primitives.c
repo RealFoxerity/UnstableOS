@@ -1,6 +1,7 @@
 //void kernel_sem_init();
 //void kernel_sem_destroy();
 #include "include/kernel.h"
+#include "include/kernel_interrupts.h"
 #include "include/kernel_sched.h"
 #include "include/kernel_spinlock.h"
 #include "include/mm/kernel_memory.h"
@@ -51,76 +52,45 @@ static inline void check_deadlock(sem_t * sem, process_t * pprocess) { // tested
     return;
 }
 
+void spinlock_acquire(spinlock_t * lock) { // sets lock = 1, acquiring it
+    if (!lock) panic("Tried to lock a NULL spinlock");
+
+    asm volatile ("pushf; pop %0;" : "=R"(lock->eflags));
+
+    asm volatile("sti");
+    do {
+        asm volatile ("pause");
+    } while (!__atomic_compare_exchange_n(&lock->state, &(unsigned long){SPINLOCK_UNLOCKED}, SPINLOCK_LOCKED, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST));
+    asm volatile("cli");
+}
+
 // WARNING NO WAY TO DETECT DEADLOCKS FOR SPINLOCKING
 // NEVER TRY TO LOCK A GLOBAL SPINLOCK INSIDE NONREENTRANT INTERRUPTS
-void spinlock_waiton(spinlock_t * lock) {while (lock->state != SPINLOCK_UNLOCKED) {asm volatile ("pause");}}
-void spinlock_acquire(spinlock_t * lock) { // sets lock = 1, acquiring it
-    #ifdef TARGET_I386 // TODO: test if actually works, i suspect it doesn't
-        unsigned long prev_eflags;
-        asm volatile ("pushf; pop %0;" : "=R"(prev_eflags));
+void spinlock_acquire_nonreentrant(spinlock_t * lock) {
+    if (!lock) panic("Tried to lock a NULL spinlock");
 
-        asm volatile("sti;");
-        while (lock->state != SPINLOCK_UNLOCKED) reschedule();
+    asm volatile ("pushf; pop %0;" : "=R"(lock->eflags));
 
-        asm volatile("cli;"); // i386, no other cores, no races anywhere (pretty lonely here...)
-
-        lock->state = SPINLOCK_LOCKED;
-
-        asm volatile ("push %0; popf;" :: "R"(prev_eflags));
-
-    #else
-    while (1) {
-        spinlock_waiton(lock);
-
-        unsigned long current_state = SPINLOCK_UNLOCKED;
-        asm volatile( // needed to not cause race between while and lock = 1
-            "lock cmpxchgl %1, %2;" // if eax == value  ->  mov %1, %2; else mov value, eax
-            : "+a"(current_state) : "r"(SPINLOCK_LOCKED), "m"(lock->state) : "memory"
-        );
-        if (!current_state) return;
-    }
-    #endif
+    do {
+        asm volatile ("pause");
+    } while (!__atomic_compare_exchange_n(&lock->state, &(unsigned long){SPINLOCK_UNLOCKED}, SPINLOCK_LOCKED, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST));
 }
-void spinlock_release(spinlock_t * lock) {lock->state = SPINLOCK_UNLOCKED;}
+
+void spinlock_release(spinlock_t * lock) {if (!lock) panic("Tried to release NULL spinlock"); __atomic_store_n(&lock->state, SPINLOCK_UNLOCKED, __ATOMIC_RELEASE); asm volatile ("push %0; popf;" :: "R"(lock->eflags));}
 
 void kernel_sem_post(process_t * calling_process, int sem_idx) {
-    asm volatile (
-        "lock incl (%0)"
-    :: "R"(&calling_process->semaphores[sem_idx].value));
+    __atomic_fetch_add(&calling_process->semaphores[sem_idx].value, 1, __ATOMIC_ACQUIRE);
     thread_queue_unblock(&calling_process->semaphores[sem_idx].waiting_queue);
 }
 void kernel_sem_wait(process_t * calling_process, thread_t * calling_thread, int sem_idx) {
-    #ifdef TARGET_I386
-        unsigned long prev_eflags;
-        asm volatile ("pushf; pop %0;" : "=R"(prev_eflags));
-        asm volatile("cli;");
-
-        if (calling_process->semaphores[sem_idx].value > 0)
-            calling_process->semaphores[sem_idx].value --;
-        else 
-            thread_queue_add(&calling_process->semaphores[sem_idx].waiting_queue, calling_process, calling_thread, SCHED_UNINTERR_SLEEP);
-
-        asm volatile ("push %0; popf;" :: "R"(prev_eflags));
-    #else
-    int old_val, old_val2, new_count;
+    int old_val;
     while (1) { // basically check whether nothing decremented the value during our attempt, cmpxchg decrements in this case
         old_val = calling_process->semaphores[sem_idx].value;
-        old_val2 = old_val;
-
-        new_count = old_val - 1;
 
         if (old_val > 0) {
-            asm volatile(
-                "lock cmpxchgl %1, %2;" // if eax == value  ->  mov new_count, value; else mov value, eax
-                :"+a"(old_val)
-                :"R"(new_count), "m"(calling_process->semaphores[sem_idx].value)
-            );
-            if (old_val == old_val2) {
-                return;
-            }
+            if (__atomic_compare_exchange_n(&calling_process->semaphores[sem_idx].value, (unsigned long *)&old_val, old_val - 1, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) return;
         } else {
             thread_queue_add(&calling_process->semaphores[sem_idx].waiting_queue, calling_process, calling_thread, SCHED_UNINTERR_SLEEP);
         }
     }
-    #endif
 }

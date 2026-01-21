@@ -39,4 +39,5 @@ char timer_init(char channel_id, uint16_t frequency_reload_val, uint8_t timer_mo
     outb(TIMER_CHANNEL0_PORT+channel_id, (reload_value>>8)&0xFF);
 
     enable_interrupts();
+    return 0;
 }
