@@ -39,7 +39,7 @@ void flush_tlb_entry(void * vaddr) {
         ::"R"(vaddr));
 }
 
-void print_page_table_entry(void * pte) {
+void print_page_table_entry(const void * pte) {
     dkprintf("PTE at %x: phys addr %x | Flags: ", pte, *(uint32_t*)pte & (~(PAGE_SIZE_NO_PAE-1)));
 
     if ( *(uint32_t*)pte & PTE_PDE_PAGE_PRESENT) {

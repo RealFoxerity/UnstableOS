@@ -175,6 +175,16 @@ char strcmp(const char * s1, const char * s2) {
     return 0;
 }
 
+char strncmp(const char * s1, const char * s2, size_t n) {
+    for (size_t i = 0; i < n && s1[i] != '\0' && s2[i] != '\0'; i++) {
+        if (((char*)s1)[i] != ((char*)s2)[i]) {
+            if (((char*)s1)[i] < ((char*)s2)[i]) return -1;
+            else return 1;
+        }
+    }
+    return 0;
+}
+
 char * strchr(const char * s, int c) {
     for (int i = 0; s[i] != '\0'; i++) {
         if (s[i] == c) return (char*)s+i;

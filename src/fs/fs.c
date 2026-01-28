@@ -67,7 +67,7 @@ ssize_t sys_read(unsigned int fd, void * buf, size_t count) {
         case DEV_MAJ_TTY:
             return tty_read(file->inode->device, buf, count);
         default:
-            kprintf("unknown dev major to write to (%d)...\n", MAJOR(file->inode->device));
+            kprintf("unknown dev major to read from (%d)...\n", MAJOR(file->inode->device));
             return EIO;
     }
 }
