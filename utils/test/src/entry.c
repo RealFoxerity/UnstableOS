@@ -27,5 +27,12 @@ int main() {
     }
     printf("Waiting on thread\n");
     printf("joined, exitcode %d\n", uthread_join(thread));
+
+    printf("Trying to read 10 bytes from tty\n");
+    char test_input[10] = {0};
+    read(STDIN, test, 10);
+    printf("\n # read: ");
+    write(STDOUT, test_input, 10);
+
     while(1);
 }
