@@ -41,7 +41,6 @@ uthread_t uthread_create(int (* entry_point)(struct uthread_args *, void*), void
 
 int uthread_join(uthread_t thread) {
     mutex_lock(thread.thread_lock);
-    printf("1");
     mutex_destroy(thread.thread_lock);
     int out = thread.args->exitcode; // avoid UAF
     free(thread.args);
@@ -50,9 +49,7 @@ int uthread_join(uthread_t thread) {
 
 void uthread_exit(struct uthread_args * self, int exitcode) {
     self->exitcode = exitcode;
-    printf("2");
     mutex_unlock(self->thread_lock);
-    printf("3");
     syscall(SYSCALL_EXIT_THREAD);
     while(1); // to be safe
     __builtin_unreachable();

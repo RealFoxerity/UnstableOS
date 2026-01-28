@@ -117,7 +117,7 @@ extern tty_t * terminals[TTY_LIMIT_KERNEL];
 
 void tty_alloc_kernel_console();
 
-char tty_queue_getch(struct tty_queue * tq);
+int tty_queue_getch(struct tty_queue * tq); // if 256, recieved SIGALRM
 void tty_queue_putch(struct tty_queue * tq, char c);
 
 long tty_ioctl(dev_t dev, unsigned long cmd, unsigned long arg);

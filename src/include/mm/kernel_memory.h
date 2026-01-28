@@ -65,6 +65,8 @@ void paging_change_flags(void * target_virt_addr, size_t n, unsigned int flags);
 void * paging_virt_addr_to_phys(void * virt);
 PAGE_TABLE_TYPE paging_get_pte(const void * virt_addr); // returns the value of the page table entry for a given address, 0 = not present (to check for permissions for example)
 
+void print_page_table_entry(const void * pte);
+
 void setup_paging(unsigned long total_free, unsigned long ident_map_end);
 
 void kalloc_prepare(void * heap_struct_start, void * heap_top);

@@ -19,6 +19,7 @@ void strcpy(char *__restrict dest, const char *__restrict src);
 char memcmp(const void *s1, const void *s2, size_t n);
 void memset(void * s, char c, size_t n);
 char strcmp(const char * s1, const char * s2);
+char strncmp(const char * s1, const char * s2, size_t n);
 char * strchr(const char * s, int c);
 char * strchrnul(const char * s, int c);
 char * strrchr(const char * s, int c);

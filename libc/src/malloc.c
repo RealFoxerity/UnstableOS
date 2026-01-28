@@ -6,6 +6,7 @@
 #include "include/string.h"
 #include "include/stdio.h"
 #include "include/stdlib.h"
+#include "include/uthreads.h"
 
 #define MALLOC_MAGIC "MAL"
 
@@ -26,7 +27,9 @@ struct malloc_heap_header { // aligning so that we try to avoid alignment check
 
 static void * heap_base = NULL;
 
-void malloc_prepare(void * heap_struct_start, void * heap_top) {
+mutex_t allocator_mutex;
+void malloc_prepare(void * heap_struct_start, void * heap_top) { // don't call multiple times
+    allocator_mutex = mutex_init();
     heap_base = heap_struct_start;
     *(struct malloc_heap_header*)heap_struct_start = (struct malloc_heap_header) {
         .flags = MALLOC_FIRST_CHUNK | MALLOC_LAST_CHUNK,
@@ -36,8 +39,8 @@ void malloc_prepare(void * heap_struct_start, void * heap_top) {
     memcpy(((struct malloc_heap_header*)heap_struct_start)->magic, MALLOC_MAGIC, 3);
 }
 
-#pragma clang diagnostic ignored "-Wignored-attributes"
 void * __attribute__((malloc, malloc(free))) malloc(size_t size) {
+    mutex_lock(allocator_mutex);
     if (size % MALLOC_ALIGNMENT != 0) size = size + MALLOC_ALIGNMENT - size%MALLOC_ALIGNMENT;
 
     struct malloc_heap_header * current_heap_object = heap_base;
@@ -46,8 +49,10 @@ void * __attribute__((malloc, malloc(free))) malloc(size_t size) {
             printf("malloc() current_heap_object->next_chunk == NULL\n");
             exit(255);
         }
-        if (current_heap_object->flags & MALLOC_LAST_CHUNK) return NULL; // not enough free space on the stack and considering we do overcommitment, there's nothing we can do
-
+        if (current_heap_object->flags & MALLOC_LAST_CHUNK) {
+            mutex_unlock(allocator_mutex);
+            return NULL; // not enough free space on the stack and considering we do overcommitment, there's nothing we can do
+        }
         current_heap_object = current_heap_object->next_chunk;
     }
     current_heap_object->flags |= MALLOC_CHUNK_USED;
@@ -63,11 +68,13 @@ void * __attribute__((malloc, malloc(free))) malloc(size_t size) {
 
     if (current_heap_object->flags & MALLOC_LAST_CHUNK) current_heap_object->flags ^= MALLOC_LAST_CHUNK;
     current_heap_object->next_chunk = next_heap_object;
+    mutex_unlock(allocator_mutex);
     return (void*)current_heap_object + sizeof(struct malloc_heap_header);
 }
 
 void free(void * p) {
     if (p == NULL) return;
+    mutex_lock(allocator_mutex);
     struct malloc_heap_header * current_heap_object = (struct malloc_heap_header * ) (p - sizeof(struct malloc_heap_header));
 
     if (memcmp(current_heap_object->magic, MALLOC_MAGIC, 3) != 0) {
@@ -88,8 +95,8 @@ void free(void * p) {
     current_heap_object->flags &= ~MALLOC_CHUNK_USED;
 
     if (current_heap_object->flags & MALLOC_FIRST_CHUNK) {
-        if (current_heap_object->flags & MALLOC_LAST_CHUNK) return;
-        if (current_heap_object->next_chunk->flags & MALLOC_CHUNK_USED) return;
+        if (current_heap_object->flags & MALLOC_LAST_CHUNK) goto end;
+        if (current_heap_object->next_chunk->flags & MALLOC_CHUNK_USED) goto end;
         
 
         current_heap_object->flags |= current_heap_object->next_chunk->flags & MALLOC_LAST_CHUNK;
@@ -98,18 +105,18 @@ void free(void * p) {
         if (!(current_heap_object->flags & MALLOC_LAST_CHUNK))
             current_heap_object->next_chunk->prev_chunk = current_heap_object;
 
-        return;
+        goto end;
     } else if (current_heap_object->flags & MALLOC_LAST_CHUNK) {
-        if (current_heap_object->prev_chunk->flags & MALLOC_CHUNK_USED) return;
+        if (current_heap_object->prev_chunk->flags & MALLOC_CHUNK_USED) goto end;
         current_heap_object->prev_chunk->next_chunk = current_heap_object->next_chunk;
         current_heap_object->prev_chunk->flags |= MALLOC_LAST_CHUNK;
-        return;
+        goto end;
     } else {
         if (!(current_heap_object->next_chunk->flags & MALLOC_CHUNK_USED)) {
             current_heap_object->flags |= current_heap_object->next_chunk->flags & MALLOC_LAST_CHUNK;
 
             current_heap_object->next_chunk = current_heap_object->next_chunk->next_chunk;
-            if (current_heap_object->flags & MALLOC_LAST_CHUNK) return;
+            if (current_heap_object->flags & MALLOC_LAST_CHUNK) goto end;
 
             current_heap_object->next_chunk->prev_chunk = current_heap_object;
         }
@@ -117,29 +124,34 @@ void free(void * p) {
             current_heap_object->prev_chunk->flags |= current_heap_object->flags & MALLOC_LAST_CHUNK;
 
             current_heap_object->prev_chunk->next_chunk = current_heap_object->next_chunk;
-            if (current_heap_object->flags & MALLOC_LAST_CHUNK) return;
+            if (current_heap_object->flags & MALLOC_LAST_CHUNK) goto end;
 
             current_heap_object->next_chunk->prev_chunk = current_heap_object->prev_chunk;
         }
     }
+
+    end:
+    mutex_unlock(allocator_mutex);
 }
 
 
 void malloc_print_heap_objects() {
+    mutex_lock(allocator_mutex);
     struct malloc_heap_header * current_heap_object = heap_base;
 
-    do {
+    while (!(current_heap_object->flags & MALLOC_LAST_CHUNK)) {
         printf("malloc: Heap 0x%x - 0x%x, size %x, prev: 0x%x, ", current_heap_object, current_heap_object->next_chunk, (unsigned long)current_heap_object->next_chunk - (unsigned long)current_heap_object - sizeof(struct malloc_heap_header), current_heap_object->prev_chunk);
         if (current_heap_object->flags & MALLOC_CHUNK_USED) printf("U, ");
         if (current_heap_object->flags & MALLOC_FIRST_CHUNK) printf("FC, ");
         if (current_heap_object->flags & MALLOC_LAST_CHUNK) printf("LC, ");
         printf("\n");
         current_heap_object = current_heap_object->next_chunk;
-    } while (!(current_heap_object->flags & MALLOC_LAST_CHUNK));
+    }
     
     printf("malloc: Heap 0x%x - 0x%x, size %x, prev: 0x%x, ", current_heap_object, current_heap_object->next_chunk, (unsigned long)current_heap_object->next_chunk - (unsigned long)current_heap_object - sizeof(struct malloc_heap_header), current_heap_object->prev_chunk);
     if (current_heap_object->flags & MALLOC_CHUNK_USED) printf("U, ");
     if (current_heap_object->flags & MALLOC_FIRST_CHUNK) printf("FC, ");
     if (current_heap_object->flags & MALLOC_LAST_CHUNK) printf("LC, ");
     printf("\n");
+    mutex_unlock(allocator_mutex);
 }

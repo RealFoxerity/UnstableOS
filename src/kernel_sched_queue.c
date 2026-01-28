@@ -4,7 +4,7 @@
 #include "include/kernel_spinlock.h"
 
 void thread_queue_unblock(thread_queue_t * thread_queue) {
-    spinlock_acquire_nonreentrant(&thread_queue->queue_lock);
+    spinlock_acquire(&thread_queue->queue_lock);
     if (thread_queue->queue.parent_process == NULL) { // queue with no waiting processes
         spinlock_release(&thread_queue->queue_lock);
         return;
@@ -30,7 +30,7 @@ void thread_queue_unblock(thread_queue_t * thread_queue) {
 
 // pprocess and thread here to allow adding other threads than current
 void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, enum pstatus_t new_status) {
-    spinlock_acquire_nonreentrant(&thread_queue->queue_lock);
+    spinlock_acquire(&thread_queue->queue_lock);
 
     if (thread_queue->queue.parent_process == NULL) {
         thread_queue->queue.parent_process = pprocess;
@@ -52,10 +52,10 @@ void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, threa
 
 
     before_unlock:
+    thread->status = new_status;
     spinlock_release(&thread_queue->queue_lock);
 
-    thread->status = new_status;
-    kprintf("sleeping on thread id %d of process %d\n", thread->tid, pprocess->pid);
+    //kprintf("sleeping on thread id %d of process %d\n", thread->tid, pprocess->pid);
 
     reschedule();
 }

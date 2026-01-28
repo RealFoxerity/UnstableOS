@@ -29,4 +29,13 @@ int waitpid(pid_t pid, int * status, int options);
 void free(void * p);
 void * __attribute__((malloc, malloc(free))) malloc(size_t size);
 
+
+#define EXIT_SUCCESS 0
+#define EXIT_FAILURE 1
+
+unsigned long long strtoull(const char * start, char ** end_out);
+unsigned long strtoul(const char * start, char ** end_out);
+long long strtoll(const char * start, char ** end_out);
+long strtol(const char * start, char ** end_out);
+
 #endif

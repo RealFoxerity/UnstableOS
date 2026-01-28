@@ -37,7 +37,6 @@ PAGE_TABLE_TYPE * paging_get_page_table_from_address_space(PAGE_DIRECTORY_TYPE *
     return page_table;
 }
 
-extern void print_page_table_entry(void * pte);
 void paging_add_page_to_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr, void *target_virt_addr, unsigned int flags) {
     PAGE_TABLE_TYPE * page_table = paging_get_page_table_from_address_space(pd_vaddr, target_virt_addr);
 
