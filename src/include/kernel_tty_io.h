@@ -108,6 +108,8 @@ struct tty_t {
 
     size_t (*write)(struct tty_t *);
 
+    size_t read_remaining;
+
     struct termios params;
 } typedef tty_t;
 
@@ -120,7 +122,9 @@ void tty_queue_putch(struct tty_queue * tq, char c);
 
 long tty_ioctl(dev_t dev, unsigned long cmd, unsigned long arg);
 
-long tty_write(dev_t dev, const char * s, size_t n);
+ssize_t tty_write(dev_t dev, const char * s, size_t n);
+ssize_t tty_read(dev_t dev, char * s, size_t n);
+
 long tty_write_to_tty(const char * s, size_t n, dev_t dev);
 
 #endif

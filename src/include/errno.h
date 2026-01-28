@@ -13,4 +13,5 @@
 #define ENOTBLK -10
 #define EPIPE -11
 #define EIO -12
+#define EAGAIN -13
 #endif

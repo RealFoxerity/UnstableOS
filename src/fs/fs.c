@@ -27,6 +27,18 @@ file_descriptor_t * get_free_fd() {
     //return NULL;
 }
 
+static ssize_t check_fd(unsigned int fd) {
+    if (fd >= FD_LIMIT_PROCESS) return EBADF;
+    file_descriptor_t * file = current_process->fds[fd];
+    if (file == NULL) return EBADF;
+
+    kassert(file->instances > 0);
+    kassert(file->inode != NULL);
+    kassert(file->inode->instances > (file->inode->is_mountpoint)? 1 : 0);
+
+    return 0;
+}
+
 unsigned int sys_open(const char * path, unsigned short mode);
 
 long sys_close(unsigned int fd) {
@@ -46,30 +58,32 @@ long sys_close(unsigned int fd) {
 }
 
 ssize_t sys_read(unsigned int fd, void * buf, size_t count) {
-    current_thread->status = SCHED_UNINTERR_SLEEP;
-    return -1;
-}
-
-ssize_t sys_write(unsigned int fd, const void * buf, size_t count) {
-    if (fd >= FD_LIMIT_PROCESS) return EBADF;
+    unsigned long test = check_fd(fd);
+    if (test != 0) return test;
+    
     file_descriptor_t * file = current_process->fds[fd];
-    if (file == NULL) return EBADF;
-
-    kassert(file->instances > 0);
-    kassert(file->inode != NULL);
-    kassert(file->inode->instances > (file->inode->is_mountpoint)? 1 : 0);
 
     switch (MAJOR(file->inode->device)) {
         case DEV_MAJ_TTY:
-            tty_write(file->inode->device, buf, count);
-            break;
+            return tty_read(file->inode->device, buf, count);
         default:
             kprintf("unknown dev major to write to (%d)...\n", MAJOR(file->inode->device));
-            return -EIO;
+            return EIO;
     }
+}
 
-    if (fd == STDOUT || fd == STDERR) {
-        return count;
+ssize_t sys_write(unsigned int fd, const void * buf, size_t count) {
+    unsigned long test = check_fd(fd);
+    if (test != 0) return test;
+
+    file_descriptor_t * file = current_process->fds[fd];
+
+
+    switch (MAJOR(file->inode->device)) {
+        case DEV_MAJ_TTY:
+            return tty_write(file->inode->device, buf, count);
+        default:
+            kprintf("unknown dev major to write to (%d)...\n", MAJOR(file->inode->device));
+            return EIO;
     }
-    return -1;
 }

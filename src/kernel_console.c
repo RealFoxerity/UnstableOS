@@ -136,7 +136,6 @@ void vga_write(const char * s, size_t len) {
         }
         if (s[i] == '\n') {
             vga_x = 0;
-        
             //vga_y = (vga_y+1)%VGA_HEIGHT;
             vga_y ++;
             if (vga_y >= VGA_HEIGHT) {

@@ -90,15 +90,15 @@ char tty_queue_getch(struct tty_queue * tq) {
         thread_queue_add(&tq->read_queue, current_process, current_thread, SCHED_INTERR_SLEEP);
     }
     char out = 0;
-    //spinlock_acquire(&tq->queue_lock);
-    if (EMPTY(tq)) goto end;
+    spinlock_acquire(&tq->queue_lock);
+    if (EMPTY(tq)) goto end; // sigalrm
 
     out = tq->buffer[tq->head]; // see comment in kernel_tty_io.h for queues
     DEC(tq);
     //thread_queue_unblock(&tq->write_queue); // nothing happens if empty (buffer wasn't full), so no need for ifs; commented out because the circular write buffer overwrites itself
     
     end:
-    //spinlock_release(&tq->queue_lock);
+    spinlock_release(&tq->queue_lock);
     return out;
 }
 
@@ -110,11 +110,14 @@ void tty_queue_putch(struct tty_queue * tq, char c) {
     while (FULL(tq)) { // buffer full
         kprintf("tty buffer full, flushing\n");
         #if TTY_QUEUE_MODE == 0
+            spinlock_release(&tq->queue_lock);
             return; // discards new data
         #elif TTY_QUEUE_MODE == 1
             DEC(tq); // rewrites old data
         #elif TTY_QUEUE_MODE == 2
+            spinlock_release(&tq->queue_lock);
             thread_queue_add(&tq->write_queue, current_process, current_thread, SCHED_UNINTERR_SLEEP); // warning! keyboard input can deadlock kernel
+            spinlock_acquire(&tq->queue_lock);
         #endif
     }
 
@@ -136,9 +139,9 @@ static inline char tty_remove_char(tty_t * tty) { // cannon mode, ERASE char, re
     spinlock_acquire(&tty->iqueue.queue_lock);
     if (REMAIN(&tty->iqueue) > 0) {
         if (!(
-            tty->iqueue.buffer[tty->iqueue.tail] == '\n' ||
-            (tty->params.control_chars[TCC_VEOF] != _POSIX_VDISABLE && tty->iqueue.buffer[tty->iqueue.tail] == tty->params.control_chars[TCC_VEOF]) ||
-            (tty->params.control_chars[TCC_VEOF] != _POSIX_VDISABLE && tty->iqueue.buffer[tty->iqueue.tail] == tty->params.control_chars[TCC_VEOL]) 
+            tty->iqueue.buffer[tty->iqueue.tail-1] == '\n' ||
+            (tty->params.control_chars[TCC_VEOF] != _POSIX_VDISABLE && tty->iqueue.buffer[tty->iqueue.tail-1] == tty->params.control_chars[TCC_VEOF]) ||
+            (tty->params.control_chars[TCC_VEOL] != _POSIX_VDISABLE && tty->iqueue.buffer[tty->iqueue.tail-1] == tty->params.control_chars[TCC_VEOL]) 
         )) {
             if (tty == terminals[DEV_TTY_0]) {
                 vga_write("\b", 1);
@@ -287,27 +290,42 @@ static inline char is_valid_tty(dev_t dev) { // checks if the device is a valid 
     return 1;
 }
 
-long tty_read(dev_t dev, char * s, size_t n) {
+ssize_t tty_read(dev_t dev, char * s, size_t n) {
     if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE)) dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_S0); // kernel console can only read (which shouldn't happen anyway) from first serial
     if (!is_valid_tty(dev)) return EINVAL;
     
     kassert(current_process);
     
-    while (current_process->pgrp != terminals[MINOR(dev)]->foreground_pgrp) {
+    tty_t * tty = terminals[MINOR(dev)];
+
+    while (current_process->pgrp != tty->foreground_pgrp) {
         signal_process_group(current_process->pgrp, SIGTTIN);
     }
     
+    if (tty->read_remaining != 0) return EAGAIN; // something else is already reading
+ 
+    while (!__atomic_compare_exchange_n(&tty->read_remaining, &(unsigned long){0}, n, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) asm volatile ("pause");
 
-    return EIO;
+    char out = 0;
+    for (char * i = 0; i < i + n; i++) {
+        out = tty_queue_getch(&tty->iqueue);
+        if (out != 0) *i = out;
+        else {
+            tty->read_remaining = 0;
+            return i-s;
+        }
+    }
+    tty->read_remaining = 0;
+    return n;
 }
 
 
-long tty_write(dev_t dev, const char * s, size_t n) { // outputs data - writes data into write queue
+ssize_t tty_write(dev_t dev, const char * s, size_t n) { // outputs data - writes data into write queue
     if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE)) dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_0);
 
     kassert(current_process);
 
-    //while (current_process->pgrp != terminals[MINOR(dev)]->foreground_pgrp) {
+    //while (current_process->ring != 0 && current_process->pgrp != terminals[MINOR(dev)]->foreground_pgrp) { // allow the kernel to write regardless
     //    signal_process_group(current_process->pgrp, SIGTTOU);
     //}
 

@@ -21,7 +21,6 @@
 
 // clang is insanely annoying, used because uint32_t is smaller than native pointer size (64 bit int) on my machine
 #pragma clang diagnostic ignored "-Wint-to-pointer-cast"
-#pragma clang diagnostic ignored "-Wvoid-pointer-to-int-cast"
 #pragma clang diagnostic ignored "-Wpointer-to-int-cast"
 
 #define tty_write(buf, count) tty_write(buf, count); com_write(1, buf, count);
@@ -296,9 +295,11 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
 
     timer_init(0, 1000/KERNEL_TIMER_RESOLUTION_MSEC, TIMER_RATE); // kernel scheduler timer, also enables pic interrupts
 
-    keyboard_init();
-
     tty_alloc_kernel_console();
+
+    keyboard_init();
+    
+    // TODO: when keyboard input happens after keyboard_init() but before scheduler_add_process(), kvm hangs
 
     //readelf(initrd_start, initrd_len);
     struct program program = {0};
