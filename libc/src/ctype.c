@@ -25,7 +25,7 @@ char isupper(char c) {
 }
 
 char isalpha(char c) {
-    if (islower(c) || islower(c)) return 1;
+    if (islower(c) || isupper(c)) return 1;
     return 0;
 }
 char isdigit(char c) {
