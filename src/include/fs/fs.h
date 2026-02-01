@@ -94,9 +94,12 @@ struct superblock_t {
     char is_mounted; // mark as unused so that we don't have to memset() at every unmount
 } typedef superblock_t;
 
-extern file_descriptor_t * kernel_fds[FD_LIMIT_KERNEL];
-extern inode_t * kernel_inodes[INODE_LIMIT_KERNEL];
+extern file_descriptor_t ** kernel_fds;
+extern inode_t ** kernel_inodes;
 extern superblock_t * kernel_superblocks[FS_LIMIT_KERNEL];
+
+void init_fds();
+void init_inodes();
 
 extern spinlock_t kernel_inode_lock;
 extern spinlock_t kernel_fd_lock;

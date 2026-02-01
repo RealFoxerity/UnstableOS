@@ -115,6 +115,12 @@ struct tty_t {
 
 extern tty_t * terminals[TTY_LIMIT_KERNEL];
 
+tty_t * tty_init_tty(tcflag_t imodes, tcflag_t lmodes, tcflag_t omodes, const unsigned char * control_chars,
+                    size_t height, size_t width, 
+                    size_t (*write)(struct tty_t *), char com_port,
+                    pid_t controlling_session, pid_t foreground_pgrp);
+void tty_register(tty_t * tty, dev_t minor);
+
 void tty_alloc_kernel_console();
 
 int tty_queue_getch(struct tty_queue * tq); // if 256, recieved SIGALRM

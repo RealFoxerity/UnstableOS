@@ -5,10 +5,15 @@
 #include "include/kernel.h"
 #include "include/kernel_sched.h"
 #include "include/kernel_spinlock.h"
+#include "include/mm/kernel_memory.h"
 #include "include/vga.h"
 #include "../libc/src/include/string.h"
 #include "include/rs232.h"
 
+spinlock_t tty_lock = {0};
+tty_t * terminals[TTY_LIMIT_KERNEL] = {0};
+
+// terminals[0] - terminals[3] = vga framebuffer backed tty devices, lctrl+rctrl+1-4
 
 extern size_t tty_com_write(tty_t * tty); // from rs232.c
 
@@ -32,24 +37,52 @@ static size_t tty_console_write(tty_t * tty) {
     return n;
 }
 
-static tty_t kernel_console = {
-    .used = 1,
-    .foreground_pgrp = 0,
-    .com_port = 0,
-    .height = VGA_HEIGHT,
-    .width = VGA_WIDTH,
-    .session = 0,
-    .write = tty_console_write,
-    .params.imodes = TTY_I_CRNL,
-    .params.lmodes = TTY_L_ECHO | TTY_L_ICANON | TTY_L_ISIG,
-    .params.omodes = TTY_O_POST | TTY_O_NLCR,
-    //.params.imodes = TTY_I_NLCR
-};
+tty_t * tty_init_tty(tcflag_t imodes, tcflag_t lmodes, tcflag_t omodes, const unsigned char * control_chars,
+                    size_t height, size_t width, 
+                    size_t (*write)(struct tty_t *), char com_port,
+                    pid_t controlling_session, pid_t foreground_pgrp) {
+    tty_t * new_tty = kalloc(sizeof(tty_t));
+    if (!new_tty) return NULL;
+    memset(new_tty, 0, sizeof(tty_t));
+    
+    *new_tty = (tty_t) {
+        .used = 1,
+        .foreground_pgrp = foreground_pgrp,
+        .height = height,
+        .width = width,
+        .session = controlling_session,
+        .write = write,
+        .params.imodes = imodes,
+        .params.lmodes = lmodes,
+        .params.omodes = omodes,
+    };
+    memcpy(new_tty->params.control_chars, control_chars, sizeof(new_tty->params.control_chars));
+    
+    return new_tty;
+}
+
+void tty_register(tty_t * tty, dev_t minor) {
+    kassert(tty);
+    kassert(minor < TTY_LIMIT_KERNEL);
+    spinlock_acquire(&tty_lock);
+    kassert(!terminals[minor]);
+    terminals[minor] = tty;
+    spinlock_release(&tty_lock);
+}
 
 void tty_alloc_kernel_console() { // for the kernel task, don't call for user processes
     if (kernel_task == NULL) panic("Tried to allocate console before initializing kernel task!");
     
-    memcpy(kernel_console.params.control_chars, default_control_chars, sizeof(kernel_console.params.control_chars));
+    tty_t * kernel_console = tty_init_tty(
+        TTY_I_CRNL,
+        TTY_L_ECHO | TTY_L_ICANON | TTY_L_ISIG,
+        TTY_O_POST | TTY_O_NLCR,
+        default_control_chars, 
+        VGA_HEIGHT, VGA_WIDTH, 
+        tty_console_write, 0, 
+        0, 0);
+    tty_register(kernel_console, DEV_TTY_0);
+    tty_register(kernel_console, DEV_TTY_S0);
 
     spinlock_acquire(&kernel_inode_lock);
     inode_t * tty_inode = get_free_inode();
@@ -71,20 +104,6 @@ void tty_alloc_kernel_console() { // for the kernel task, don't call for user pr
 
     spinlock_release(&kernel_fd_lock);
 }
-
-tty_t * terminals[TTY_LIMIT_KERNEL] = {
-    [DEV_TTY_S0] = &kernel_console,
-    [DEV_TTY_0] = &kernel_console,
-    //[DEV_TTY_S0] = &kernel_console,
-    //[DEV_TTY_1] = &kernel_console,
-};
-
-// terminals[0] - terminals[3] = vga framebuffer backed tty devices, lctrl+rctrl+1-4
-
-//static inline tty_t * tty_alloc(dev_t dev) {
-//
-//}
-
 
 int tty_queue_getch(struct tty_queue * tq) { // if 256, got SIGALRM
     kassert(tq->head < TTY_BUFFER_SIZE && tq->tail < TTY_BUFFER_SIZE);
