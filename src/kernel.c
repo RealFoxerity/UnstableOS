@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#include "include/fs/fs.h"
 #include "include/kernel_interrupts.h"
 #include "include/kernel_tty.h"
 #include "include/lowlevel.h"
@@ -285,6 +286,9 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     kprintf("Kernel: Total usable RAM: %u bytes\n", pf_get_free_memory()); //total_usable);
 
     setup_paging(total_usable, boot_mem_top);
+
+    init_fds();
+    init_inodes();
 
     kernel_print_cpu_info();
     

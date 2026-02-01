@@ -765,9 +765,10 @@ void keyboard_driver(char device_num) {
         ps2_driver_thread = kernel_create_thread(kernel_task, keyboard_driver_loop, NULL);
         ps2_driver_state = PS2_DRIVER_RUNNING;
     }
-    //if (pending_device != -1) {
-    //    kprintf("Warning: PS/2 driver not keeping up with user input!\n"); // can't printf, could deadlock the tty if the keyboard interrupt fires while the current task is holding a tty lock
-    //}
+    if (pending_device != -1) {
+        kprintf("Warning: PS/2 driver not keeping up with user input!\n");
+        while (pending_device != -1); // since spinlock_acquire disables interrupts, only way this could happen is in a different core and so this is safe
+    }
 
     spinlock_acquire(&ps2_pending_lock);
     pending_device = device_num;

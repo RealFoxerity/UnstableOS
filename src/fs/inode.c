@@ -3,10 +3,15 @@
 #include "../include/kernel.h"
 #include "../../libc/src/include/string.h"
 
-inode_t * kernel_inodes[INODE_LIMIT_KERNEL] = {0};
+inode_t ** kernel_inodes;
 
 spinlock_t kernel_inode_lock = {0};
 
+void init_inodes() {
+    kernel_inodes = kalloc(sizeof(inode_t *) * INODE_LIMIT_KERNEL);
+    kassert(kernel_inodes);
+    memset(kernel_inodes, 0, sizeof(inode_t *) * INODE_LIMIT_KERNEL);
+}
 
 static void cleanup_inode_list() { // acquire lock before this
     for (int i = 0; i < INODE_LIMIT_KERNEL; i++) {
@@ -18,6 +23,7 @@ static void cleanup_inode_list() { // acquire lock before this
 
 // acquire lock before this, sets the inode instance count to 1
 inode_t * get_free_inode() {
+    kassert(kernel_inodes);
     //cleanup_inode_list(); 
     // considering a single inode is 40 bytes, and thus the entire list is 328K, i don't think we need the cleanup
 
@@ -40,6 +46,7 @@ inode_t * get_free_inode() {
 }
 
 inode_t * get_inode(dev_t device, size_t inode_number) { // gets the inode structure with a given device id and fs specific inode id
+    kassert(kernel_inodes);
     spinlock_acquire(&kernel_inode_lock);
 
     inode_t * inode = NULL;

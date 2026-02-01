@@ -5,7 +5,13 @@
 #include "../include/kernel_tty_io.h"
 spinlock_t kernel_fd_lock = {0};
 
-file_descriptor_t * kernel_fds[FD_LIMIT_KERNEL] = {0};
+file_descriptor_t ** kernel_fds;
+
+void init_fds() {
+    kernel_fds = kalloc(sizeof(file_descriptor_t *) * FD_LIMIT_KERNEL);
+    kassert(kernel_fds);
+    memset(kernel_fds, 0, sizeof(file_descriptor_t *) * FD_LIMIT_KERNEL);
+}
 
 // acquire lock before this, sets the fd instance count to 1
 file_descriptor_t * get_free_fd() {
@@ -28,6 +34,7 @@ file_descriptor_t * get_free_fd() {
 }
 
 static ssize_t check_fd(unsigned int fd) {
+    kassert(kernel_fds);
     if (fd >= FD_LIMIT_PROCESS) return EBADF;
     file_descriptor_t * file = current_process->fds[fd];
     if (file == NULL) return EBADF;
@@ -42,6 +49,7 @@ static ssize_t check_fd(unsigned int fd) {
 unsigned int sys_open(const char * path, unsigned short mode);
 
 long sys_close(unsigned int fd) {
+    kassert(kernel_fds);
     if (fd >= FD_LIMIT_PROCESS) return EBADF;
     file_descriptor_t * file = current_process->fds[fd];
     if (file == NULL) return EBADF;
