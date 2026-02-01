@@ -1,5 +1,6 @@
 #include <stddef.h>
 #include <stdint.h>
+#include "../libc/src/include/stdio.h"
 #include "include/devs.h"
 #include "include/kernel.h"
 #include "include/kernel_tty_io.h"
@@ -165,9 +166,11 @@ void vga_write(const char * s, size_t len) {
 
 #define TTY_SHIFT_MOD_MASK 0x7F
 #define TTY_OTHERS_START 87
+
+// note: backspace is technically \b, but we do 0x7F in accordance to default VERASE on most POSIX systems, delete is \b
 static const char scancode_to_char[256] = {
     0, 0, '1', '2', '3', '4', '5', '6',
-    '7', '8', '9', '0', '-', '=', '\b', '\t',
+    '7', '8', '9', '0', '-', '=', 0x7F, '\t',
     'q', 'w', 'e', 'r', 't', 'y', 'u', 'i',
     'o', 'p', '[', ']', '\n', '^', 'a', 's',
     'd', 'f', 'g', 'h', 'j', 'k', 'l', ';',
@@ -176,11 +179,11 @@ static const char scancode_to_char[256] = {
     'M', ' ', 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, '-', 0, 0, 0,'+', 0,
-    0, 0, 0, 0x7F, 0, 0, 0,
+    0, 0, 0, '\b', 0, 0, 0,
 
     0, 0, '\n', '^', 0, 0, 0, 0, // keyboard_scan_code_set_1_others_translated, subtract from KEY_MULTIMEDIA_PREV_TRACK add TTY_OTHERS_START
     0, 0, 0, '/', 'M', '\r', 0, 0,
-    0, 0, 0, 0, 0, 0, 0x7F, 0,
+    0, 0, 0, 0, 0, 0, '\b', 0,
     0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0,
 
@@ -188,7 +191,7 @@ static const char scancode_to_char[256] = {
     //shift
     
     0, 0, '!', '@', '#', '$', '%', '^',
-    '&', '*', '(', ')', '_', '+', '\b', '\t',
+    '&', '*', '(', ')', '_', '+', 0x7f, '\t',
     'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I',
     'O', 'P', '{', '}', '\n', '^', 'A', 'S', 
     'D', 'F', 'G', 'H', 'J', 'K', 'L', ':',
@@ -201,32 +204,102 @@ static const char scancode_to_char[256] = {
 
     0, 0, '\n', '^', 0, 0, 0, 0, // keyboard_scan_code_set_1_others_translated, subtract KEY_MULTIMEDIA_PREV_TRACK, add TTY_SHIFT_MOD_MASK, add TTY_OTHERS_START
     0, 0, 0, '/', 'M', '\r', 0, 0,
-    0, 0, 0, 0, 0, 0, 0x7F, 0,
+    0, 0, 0, 0, 0, 0, '\b', 0,
     0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0,
 }; // currently shift = numlock just to test
 
+void tty_console_input_terminal_input_seq(uint32_t scancode) { // vt and partial xterm escaping
+    char mods = 1;
+    if (scancode & KEY_MOD_LSHIFT_MASK || scancode & KEY_MOD_RSHIFT_MASK) mods += 1;
+    if (scancode & KEY_MOD_LALT_MASK /* || scancode & KEY_MOD_RALT_MASK */) mods += 2; // https://en.wikipedia.org/wiki/ANSI_escape_code#Terminal_input_sequences
+    if (scancode & KEY_MOD_LCONTROL_MASK || scancode & KEY_MOD_RCONTROL_MASK) mods += 4;
+    if (scancode & KEY_MOD_LMETA_MASK || scancode & KEY_MOD_RMETA_MASK) mods += 8;
+
+    scancode = scancode & KEY_BASE_SCANCODE_MASK;
+    if (scancode == 0) return; // probably recieved a modifier key press
+
+    char esc_val = 0;
+
+    switch (scancode) {
+        // key f13-f20 + blank
+        case KEY_F12: esc_val++;
+        case KEY_F11: esc_val+=2;
+        case KEY_F10: esc_val++;
+        case KEY_F9: esc_val++;
+        case KEY_F8: esc_val++;
+        case KEY_F7: esc_val++;
+        case KEY_F6: esc_val+=2;
+        case KEY_F5: esc_val++;
+        case KEY_F4: esc_val++;
+        case KEY_F3: esc_val++;
+        case KEY_F2: esc_val++;
+        case KEY_F1: esc_val++;
+        /* case KEY_F0: ???? */ esc_val +=2;
+        /* case KEY_END: #2 */ esc_val ++;
+        /* case KEY_HOME: #2 */ esc_val ++;
+        case KEY_PAGE_DOWN: esc_val ++;
+        case KEY_PAGE_UP: esc_val ++;
+        case KEY_END: esc_val ++;
+        case KEY_DELETE: esc_val ++;
+        case KEY_INSERT: esc_val ++;
+        case KEY_HOME: esc_val ++;
+            break;
+
+        case KEY_LEFT: esc_val ++;
+        case KEY_RIGHT: esc_val ++;
+        case KEY_DOWN: esc_val ++;
+        case KEY_UP: esc_val += 'A';
+            break;
+
+        default: return;
+    }
+
+
+    char esc_buf[16] = {0};
+
+    if (mods == 1)
+        sprintf(esc_buf, esc_val >= 'A' ? "\e[%c"   : "\e[%d~", esc_val);
+    else
+        if (esc_val >= 'A')
+            sprintf(esc_buf, "\e[%d%c", mods, esc_val);
+        else
+            sprintf(esc_buf, "\e[%d;%d~", esc_val, mods);
+
+    tty_write_to_tty(esc_buf, strlen(esc_buf), GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE));
+}
+
 void tty_console_input(uint32_t scancode) { // convert ps2 input into normal ascii for terminal use
     if (scancode & KEY_RELEASED_MASK) return;
+    scancode = scancode_translate_numpad(scancode);
+
+    if (!is_scancode_printable(scancode)) {
+        tty_console_input_terminal_input_seq(scancode);
+        return;
+    }
+
     char is_shift = (scancode & KEY_MOD_LSHIFT_MASK || scancode & KEY_MOD_RSHIFT_MASK);
 
-    if ((scancode & (KEY_MOD_RMETA_MASK-1)) >= KEY_MULTIMEDIA_PREV_TRACK) scancode = scancode - KEY_MULTIMEDIA_PREV_TRACK + TTY_OTHERS_START;
+    if ((scancode & KEY_BASE_SCANCODE_MASK) >= KEY_MULTIMEDIA_PREV_TRACK) scancode = scancode - KEY_MULTIMEDIA_PREV_TRACK + TTY_OTHERS_START; // readjust scancode to lookup table
 
     char translated_scancode = 0;
-   
+    char explicit_nullbyte = 0; // if we really do want to output a null byte
+
     if (isalpha(scancode_to_char[(scancode & 0xFF)])) is_shift ^= (scancode & KEY_MOD_CAPSLOCK_MASK) != 0;  // capslock works only on alphabet characters
     
     translated_scancode = scancode_to_char[(scancode & 0xFF) + TTY_SHIFT_MOD_MASK*is_shift];
 
-    if ((scancode & ~(KEY_MOD_RMETA_MASK-1)) == KEY_MOD_LCONTROL_MASK) { // if only holding ctrl (and or shift)
-        if (toupper(translated_scancode) >= '@' && toupper(translated_scancode) <= '_') // if char between C0 values
+    if ((scancode & ~KEY_BASE_SCANCODE_MASK) == KEY_MOD_LCONTROL_MASK) { // if only holding ctrl (and or shift)
+        if (toupper(translated_scancode) >= '@' && toupper(translated_scancode) <= '_') { // if char between C0 values
             translated_scancode = toupper(translated_scancode) - '@'; // get C0 control char
+            if (translated_scancode == 0) explicit_nullbyte = 1; // ^@
+        } else if (translated_scancode == '?') translated_scancode = 0x7F;
         else {
             tty_write_to_tty("^", 1, GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE)); // wasn't a valid ctrl escape, printing the raw escape value
         }
     }
-    if ((scancode & ~(KEY_MOD_RMETA_MASK-1) & ~(KEY_MOD_LSHIFT_MASK) & ~(KEY_MOD_RSHIFT_MASK)) == KEY_MOD_LCONTROL_MASK && translated_scancode == '?') translated_scancode = '\x7F'; // can't get to ? on english layout without shift
-    if (translated_scancode != '\0') tty_write_to_tty(&translated_scancode, 1, GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE));
+    if ((scancode & ~KEY_BASE_SCANCODE_MASK & ~(KEY_MOD_LSHIFT_MASK) & ~(KEY_MOD_RSHIFT_MASK)) == KEY_MOD_LCONTROL_MASK && translated_scancode == '?') translated_scancode = '\x7F'; // can't get to ? on english layout without shift
+    if (translated_scancode != '\0' || explicit_nullbyte) tty_write_to_tty(&translated_scancode, 1, GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE));
 }
 
 

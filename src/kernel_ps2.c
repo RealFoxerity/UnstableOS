@@ -774,3 +774,85 @@ void keyboard_driver(char device_num) {
     ps2_driver_thread->status = SCHED_RUNNABLE;
     spinlock_release(&ps2_pending_lock);
 }
+
+uint32_t scancode_translate_numpad(uint32_t scancode) { // converts numpad to special chars if numlock disabled
+    if (scancode & KEY_MOD_NUMLOCK_MASK) return scancode;
+    uint32_t new_scancode = 0;
+    switch (scancode & KEY_BASE_SCANCODE_MASK) {
+        case KEY_KP_7:
+            new_scancode = KEY_HOME;
+            break;
+        case KEY_KP_8:
+            new_scancode = KEY_UP;
+            break;
+        case KEY_KP_9:
+            new_scancode = KEY_PAGE_UP;
+            break;
+        case KEY_KP_4:
+            new_scancode = KEY_LEFT;
+        case KEY_KP_5:
+            new_scancode = KEY_INVALID;
+            break;
+        case KEY_KP_6:
+            new_scancode = KEY_RIGHT;
+            break;
+        case KEY_KP_1:
+            new_scancode = KEY_END;
+            break;
+        case KEY_KP_2:
+            new_scancode = KEY_DOWN;
+            break;
+        case KEY_KP_3:
+            new_scancode = KEY_PAGE_DOWN;
+            break;
+        case KEY_KP_0:
+            new_scancode = KEY_INSERT;
+            break;
+        case KEY_KP_DOT:
+            new_scancode = KEY_DELETE;
+            break;
+        default: new_scancode = scancode;
+    }
+    return (scancode & ~KEY_BASE_SCANCODE_MASK) | (new_scancode & KEY_BASE_SCANCODE_MASK);
+}
+
+char is_scancode_mod(uint32_t scancode) {
+    switch (scancode & KEY_BASE_SCANCODE_MASK) {
+        case KEY_LSHIFT:
+        case KEY_RSHIFT:
+        case KEY_LCONTROL:
+        case KEY_RCONTROL:
+        case KEY_LALT:
+        case KEY_RALT:
+        case KEY_LMETA:
+        case KEY_RMETA:
+            return 1;
+        default: return 0;
+    }
+}
+
+char is_scancode_printable(uint32_t scancode) {
+    scancode = scancode & KEY_BASE_SCANCODE_MASK;
+    if (scancode >= KEY_MULTIMEDIA_PREV_TRACK) {
+        switch (scancode) {
+            case KEY_KP_ENTER:
+            case KEY_KP_SLASH:
+                return 1;
+            default: return 0;
+        }
+    }
+    if (scancode >= KEY_CAPSLOCK) {
+        if (scancode >= KEY_KP_7 && scancode <= KEY_KP_DOT) return 1;
+        return 0;
+    }
+
+    switch (scancode) {
+        case KEY_LALT:
+        case KEY_RSHIFT:
+        case KEY_LSHIFT:
+        case KEY_LCONTROL:
+        case KEY_ESCAPE:
+            return 0;
+        default: return 1;
+    }
+}
