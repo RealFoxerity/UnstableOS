@@ -15,6 +15,8 @@
 #define KEY_MOD_LMETA_MASK 0x2000
 #define KEY_MOD_RMETA_MASK 0x1000 // keep it the lowest
 
+#define KEY_BASE_SCANCODE_MASK 0xFFF
+
 enum keyboard_scan_code_set_1 { // direct PS/2 scan codes
     KEY_INVALID = 0, // not a real key, just a dummy for when we recieve invalid data
     KEY_ESCAPE,
@@ -149,4 +151,11 @@ enum keyboard_scan_code_set_1_others_translated { // beware to not use the KEY_R
     KEY_BREAK = 0x400
 };
 
+#include <stdint.h>
+
+// kernel_ps2.c
+
+char is_scancode_printable(uint32_t scancode);
+uint32_t scancode_translate_numpad(uint32_t scancode); // translates chars from KP_* to either numbers or special chars based on numlock state, kernel_ps2.c
+char is_scancode_mod(uint32_t scancode); // if the scancode is a modifier (shift/alt/ctrl/meta)
 #endif
