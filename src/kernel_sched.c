@@ -381,7 +381,6 @@ void schedule(context_t * context) {
     if (__builtin_expect(registering_kernel_task, 0)) {
         registering_kernel_task = 0;
         register_kernel_task(context);
-        kprintf("registered kernel task\n");
     }
 
     if (__builtin_expect(process_list == NULL, 0)) { // should always at least contain the kernel task (set up as above), so this would be before scheduler init

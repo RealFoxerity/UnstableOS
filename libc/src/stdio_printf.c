@@ -17,7 +17,11 @@ size_t fmt_handler_printf(const char * s, va_list * args) { // caller has to cal
     const char * temp_ptr;
 
     unsigned long padding_delta = (unsigned long)s;
-
+    char zerofill = 0;
+    if (*s == '0') {
+        zerofill = 1;
+        s++;
+    }
     if (isdigit(*s) || *s == '-') {
         padding = atoi(s);
         if (*s == '-') s++;
@@ -35,18 +39,24 @@ size_t fmt_handler_printf(const char * s, va_list * args) { // caller has to cal
             if (*s == 'u') itoaud(va_arg(*args, uint32_t), fmt_buf);
             else itoad(va_arg(*args, uint32_t), fmt_buf);
             
+            if (padding >= 0 && padding <= strlen(fmt_buf)) return padding_delta + 1; // nothing to pad
+            if (padding < 0 && -padding <= strlen(fmt_buf)) return padding_delta + 1;
+
             if (padding > (long)strlen(fmt_buf)) {
                 if (padding + strlen(fmt_buf) + 1 > PRINTF_MAX_FORMAT_OUT) 
                     padding = PRINTF_MAX_FORMAT_OUT - strlen(fmt_buf) - 1;
 
-                memmove(fmt_buf+padding, fmt_buf, strlen(fmt_buf)+1); // todo: check if correct
+                int old_len = strlen(fmt_buf);
+                memmove(fmt_buf+padding-old_len, fmt_buf, old_len+1);
+                memset(fmt_buf, zerofill?'0':' ', padding-old_len);
             }
             else if (-padding > (long)strlen(fmt_buf)) {
-                if (-padding + strlen(fmt_buf) + 1 > PRINTF_MAX_FORMAT_OUT) 
+                padding = -padding;
+                if (padding + strlen(fmt_buf) + 1 > PRINTF_MAX_FORMAT_OUT) 
                     padding = PRINTF_MAX_FORMAT_OUT - strlen(fmt_buf) - 1;
                 
-                fmt_buf[strlen(fmt_buf)+padding] = '\0';
-                memset(fmt_buf+strlen(fmt_buf), ' ', padding);
+                fmt_buf[padding] = '\0';
+                memset(fmt_buf+strlen(fmt_buf), zerofill?'0':' ', padding-strlen(fmt_buf));
             }
             return padding_delta+1;
         case 'h':
