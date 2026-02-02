@@ -72,6 +72,7 @@ enum syscalls {
 };
 
 extern unsigned long _kernel_base, _kernel_top, _kernel_stack_top, boot_mem_top;
+extern size_t system_time_sec, uptime_msec;
 
 void kprintf(const char *format, ...);
 

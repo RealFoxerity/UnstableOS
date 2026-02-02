@@ -5,6 +5,7 @@
 #include "include/ps2_keyboard.h"
 #include "include/lowlevel.h"
 #include "include/kernel.h"
+#include "include/timer.h"
 #include "include/vga.h"
 #include "../libc/src/include/string.h"
 #include "include/kernel_tty.h"
@@ -464,6 +465,7 @@ void pic_send_eoi(uint8_t irq) {
     uint16_t port;
     if (irq < 8) port = PIC_M_COMM_ADDR;
     else {
+        outb(PIC_M_COMM_ADDR, PIC_OCW2_EOI | PIC_OCW2_SPECIFIC | PIC_INTERR_CASCADE);
         irq -= 8;
         port = PIC_S_COMM_ADDR;
     }
@@ -482,6 +484,8 @@ __attribute__((naked, no_caller_saved_registers)) void interr_pic_pit(struct int
         "pusha\n\t"
         //"pushl %ebp\n\t" // handled by pusha
         "movl %esp, %ebp\n\t"
+
+        //"addl $"STR(KERNEL_TIMER_RESOLUTION_MSEC)", uptime_msec\n\t" // not that accurate, using rtc instead
 
         "pushl %esp\n\t"
 
@@ -540,6 +544,21 @@ __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_lpt1(struc
     pic_send_eoi(PIC_INTERR_LPT1);
 }
 
+__attribute__((interrupt, no_caller_saved_registers)) void interr_cmos_rtc(struct interr_frame * interrupt_frame) {
+    enum rtc_interrupt_bitmasks called_ints = rtc_get_last_interrupt_type();
+    pic_send_eoi(PIC_INTERR_CMOS_RTC);
+
+    if (called_ints & RTC_INT_PERIODIC) {
+        uptime_msec ++;
+    }
+    if (called_ints & RTC_INT_ALARM) {
+        kprintf("Recieved RTC alarm interrupt\n");
+    }
+    if (called_ints & RTC_INT_UPDATE_ENDED) {
+        system_time_sec ++;
+    }
+}
+
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_sec_ata(struct interr_frame * interrupt_frame) {
     if (pic_is_spurious(PIC_INTERR_SECONDARY_ATA)) return;
 
@@ -555,7 +574,7 @@ const void * pic_interr_handlers[PIC_INTERR_COUNT] = {
     //[PIC_INTERR_LPT2] = interr_pic_lpt2,
     //[PIC_INTERR_FLOPPY] = interr_pic_floppy,
     [PIC_INTERR_LPT1] = interr_pic_lpt1, // spurious, dont know if I can mask spurious interrupts...
-    //[PIC_INTERR_CMOS_RTC] = 
+    [PIC_INTERR_CMOS_RTC] = interr_cmos_rtc,
     //[PIC_INTERR_USER_1] = 
     //[PIC_INTERR_USER_2] = 
     //[PIC_INTERR_USER_3] = 
@@ -593,9 +612,11 @@ void pic_setup(uint8_t lower_idt_off, uint8_t higher_idt_off) {
 void disable_interrupts() {
     outb(PIC_M_DATA_ADDR, 0xFF); // masks all interrupts
     outb(PIC_S_DATA_ADDR, 0xFF);
+    disable_nmi();
     asm volatile ("cli");
 }
 void enable_interrupts() {
+    enable_nmi();
     asm volatile ("sti");
     for (int i = 0; i < PIC_INTERR_COUNT; i++) {
         if (pic_interr_handlers[i] == 0 && i != PIC_INTERR_CASCADE) pic_mask_irq(i);

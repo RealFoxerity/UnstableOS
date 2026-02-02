@@ -75,7 +75,7 @@ const char * cpuid_processor_family_ids_amd[CPUID_PROCESSOR_LIST_LEN] = {
 const char * cpuid_processor_family_ids_intel[CPUID_PROCESSOR_LIST_LEN] = {
     [0x4] = "Intel 486",
     [0x5] = "Pentium",
-    [0x6] = "Pentium II+/Intel Core/Intel Atom/Xeon",
+    [0x6] = "Pentium II+/Core/Atom/Xeon",
     [0x7] = "Itanium (IA-32)",
     [0xB] = "Xeon Phi",
     [0xF] = "NetBurst (Pentium 4)",
@@ -111,7 +111,7 @@ void kernel_print_cpu_info() {
     memcpy(vendor_id+8, &vendor3, 4);
     vendor_id[12] = 0;
 
-    kprintf("Kernel: CPU info:\nRunning %s, highest CPUID func 0x%x, extended func 0x%x\n", vendor_id, largest_supported, largest_supported_ext);
+    kprintf("CPU info:\nRunning %s\nMax CPUID func 0x%x, ext 0x%x\n", vendor_id, largest_supported, largest_supported_ext);
 
 // not checking max supported CPUID, because a) if we boot with grub, this becomes 0 for some reason, and b) what we are testing is below the minimal supported anyway
 
@@ -211,6 +211,9 @@ void kernel_thread_test(void* _) {
     syscall(SYSCALL_EXIT_THREAD, 0);
 }
 
+size_t system_time_sec = 0;
+size_t uptime_msec = 0; // incremented by the RTC
+
 void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     disable_interrupts();
 
@@ -247,7 +250,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     for (int i = 0; i < mbd->mmap_length; i+= sizeof(multiboot_memory_map_t)) {
         multiboot_memory_map_t* mmmt = (multiboot_memory_map_t*) (mbd->mmap_addr + i);
 
-        kprintf("Kernel: 0x%lx | Len: 0x%lx | Type: ", mmmt->addr, mmmt->len);
+        kprintf("Mem: 0x%lx - 0x%lx | Type: ", mmmt->addr, mmmt->addr + mmmt->len);
         
         switch (mmmt->type) {
             case MULTIBOOT_MEMORY_AVAILABLE:
@@ -298,6 +301,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     scheduler_init();
 
     timer_init(0, 1000/KERNEL_TIMER_RESOLUTION_MSEC, TIMER_RATE); // kernel scheduler timer, also enables pic interrupts
+    rtc_init();
 
     tty_alloc_kernel_console();
 

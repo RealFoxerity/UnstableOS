@@ -23,4 +23,24 @@ enum timer_mode {
 
 char timer_init(char channel_id, uint16_t frequency, uint8_t timer_mode); // 0 if successful
 
+
+// cmos.c
+void rtc_init();
+enum rtc_interrupt_bitmasks {
+    RTC_INT_PERIODIC = 0x40,
+    RTC_INT_ALARM = 0x20,
+    RTC_INT_UPDATE_ENDED = 0x10
+};
+
+#define DEFAULT_DAYLIGHT_SAVINGS_STATE 1
+void rtc_set_daylight_savings(char enabled);
+void rtc_set_alarm(unsigned char seconds, unsigned char minutes, unsigned char hours); // you have to then enable the interrupt manually
+
+#define RTC_DEFAULT_TIME_BASE_DIVIDER 2
+#define RTC_DEFAULT_RATE_SELECTION_DIVIDER 6
+void rtc_set_divider(unsigned char rate_selection_divider, unsigned char time_base_divider);
+
+enum rtc_interrupt_bitmasks rtc_get_last_interrupt_type();
+void rtc_enable_interrupt(enum rtc_interrupt_bitmasks interrupts);
+void rtc_disable_interrupt(enum rtc_interrupt_bitmasks interrupts);
 #endif

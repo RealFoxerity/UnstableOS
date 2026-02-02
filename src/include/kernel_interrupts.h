@@ -116,4 +116,8 @@ void pic_send_eoi(uint8_t irq);
 
 void disable_interrupts();
 void enable_interrupts();
+
+// cmos.c
+void disable_nmi();
+void enable_nmi();
 #endif
