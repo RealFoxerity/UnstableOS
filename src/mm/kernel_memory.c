@@ -370,5 +370,5 @@ void setup_paging(unsigned long total_free, unsigned long ident_map_end) {
     kalloc_prepare(kernel_heap_base, kernel_heap_top);
     if (kernel_heap_top > kernel_mem_top) kernel_mem_top =  kernel_heap_top;
 
-    dkprintf("Mapped virtual memory from 0x%x to 0x%x, alloc. mem: %d\n", kernel_heap_base, kernel_heap_top, kernel_heap_top-kernel_heap_base);
+    dkprintf("Mapped vmemory 0x%x to 0x%x, alloc. mem: %d\n", kernel_heap_base, kernel_heap_top, kernel_heap_top-kernel_heap_base);
 }

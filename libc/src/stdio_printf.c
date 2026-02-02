@@ -40,9 +40,11 @@ size_t fmt_handler_printf(const char * s, va_list * args) { // caller has to cal
                     padding = PRINTF_MAX_FORMAT_OUT - strlen(fmt_buf) - 1;
 
                 memmove(fmt_buf+padding, fmt_buf, strlen(fmt_buf)+1); // todo: check if correct
+                memset(fmt_buf, ' ', padding);
             }
             else if (-padding > (long)strlen(fmt_buf)) {
-                if (-padding + strlen(fmt_buf) + 1 > PRINTF_MAX_FORMAT_OUT) 
+                padding = -padding;
+                if (padding + strlen(fmt_buf) + 1 > PRINTF_MAX_FORMAT_OUT) 
                     padding = PRINTF_MAX_FORMAT_OUT - strlen(fmt_buf) - 1;
                 
                 fmt_buf[strlen(fmt_buf)+padding] = '\0';
