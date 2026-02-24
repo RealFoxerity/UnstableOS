@@ -215,7 +215,7 @@ size_t rtc_get_time() {
         hours * 60 * 60 +
         minutes * 60 +
         seconds;
-    kprintf("RTC date %d %02d/%02d %02d:%02d:%02d - epoch %d\n", 1970+actual_year, monthday, month, hours, minutes, seconds, timestamp);
+    kprintf("RTC date %d %02d/%02d %02d:%02d:%02d - epoch %lu\n", 1970+actual_year, monthday, month, hours, minutes, seconds, timestamp);
     return timestamp;
 }
 

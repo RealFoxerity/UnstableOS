@@ -36,11 +36,7 @@ file_descriptor_t * get_free_fd() {
     //return NULL;
 }
 
-static int check_fd(int fd) { // todo: check if there aren't any race conditions during checking
-    kassert(kernel_fds);
-    kassert(current_process);
-    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return EBADF;
-    file_descriptor_t * file = current_process->fds[fd];
+static int check_file(file_descriptor_t * file) {
     if (file == NULL) return EBADF;
 
     kassert(file->instances > 0);
@@ -50,9 +46,8 @@ static int check_fd(int fd) { // todo: check if there aren't any race conditions
     return 0;
 }
 
-long sys_close(int fd) {
-    int test = check_fd(fd);
-    if (test != 0) return test;
+int sys_close(int fd) {
+    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return EBADF;
 
     spinlock_acquire(&kernel_fd_lock);
 
@@ -67,12 +62,12 @@ long sys_close(int fd) {
     return 0;
 }
 
-ssize_t sys_read(int fd, void * buf, size_t count) {
-    int test = check_fd(fd);
+ssize_t read_file(file_descriptor_t * file, void * buf, size_t count) {
+    int test = check_file(file);
     if (test != 0) return test;
     
-    file_descriptor_t * file = current_process->fds[fd];
-    if (file->mode == O_WRONLY) return EINVAL;
+    if (I_ISDIR(file->inode->mode)) return EISDIR;
+    if (!(file->mode & O_RDONLY)) return EINVAL;
 
     ssize_t ret = 0;
     spinlock_acquire(&file->access_lock);
@@ -101,12 +96,14 @@ ssize_t sys_read(int fd, void * buf, size_t count) {
     return ret;
 }
 
-ssize_t sys_write(int fd, const void * buf, size_t count) {
-    int test = check_fd(fd);
+ssize_t write_file(file_descriptor_t * file, const void * buf, size_t count) {
+    int test = check_file(file);
     if (test != 0) return test;
 
-    file_descriptor_t * file = current_process->fds[fd];
-    if (file->mode == O_RDONLY) return EINVAL;
+    if (I_ISDIR(file->inode->mode)) return EISDIR;
+    if (!(file->mode & O_WRONLY) || 
+        file->inode->backing_superblock->mount_options & MOUNT_RDONLY)
+            return EINVAL;
 
     ssize_t ret = 0;
     spinlock_acquire(&file->access_lock);
@@ -136,11 +133,11 @@ ssize_t sys_write(int fd, const void * buf, size_t count) {
     return ret;
 }
 
-off_t sys_seek(int fd, off_t offset, int whence) {
-    int test = check_fd(fd);
+off_t seek_file(file_descriptor_t * file, off_t offset, int whence) {
+    int test = check_file(file);
     if (test != 0) return test;
 
-    file_descriptor_t * file = current_process->fds[fd];
+    if (I_ISDIR(file->inode->mode)) return EISDIR;
 
     switch (whence) {
         case SEEK_SET:
@@ -177,11 +174,33 @@ off_t sys_seek(int fd, off_t offset, int whence) {
     return ret;
 }
 
+ssize_t sys_read(int fd, void * buf, size_t count) {
+    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return EBADF;
+
+    file_descriptor_t * file = current_process->fds[fd];
+
+    return read_file(file, buf, count);
+}
+
+ssize_t sys_write(int fd, const void * buf, size_t count) {
+    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return EBADF;
+
+    file_descriptor_t * file = current_process->fds[fd];
+    return write_file(file, buf, count);
+}
+
+off_t sys_seek(int fd, off_t offset, int whence) {
+    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return EBADF;
+
+    file_descriptor_t * file = current_process->fds[fd];
+    
+    return seek_file(file, offset, whence);
+}
+
 
 int sys_dup(int oldfd) {
-    int test = check_fd(oldfd);
-    if (test != 0) return test;
-    
+    if (oldfd < 0 || oldfd >= FD_LIMIT_PROCESS) return EBADF;
+
     spinlock_acquire(&kernel_fd_lock);
     int fd = -1;
     for (int i = 0; i < FD_LIMIT_PROCESS; i++) {
@@ -205,16 +224,13 @@ int sys_dup(int oldfd) {
 }
 
 int sys_dup2(int oldfd, int newfd) {
-    int test = check_fd(oldfd);
-    if (test != 0) return test;
-    
-    test = check_fd(newfd);
-    if (test != 0) {
-        if (newfd < 0 || newfd >= FD_LIMIT_PROCESS) return EBADF;
-    } 
+    if (oldfd < 0 || oldfd >= FD_LIMIT_PROCESS) return EBADF;
+    if (newfd < 0 || newfd >= FD_LIMIT_PROCESS) return EBADF;
+
     spinlock_acquire(&kernel_fd_lock);
 
-    if (test == 0) { // close the fd
+    if (current_process->fds[newfd] == 0) { // close the fd
+        kassert(check_file(current_process->fds[newfd]) == 0);
         __atomic_sub_fetch(&current_process->fds[newfd]->instances, 1, __ATOMIC_RELAXED);
         if (current_process->fds[newfd]->instances == 0) 
             __atomic_sub_fetch(&current_process->fds[newfd]->inode->instances, 1, __ATOMIC_RELAXED);

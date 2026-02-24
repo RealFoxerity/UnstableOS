@@ -33,53 +33,61 @@ size_t fmt_handler_printf(const char * s, va_list * args) { // caller has to cal
         case '%':
             fmt_buf[0] = '%';
             fmt_buf[1] = '\0';
-            return padding_delta+1;
+            break;
         case 'u':
         case 'd':
+            dec:
             if (*s == 'u') itoaud(va_arg(*args, uint32_t), fmt_buf);
             else itoad(va_arg(*args, uint32_t), fmt_buf);
-            
-            if (padding >= 0 && padding <= strlen(fmt_buf)) return padding_delta + 1; // nothing to pad
-            if (padding < 0 && -padding <= strlen(fmt_buf)) return padding_delta + 1;
-
-            if (padding > (long)strlen(fmt_buf)) {
-                if (padding + strlen(fmt_buf) + 1 > PRINTF_MAX_FORMAT_OUT) 
-                    padding = PRINTF_MAX_FORMAT_OUT - strlen(fmt_buf) - 1;
-
-                int old_len = strlen(fmt_buf);
-                memmove(fmt_buf+padding-old_len, fmt_buf, old_len+1);
-                memset(fmt_buf, zerofill?'0':' ', padding-old_len);
-            }
-            else if (-padding > (long)strlen(fmt_buf)) {
-                padding = -padding;
-                if (padding + strlen(fmt_buf) + 1 > PRINTF_MAX_FORMAT_OUT) 
-                    padding = PRINTF_MAX_FORMAT_OUT - strlen(fmt_buf) - 1;
-                
-                fmt_buf[padding] = '\0';
-                memset(fmt_buf+strlen(fmt_buf), zerofill?'0':' ', padding-strlen(fmt_buf));
-            }
-            return padding_delta+1;
+            break;
         case 'h':
-            if (!(*(s+1) == 'x' || (*(s+1) == 'h' && *(s+2) == 'x'))) {
-                strcpy(fmt_buf, "INV_SPEC");
-                return padding_delta+1;
-            }
+            if (!(*(s+1) == 'x' || (*(s+1) == 'h' && *(s+2) == 'x'))) goto inv_spec;
             if (*(s+1) == 'h') ctoax(va_arg(*args, int), fmt_buf); // int because minimum argument is always int
             else stoax(va_arg(*args, int), fmt_buf);
             fmt_buf[*(s+1) == 'h'?2:4] = '\0';
-            return padding_delta + ((*(s+1) == 'h')?3:2);
+            padding_delta += ((*(s+1) == 'h')?2:1);
+            break;
+        case 'p':
+            temp_ptr = va_arg(*args, void*);
+            if (temp_ptr == NULL) {
+                strcpy(fmt_buf, "(nil)");
+                break;
+            }
+            itoax((unsigned long)temp_ptr, fmt_buf);
+            fmt_buf[8] = '\0';
+            break;
         case 'x':
+            hex:
             itoax(va_arg(*args, uint32_t), fmt_buf);
             fmt_buf[8] = '\0';
-            return padding_delta+1;
-        case 'l':
-            if (*(s+1) != 'x') {
-                strcpy(fmt_buf, "INV_SPEC");
-                return padding_delta+1;
+            break;
+        case 'l': // explicitily 32+ bit numbers
+            // since we do 32 bits by default, ld lu lx is the same as d u x
+            s++;
+            padding_delta++;
+            switch (*s) {
+                case 'x':
+                    goto hex;
+                case 'd':
+                case 'u':
+                    goto dec;
+                case 'l': // 64 bit ints
+                    s++;
+                    padding_delta++;
+                    switch (*s) {
+                        case 'x': // 64 bit 
+                            i64toax(va_arg(*args, uint64_t), fmt_buf);
+                            fmt_buf[16] = '\0';
+                            break;
+                        case 'd':
+                        case 'u':
+                            goto dec; // TODO: bigger ints?
+                        default: goto inv_spec;
+                    }
+                    break;
+                default: goto inv_spec;
             }
-            i64toax(va_arg(*args, uint64_t), fmt_buf);
-            fmt_buf[16] = '\0';
-            return padding_delta+2;        
+            break;
         //case 's': // has to be handled by the specific printf call
         //    temp_ptr = va_arg(args, const char *);
         //    if (-padding > (long)strlen(fmt_buf)) { // only doing right-side padding
@@ -91,13 +99,36 @@ size_t fmt_handler_printf(const char * s, va_list * args) { // caller has to cal
         case 'c':
             fmt_buf[0] = va_arg(*args, int);
             fmt_buf[1] = '\0';
-            return padding_delta+1;
-        default:
-            strcpy(fmt_buf, "INV_SPEC");
-            return padding_delta+1;
+            break;
+        // TODO: add float, double
+        default: goto inv_spec;
     }
 
-    return 0;
+    // pad
+    if (padding >= 0 && padding <= strlen(fmt_buf)) return padding_delta + 1; // nothing to pad
+    if (padding < 0 && -padding <= strlen(fmt_buf)) return padding_delta + 1;
+
+    if (padding > (long)strlen(fmt_buf)) {
+        if (padding + strlen(fmt_buf) + 1 > PRINTF_MAX_FORMAT_OUT) 
+            padding = PRINTF_MAX_FORMAT_OUT - strlen(fmt_buf) - 1;
+
+        int old_len = strlen(fmt_buf);
+        memmove(fmt_buf+padding-old_len, fmt_buf, old_len+1);
+        memset(fmt_buf, zerofill?'0':' ', padding-old_len);
+    }
+    else if (-padding > (long)strlen(fmt_buf)) {
+        padding = -padding;
+        if (padding + strlen(fmt_buf) + 1 > PRINTF_MAX_FORMAT_OUT) 
+            padding = PRINTF_MAX_FORMAT_OUT - strlen(fmt_buf) - 1;
+        
+        fmt_buf[padding] = '\0';
+        memset(fmt_buf+strlen(fmt_buf), zerofill?'0':' ', padding-strlen(fmt_buf));
+    }
+    return padding_delta + 1;
+
+    inv_spec:
+    strcpy(fmt_buf, "INV_SPEC");
+    return padding_delta+1;
 }
 
 void __attribute__((format(printf, 1, 2))) printf(const char * format, ...) {

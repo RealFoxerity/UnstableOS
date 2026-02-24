@@ -20,4 +20,8 @@
 #define ENFILE -17 // system fd limit reached
 #define EFBIG -18 // write offset exceeds maximum file size in files that cannot be grown, note that offset equal to file size returns EOF
 #define ENOTDIR -19
+#define EISDIR -20
+#define ENOMEM -21
+#define EROFS -22
+#define ENOEXEC -23
 #endif

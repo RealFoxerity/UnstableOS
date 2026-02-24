@@ -8,8 +8,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// TODO: rewrite to allow sparse allocation (don't allocate the entire thing, handle page faults)
-
 spinlock_t memdisk_lock = {0};
 memdisk_t memdisks[MEMDISK_LIMIT_KERNEL] = {0};
 
@@ -77,7 +75,7 @@ dev_t memdisk_from_range(void * vaddr, size_t n) {
     memdisks[new_memdisk].start_addr = vaddr;
     memdisks[new_memdisk].size = n;
     spinlock_release(&memdisk_lock);
-    kprintf("Mapped a new memdisk vaddr 0x%x - 0x%x maj %d min %d\n", vaddr, vaddr+n, DEV_MAJ_MEM, DEV_MEM_MEMDISK0 + new_memdisk);
+    kprintf("Mapped a new memdisk vaddr 0x%p - 0x%p maj %d min %d\n", vaddr, vaddr+n, DEV_MAJ_MEM, DEV_MEM_MEMDISK0 + new_memdisk);
     return GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0 + new_memdisk);
 }
 

@@ -10,6 +10,7 @@ void srand(uint32_t seed);
 long syscall(unsigned long syscall_number, ...);
 void __attribute__((noreturn)) exit(long exit_code);
 void __attribute__((noreturn)) abort();
+int exec(const char * path);
 
 #define assert(cond) {\
     if (!(cond)) {\

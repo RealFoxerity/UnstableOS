@@ -61,15 +61,15 @@ static void print_segment_selector_error(unsigned long error) {
             kprintf("IDT ");
             break;
     }
-    kprintf("index %d\n", (error >> 3)&((1<<13)-1));
+    kprintf("index %lu\n", (error >> 3)&((1<<13)-1));
 }
 
 static void print_segment(unsigned long segment) {
-    kprintf("segment %s index %d priv level %d\n", segment&4?"LDT":"GDT", (segment&0xFFFF)>>3, segment&3);
+    kprintf("segment %s index %lu priv level %lu\n", segment&4?"LDT":"GDT", (segment&0xFFFF)>>3, segment&3);
 }
 
 static inline void print_eflags(uint32_t eflags) {
-    kprintf("(%x) ", eflags);
+    kprintf("(%lx) ", (unsigned long)eflags);
     if (eflags & IA_32_EFL_STATUS_CARRY) kprintf("CF ");
     if (eflags & IA_32_EFL_STATUS_PARITY) kprintf("PF ");
     if (eflags & IA_32_EFL_STATUS_ADJUST) kprintf("AF ");
@@ -90,12 +90,12 @@ static inline void print_eflags(uint32_t eflags) {
 }
 
 static inline void print_interr_frame(struct interr_frame * interr_frame) {
-    kprintf("EIP:\t%x\n", interr_frame->ip);
+    kprintf("EIP:\t%p\n", interr_frame->ip);
     kprintf("CS:\t");
     print_segment(interr_frame->cs);
     
     if ((interr_frame->cs & 3) != 0) { // interrupts don't push SS and SP when not changing ring level (0[kernel] -> 0[interrupt])
-        kprintf("ESP:\t%x\nSS:\t", interr_frame->sp);
+        kprintf("ESP:\t%p\nSS:\t", interr_frame->sp);
         print_segment(interr_frame->ss);
     }
     kprintf("EFLAGS:\t");
@@ -149,7 +149,7 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_bound_r
     kprintf("\n\n#### ISR: Bound index outside of range! ####\n\n");
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_invalid_opcode(struct interr_frame * interrupt_frame) {
-    kprintf("\n\n#### ISR: Tried to execute invalid opcode at %x! ####\n\n", interrupt_frame->ip);
+    kprintf("\n\n#### ISR: Tried to execute invalid opcode at %p! ####\n\n", interrupt_frame->ip);
     print_interr_frame(interrupt_frame);
 
     scheduler_print_process(current_process);
@@ -161,7 +161,7 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_invalid
         panic("Attempted to kill init!");
         __builtin_unreachable();
     } else {
-        kprintf("Terminating process\n", current_process->pid);
+        kprintf("Terminating process id %lu\n", current_process->pid);
         scheduler_print_process(current_process);
         current_thread->status = SCHED_CLEANUP;
     }    
@@ -252,7 +252,7 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_general
         panic("Attempted to kill init!");
         __builtin_unreachable();
     } else {
-        kprintf("Terminating process\n", current_process->pid);
+        kprintf("Terminating process id %lu\n", current_process->pid);
         current_thread->status = SCHED_CLEANUP;
     }
     vga_set_color(old_tty_color&0x0F, (old_tty_color&0xF0) >> 4);
@@ -295,7 +295,7 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_page_fa
     uint8_t old_tty_color = vga_get_color();
     vga_set_color(VGA_COLOR_LIGHT_RED, VGA_COLOR_BLACK);
 
-    kprintf("\n\n#### ISR: Segmentation fault - Invalid memory reference! ####\nTried to reference address %x\n", fault_address);
+    kprintf("\n\n#### ISR: Segmentation fault - Invalid memory reference! ####\nTried to reference address %p\n", fault_address);
     print_segment_selector_error(error);
     print_interr_frame(interrupt_frame);
 
@@ -349,7 +349,7 @@ __attribute__((interrupt, no_caller_saved_registers)) void general_fault_handler
     // tty_clear();
     vga_set_color(VGA_COLOR_BLACK, VGA_COLOR_LIGHT_RED);
 
-    kprintf("PANIC: UNREGISTERED CPU FAULT, ERR CODE %x\n", error);
+    kprintf("PANIC: UNREGISTERED CPU FAULT, ERR CODE %lx\n", error);
     
     vga_set_color(old_tty_color&0x0F, (old_tty_color&0xF0) >> 4);
 }

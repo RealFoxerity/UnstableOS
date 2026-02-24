@@ -187,9 +187,6 @@ struct program {
     void * start;
     void * stack;
     void * heap;
-    void * kernel_stack;
-    size_t kernel_stack_size; // allocated on the kernel's heap so we need to free it afterwards
-    // don't need size for the rest since destroying the address space automatically frees everything
 };
 
 void kernel_idle();

@@ -98,7 +98,7 @@ static char tar_add_cached_path(struct tar_node * root, const char * path, size_
         if (memcmp(off, checked->path_fragment, next_slash - off) != 0) goto next;
 
         if (is_path_end(next_slash)) {
-            kprintf("Path %s already exists!\n");
+            kprintf("Path %s already exists!\n", path);
             return -1;
         }
 
@@ -114,7 +114,7 @@ static char tar_add_cached_path(struct tar_node * root, const char * path, size_
 
         if (checked->inner == NULL) { // directory exists, but is empty
             if (!is_path_end(next_slash)) {
-                kprintf("Path fragment %s of %s requires non-existent subdirectory!\n");
+                kprintf("Path fragment %s of %s requires non-existent subdirectory!\n", off, path);
                 return -1;
             }
             init_folder:
@@ -156,10 +156,10 @@ int tar_load_fs(superblock_t * sb) {
     sb->data = create_new_node(root_path, root_path+1, 0, USTAR_DIRECTORY, 0);
     ((struct tar_node*)sb->data)->upper = sb->data;
 
-    int tar_fd = sb->fd;
+    file_descriptor_t * tar_fd = sb->fd;
 
-    off_t tarfs_size = sys_seek(tar_fd, 0, SEEK_END);
-    kprintf("tar fs size: %d\n", tarfs_size);
+    off_t tarfs_size = seek_file(tar_fd, 0, SEEK_END);
+    kprintf("tar fs size: %lu\n", tarfs_size);
     
     if (tarfs_size < sizeof(ustar_hdr)) {
         kprintf("Tar archive truncated!\n");
@@ -168,7 +168,7 @@ int tar_load_fs(superblock_t * sb) {
 
     ssize_t read_bytes = 0;
     ustar_hdr hdr = {0};
-    sys_seek(tar_fd, 0, SEEK_SET);
+    seek_file(tar_fd, 0, SEEK_SET);
 
     char nullblock_count = 0;
 
@@ -176,8 +176,8 @@ int tar_load_fs(superblock_t * sb) {
     kassert(path);
     memset(path, 0, MAX_PATH_TAR + 1);
 
-    while ((read_bytes = sys_read(tar_fd, &hdr, sizeof(ustar_hdr))) == sizeof(ustar_hdr)) {
-        ssize_t curr_offset = sys_seek(tar_fd, 0, SEEK_CUR);
+    while ((read_bytes = read_file(tar_fd, &hdr, sizeof(ustar_hdr))) == sizeof(ustar_hdr)) {
+        ssize_t curr_offset = seek_file(tar_fd, 0, SEEK_CUR);
 
         if (memcmp(hdr.ustar_magic, USTAR_MAGIC, sizeof(USTAR_MAGIC)-1) != 0 &&
             memcmp(hdr.ustar_magic, USTAR_MAGIC_ALT, sizeof(USTAR_MAGIC_ALT)-1) != 0
@@ -187,7 +187,7 @@ int tar_load_fs(superblock_t * sb) {
             nullblock_count ++;
             if (nullblock_count == 2) {
                 if (curr_offset != tarfs_size - 1)
-                    kprintf("Warning: Tar archive ends prematurely by %d bytes!\n", tarfs_size - curr_offset);
+                    kprintf("Warning: Tar archive ends prematurely by %lu bytes!\n", tarfs_size - curr_offset);
                 break;
             }
             continue;
@@ -209,7 +209,7 @@ int tar_load_fs(superblock_t * sb) {
             return -1;
         }
 
-        sys_seek(tar_fd, archive_length, SEEK_CUR);
+        seek_file(tar_fd, archive_length, SEEK_CUR);
     }
     return 0;
 }
@@ -297,7 +297,7 @@ ssize_t tarfs_read(file_descriptor_t * fd, void * buf, size_t n) {
     kassert(fd->inode->backing_superblock);
 
     superblock_t * sb = fd->inode->backing_superblock;
-    int tar_fd = sb->fd;
+    file_descriptor_t * tar_fd = sb->fd;
     struct tar_node * root = sb->data;
     struct tar_node * this = fd->inode->id;
 
@@ -310,8 +310,8 @@ ssize_t tarfs_read(file_descriptor_t * fd, void * buf, size_t n) {
 
     spinlock_acquire(&sb->lock); // so that we can't race for the file descriptor
     
-    sys_seek(tar_fd, this->record_offset + sizeof(ustar_hdr) + fd->off, SEEK_SET);
-    read = sys_read(tar_fd, buf, n); // read technically not needed here, but just in case
+    seek_file(tar_fd, this->record_offset + sizeof(ustar_hdr) + fd->off, SEEK_SET);
+    read = read_file(tar_fd, buf, n); // read technically not needed here, but just in case
 
     spinlock_release(&sb->lock);
 

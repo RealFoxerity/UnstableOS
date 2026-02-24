@@ -24,7 +24,7 @@ static inline void check_deadlock(sem_t * sem, process_t * pprocess) { // tested
                 panic("Init deadlocked");
                 __builtin_unreachable();
             } else {
-                kprintf("Process %d deadlocked, killing...\n", pprocess->pid);
+                kprintf("Process %lu deadlocked, killing...\n", pprocess->pid);
                 pprocess->threads->status = SCHED_CLEANUP;
                 reschedule();
             }

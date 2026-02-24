@@ -57,7 +57,7 @@ void * page_frame_alloc_init(multiboot_info_t* mbd, unsigned long free_memory, v
             }
         }
     }
-    kprintf("Managing %d pages from %x to %x\n", page_frame_table_entries, page_frame_table_start_addr, page_frame_table_start_addr+page_frame_table_entries*PAGE_SIZE_NO_PAE);
+    kprintf("Managing %lu pages from %p to %p\n", page_frame_table_entries, page_frame_table_start_addr, page_frame_table_start_addr+page_frame_table_entries*PAGE_SIZE_NO_PAE);
 
     return page_frame_table_start_addr + page_frame_table_entries;
 }

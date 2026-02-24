@@ -76,7 +76,7 @@ static inline char * secure_strdup(const char * path, size_t max_len, size_t *le
 
 #define MOUNT_STACK_LEN 128 // 128 mountpoint depth before giving up
 
-int sys_open(const char * path, unsigned short mode) {
+int sys_open(const char * path, unsigned short flags, unsigned short mode) {
     kassert(root_mountpoint);
     int ret = -1;
 
@@ -141,9 +141,24 @@ int sys_open(const char * path, unsigned short mode) {
         if (*next_slash == '\0') last_fragment = 1;
         *next_slash = '\0';
         
+        if (last_fragment) {
+            if (sb->mount_options & MOUNT_RDONLY && mode & O_WRONLY) {
+                if (prev != NULL) close_inode(prev);
+                ret = EROFS;
+                goto err;
+            }
+        }
         new = sb->funcs->lookup(sb, prev, final_path);
 
         if (new == VFS_LOOKUP_NOTFOUND) {
+            if (last_fragment && 
+                sb->funcs->create != NULL && 
+                !(sb->mount_options & O_RDONLY))
+            {
+                new = sb->funcs->create(sb, prev, final_path, mode);
+                if (prev != NULL) close_inode(prev);
+                break;
+            }
             if (prev != NULL) close_inode(prev);
             ret = ENOENT;
             goto err;
@@ -164,7 +179,7 @@ int sys_open(const char * path, unsigned short mode) {
         }
         if (new->is_mountpoint) {
             if (sb_stack_tail + 1 >= MOUNT_STACK_LEN) {
-                kprintf("Reached mountpoint depth of %u while resolving %s, giving up and returning ENOENT\n", sb_stack_tail, dup_path);
+                kprintf("Reached mountpoint depth of %lu while resolving %s, giving up and returning ENOENT\n", sb_stack_tail, dup_path);
                 if (prev != NULL) close_inode(prev);
                 close_inode(new);
                 ret = ENOENT;
@@ -207,7 +222,7 @@ int sys_open(const char * path, unsigned short mode) {
     }
 
     file->inode = new;
-    file->mode = mode;
+    file->mode = flags;
     current_process->fds[fd] = file;
     ret = fd;
     spinlock_release(&kernel_fd_lock);

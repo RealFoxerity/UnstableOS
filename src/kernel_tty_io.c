@@ -338,7 +338,7 @@ ssize_t tty_read(dev_t dev, char * s, size_t n) {
                 (tty->params.control_chars[TCC_VEOF] != _POSIX_VDISABLE && out == tty->params.control_chars[TCC_VEOF]) || 
                 (tty->params.control_chars[TCC_VEOL] != _POSIX_VDISABLE && out == tty->params.control_chars[TCC_VEOL]))) {
                     tty->read_remaining = 0;
-                    return i-s;
+                    return i-s + 1;
                 }
     }
     tty->read_remaining = 0;
