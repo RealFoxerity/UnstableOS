@@ -38,7 +38,7 @@ long mount_root(dev_t dev, unsigned char type, unsigned short options) {
     kassert(root_superblock);
 
     root_superblock->device = dev;
-    root_superblock->fd = device_fd;
+    root_superblock->fd = current_process->fds[device_fd];
     root_superblock->mount_options = options;
     root_superblock->fs_type = type;
 

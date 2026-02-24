@@ -47,6 +47,7 @@ struct vfs_ops {
     int (*unlink)    (superblock_t * sb, const char * pathname);
     int (*rmdir)     (superblock_t * sb, const char * pathname);
 
+    inode_t*(*create)(superblock_t * sb, inode_t * parent, const char * pathname, unsigned short mode);
     //int (*readdir) (int fd, struct directory_entry * dirent, unsigned int count);
 };
 

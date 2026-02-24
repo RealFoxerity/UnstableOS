@@ -1,5 +1,6 @@
 #include <stdint.h>
 
+#include "include/kernel_exec.h"
 #include "include/kernel_interrupts.h"
 #include "include/kernel.h"
 #include "../libc/src/include/string.h"
@@ -96,17 +97,17 @@ long kernel_syscall_dispatcher(struct interr_frame * interrupt_frame, enum sysca
             kernel_create_thread(current_process, (void*)arg1, (void*)arg2); // theoretically don't have to check bounds since they would just cause a segmentation fault
             break;
         case SYSCALL_EXIT_THREAD: // returns exitcode
-            kprintf("thread %d of process %d called thread_exit()\n", current_thread->tid, current_process->pid);
+            kprintf("thread %lu of process %lu called thread_exit()\n", current_thread->tid, current_process->pid);
             current_thread->status = SCHED_THREAD_CLEANUP;
             reschedule();
             asm volatile ("jmp kernel_idle");
             break;
 
         case SYSCALL_EXIT: // returns exitcode
-            kprintf("process called exit(%d)\n", arg1);
+            kprintf("process called exit(%lu)\n", arg1);
             current_process->exitcode = arg1;
         case SYSCALL_ABORT:
-            if (syscall_number == SYSCALL_ABORT) kprintf("Thread %d of process %d called abort()!\n", current_thread->tid, current_process->pid); // so that we can keep the fall-through for syscall_exit
+            if (syscall_number == SYSCALL_ABORT) kprintf("Thread %lu of process %lu called abort()!\n", current_thread->tid, current_process->pid); // so that we can keep the fall-through for syscall_exit
             current_thread->status = SCHED_CLEANUP;
             reschedule();
             asm volatile ("jmp kernel_idle");
@@ -184,7 +185,7 @@ long kernel_syscall_dispatcher(struct interr_frame * interrupt_frame, enum sysca
                 break;
             }
             if (!current_process->semaphores[arg1].used) {
-                kprintf("Called sem_wait on invalid (unused) semaphore (%d)\n", arg1);
+                kprintf("Called sem_wait on invalid (unused) semaphore (%lu)\n", arg1);
 
                 return_value = EINVAL;
                 break;
@@ -224,18 +225,21 @@ long kernel_syscall_dispatcher(struct interr_frame * interrupt_frame, enum sysca
         case SYSCALL_OPEN:
             asm volatile ("sti;");
             // it is up to sys_open to securely copy the path (arg1)
-            return_value = sys_open((const char *)arg1, arg2);
+            return_value = sys_open((const char *)arg1, arg2, arg3);
             break;
         case SYSCALL_CLOSE:
             asm volatile ("sti;");
             return_value = sys_close(arg1);
+            break;
+        case SYSCALL_EXEC:
+            asm volatile ("sti;");
+            return_value = sys_exec((const char *)arg1);
             break;
         case SYSCALL_MKDIR:
         case SYSCALL_UNLINK:
         case SYSCALL_STAT:
         case SYSCALL_BRK:
         case SYSCALL_SBRK:
-        case SYSCALL_EXEC:
         case SYSCALL_KILL:
         default: 
             return_value = ENOSYS;

@@ -36,4 +36,15 @@ char isalnum(char c) {
     if (isdigit(c) || isalpha(c)) return 1;
     return 0;
 }
-
+char isspace(char c) {
+    switch (c) {
+        default: return 0;
+        case ' ':
+        case '\f':
+        case '\n':
+        case '\r':
+        case '\t':
+        case '\v':
+            return 1;
+    }
+}

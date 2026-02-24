@@ -20,6 +20,7 @@
 spinlock_t scheduler_lock = {0};
 
 // TODO: This scheduler implementation assumes ALL kernel stacks are inside kernel's address space, redo to not be so
+// if fixing stacks, fix kernel_exec.c
 // this also means that any and all ring 0 threads'/processes' stacks HAVE to be mapped into the kernel's address space
 // because they do not jump into a special kernel stack, context would end up somewhere where we don't have access after
 // a address space change
@@ -85,9 +86,9 @@ static inline void scheduler_init_idle_task() {
 }
 
 void print_registers(const context_t * context) {
-    kprintf("eax %x\nebx %x\necx %x\nedx %x\nedi %x\nesi %x\n", context->eax, context->ebx, context->ecx, context->edx, context->edi, context->esi);
-    kprintf("esp (gregs) %x\nesp (iret) %x\nebp %x\neip %x\nefl %x\n", context->esp, context->iret_frame.sp, context->ebp, context->iret_frame.ip, context->iret_frame.flags);
-    kprintf("ss %x\ncs %x\n", context->iret_frame.ss, context->iret_frame.cs);
+    kprintf("eax %lx\nebx %lx\necx %lx\nedx %lx\nedi %lx\nesi %lx\n", context->eax, context->ebx, context->ecx, context->edx, context->edi, context->esi);
+    kprintf("esp (gregs) %p\nesp (iret) %p\nebp %p\neip %p\nefl %lx\n", context->esp, context->iret_frame.sp, context->ebp, context->iret_frame.ip, context->iret_frame.flags);
+    kprintf("ss %lx\ncs %lx\n", context->iret_frame.ss, context->iret_frame.cs);
 }
 
 void scheduler_print_processes() {
@@ -96,7 +97,7 @@ void scheduler_print_processes() {
     while (printed != NULL) {
         printed_thread = printed->threads;
         while (printed_thread != NULL) {
-            kprintf("pid %8d, tid %d, cr3 %x, eip %x, kernel esp %x, process esp %x, state %d, command %s\n", 
+            kprintf("pid %8lu, tid %lu, cr3 %p, eip %p, kernel esp %p, process esp %p, state %d, command %s\n", 
             printed->pid, printed_thread->tid, printed->address_space_vaddr, printed_thread->context.iret_frame.ip, printed_thread->context.esp, printed_thread->context.iret_frame.sp, printed_thread->status,
             printed->argc > 0?(printed->argv != NULL ? (printed->argv[0] != NULL ? printed->argv[0]:"(nil)"):"(nil)"):"(nil)");
 
@@ -109,13 +110,13 @@ void scheduler_print_processes() {
 void scheduler_print_process(const process_t * process) {
     kprintf("\
 Prog:\t%s\n\
-PID:\t%d\n\
-PPID:\t%d\n\
+PID:\t%lu\n\
+PPID:\t%lu\n\
 CPL:\t%d\n\
-UID:\t%d\n\
-GID:\t%d\n\
+UID:\t%lu\n\
+GID:\t%lu\n\
 Sigs:\t%x\n\
-TID:\t%d\n",
+TID:\t%lu\n",
 //Saved Context:\n",
     (process->argv!=NULL?(process->argv[0] != NULL?process->argv[0]:"(nil)"):"(nil)"), process->pid, process->ppid, process->ring, process->uid,
     process->gid, process->signal, current_thread->tid);
@@ -190,16 +191,12 @@ static inline void push_thread_to_end(process_t * pprocess, thread_t * thread) {
 }
 
 
-void scheduler_add_process(struct program program, uint8_t ring) {
+void scheduler_add_process(struct program program, uint8_t ring) { // called for the very first process
     if (process_list == NULL) panic("Called scheduler_add_process() before scheduler was initialized!");
 
     process_t * process = kalloc(sizeof(process_t));
     if (process == NULL) panic("Failed to allocate memory for process struct\n");
     memset(process, 0, sizeof(process_t));
-
-    process->threads = kalloc(sizeof(thread_t));
-    if (process->threads == NULL) panic("Failed to allocate memory for thread struct");
-    memset(process->threads, 0, sizeof(thread_t));
 
     process->ring = ring;
     process->pid = ++last_pid;
@@ -209,33 +206,15 @@ void scheduler_add_process(struct program program, uint8_t ring) {
     process->session = current_process->session;
 
     process->address_space_vaddr = program.pd_vaddr;
-    process->threads->kernel_stack = program.kernel_stack;
-    process->threads->kernel_stack_size = program.kernel_stack_size;
-    process->threads->cr3_state = paging_virt_addr_to_phys(process->address_space_vaddr);
 
-    process->thread_stacks[0] = 1; // the base program stack
-
-    process->threads->context.esp = process->threads->kernel_stack; // ESP will is the interrupt value, iret_frame.sp is the program stack
-    process->threads->context.iret_frame.sp = program.stack;
-    process->threads->status = SCHED_RUNNABLE;
-    
-    process->threads->context.iret_frame.ip = program.start;
-    
-    process->threads->context.iret_frame.flags = IA_32_EFL_SYSTEM_INTER_EN | IA_32_EFL_ALWAYS_1;
-    
-    if (ring == 3) {
-        process->threads->context.iret_frame.cs = (GDT_USER_CODE << 3) | 3;
-        process->threads->context.iret_frame.ss = (GDT_USER_DATA << 3) | 3;
-    } else {
-        process->threads->context.iret_frame.cs = GDT_KERNEL_CODE << 3;
-        process->threads->context.iret_frame.ss = GDT_KERNEL_DATA << 3;
-    }
-
-    process->threads->prev = process->threads;
+    paging_apply_address_space(paging_virt_addr_to_phys(program.pd_vaddr));
+    kernel_create_thread(process, program.start, NULL);
 
     spinlock_acquire(&kernel_fd_lock);
-    memcpy(process->fds, current_process->fds, sizeof(current_process->fds));
-    for (int i = 0; i < FD_LIMIT_PROCESS; i++) {
+    //memcpy(process->fds, current_process->fds, sizeof(current_process->fds));
+    memcpy(process->fds, current_process->fds, sizeof(struct file_descriptor_t *) * 3);
+    //for (int i = 0; i < FD_LIMIT_PROCESS; i++) {
+    for (int i = 0; i <= STDERR; i++) { // TODO: fix when implementing O_CLOEXEC
         if (process->fds[i] != NULL) __atomic_add_fetch(&process->fds[i]->instances, 1, __ATOMIC_RELAXED);
     }
     spinlock_release(&kernel_fd_lock);
@@ -368,6 +347,7 @@ void signal_process_group(pid_t process_group, unsigned short signal) {
 }
 
 void schedule(context_t * context) {
+    if (scheduler_lock.state == SPINLOCK_LOCKED) return;
     spinlock_acquire_nonreentrant(&scheduler_lock);
     if (__builtin_expect(registering_kernel_task, 0)) {
         registering_kernel_task = 0;

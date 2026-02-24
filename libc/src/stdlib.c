@@ -37,3 +37,7 @@ void abort() {
     syscall(SYSCALL_ABORT);
     __builtin_unreachable();
 }
+
+int exec(const char * path) {
+    return syscall(SYSCALL_EXEC, path);
+}

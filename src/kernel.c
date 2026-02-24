@@ -54,7 +54,7 @@ struct interrupt_gate_descriptor {
 } __attribute__((packed))__;
 
 void kernel_entry_addr_log() {
-    kprintf("Kernel loaded at physical address from 0x%x to 0x%x\n", &_kernel_base, &_kernel_top);
+    kprintf("Kernel loaded at physical address from 0x%p to 0x%p\n", &_kernel_base, &_kernel_top);
 }
 
 #define CPUID_PROCESSOR_LIST_LEN 0x21
@@ -115,7 +115,7 @@ void kernel_print_cpu_info() {
     memcpy(vendor_id+8, &vendor3, 4);
     vendor_id[12] = 0;
 
-    kprintf("CPU info:\nRunning %s\nMax CPUID func 0x%x, ext 0x%x\n", vendor_id, largest_supported, largest_supported_ext);
+    kprintf("CPU info:\nRunning %s\nMax CPUID func 0x%lx, ext 0x%lx\n", vendor_id, largest_supported, largest_supported_ext);
 
 // not checking max supported CPUID, because a) if we boot with grub, this becomes 0 for some reason, and b) what we are testing is below the minimal supported anyway
 
@@ -144,13 +144,13 @@ void kernel_print_cpu_info() {
         } else goto unknown_name;
     } else {
         unknown_name:
-        kprintf("Family: %hhx ", CPUID_1_GET_FAMILY(cpu_signature));
+        kprintf("Family: %hhx ", (char)CPUID_1_GET_FAMILY(cpu_signature));
     }
 
     if (CPUID_1_GET_FAMILY(cpu_signature) == 15 || CPUID_1_GET_FAMILY(cpu_signature) == 6) {
-        kprintf("Model: %x ", (CPUID_1_GET_EXT_MODEL(cpu_signature)<<4) + CPUID_1_GET_MODEL(cpu_signature));
+        kprintf("Model: %lx ", (CPUID_1_GET_EXT_MODEL(cpu_signature)<<4) + CPUID_1_GET_MODEL(cpu_signature));
     } else {
-        kprintf("Model: %hhx ", CPUID_1_GET_MODEL(cpu_signature));
+        kprintf("Model: %hhx ", (char)CPUID_1_GET_MODEL(cpu_signature));
     }
     switch (CPUID_1_GET_TYPE(cpu_signature)) {
         case 0:
@@ -165,7 +165,7 @@ void kernel_print_cpu_info() {
         case 3:
             kprintf("UNK ");
     }
-    kprintf("rev %d\n", CPUID_1_GET_STEPPING(cpu_signature));
+    kprintf("rev %lu\n", CPUID_1_GET_STEPPING(cpu_signature));
 
 
     if (largest_supported_ext >= CPUID_VENDOR_FULL_3) {
@@ -194,7 +194,7 @@ void kernel_print_cpu_info() {
     }
 
     if (CPUID_1_FFLAGS_D_GET_HTT(cpu_feature_flags_1)) {
-        kprintf("Kernel: Hyper-threading enabled\n\t%d logical processors installed\n", CPUID_1_GET_ADD_LOGICAL_PROC(cpu_additional_features));
+        kprintf("Kernel: Hyper-threading enabled\n\t%lu logical processors installed\n", CPUID_1_GET_ADD_LOGICAL_PROC(cpu_additional_features));
     } else kprintf("Kernel: Hyper-threading not enabled\n");
 }
 
@@ -235,7 +235,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
         panic("Bootloader didn't return valid physical memory map!");
     }
 
-    kprintf("Kernel cmdline: %s\n", mbd->cmdline);
+    kprintf("Kernel cmdline: %s\n", (char*)mbd->cmdline);
 
     if (mbd->mods_count > 0) {
         kprintf("Multiboot mods:\n");
@@ -243,7 +243,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
         if (mbd->mods_count > 1) kprintf("Multiple multiboot mods detected, assuming last is initrd\n");
         for (int i = 0; i < mbd->mods_count; i++) {
             if (mods[i].mod_end > boot_mem_top) boot_mem_top = mods[i].mod_end;
-            kprintf("mod %d 0x%x - 0x%x, cmdline %s\n", i, mods[i].mod_start, mods[i].mod_end, mods[i].cmdline);
+            kprintf("mod %d 0x%x - 0x%x, cmdline %s\n", i, mods[i].mod_start, mods[i].mod_end, (char*)mods[i].cmdline);
             initrd_start = (void*)mods[i].mod_start;
             initrd_len = mods[i].mod_end - mods[i].mod_start;
         }
@@ -254,7 +254,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     for (int i = 0; i < mbd->mmap_length; i+= sizeof(multiboot_memory_map_t)) {
         multiboot_memory_map_t* mmmt = (multiboot_memory_map_t*) (mbd->mmap_addr + i);
 
-        kprintf("Mem: 0x%lx - 0x%lx | Type: ", mmmt->addr, mmmt->addr + mmmt->len);
+        kprintf("Mem: 0x%llx - 0x%llx | Type: ", mmmt->addr, mmmt->addr + mmmt->len);
         
         switch (mmmt->type) {
             case MULTIBOOT_MEMORY_AVAILABLE:
@@ -290,7 +290,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
         }
     }
     kernel_mem_top = page_frame_alloc_init(mbd, total_usable, (void*)boot_mem_top);
-    kprintf("Kernel: Total usable RAM: %u bytes\n", pf_get_free_memory()); //total_usable);
+    kprintf("Kernel: Total usable RAM: %lu bytes\n", pf_get_free_memory()); //total_usable);
 
     // initialize basic stuff
     setup_paging(total_usable, boot_mem_top);
@@ -327,8 +327,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     mount_root(GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0), FS_TARFS, 0);
 
     int init_fd = -1;
-    init_fd = sys_open("/init", O_RDONLY);
-    kprintf("%d\n", init_fd);
+    init_fd = sys_open("/init", O_RDONLY, 0);
     
     if (init_fd < 0) panic("Couldn't find and run /init");
 

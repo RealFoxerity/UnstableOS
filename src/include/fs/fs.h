@@ -6,41 +6,12 @@
 #include "../kernel_spinlock.h"
 #include "../kernel.h"
 
-typedef ssize_t off_t; // TODO: when finally implementing errno, change to size_t instead of ssize_t
-
 #define FD_LIMIT_KERNEL 0x2000 // maximum amount of opened file descriptors kernel-wide, see FD_LIMIT_PROCESS
 #define INODE_LIMIT_KERNEL 0x1000 // maximum amount of opened files kernel-wide
 #define FS_LIMIT_KERNEL 0x100 // maximum amount of mounted file systems kernel-wide
 
-#define __ITMODE_MASK       0xF000
-#define __ITMODE_REG        0x1000
-#define __ITMODE_DIR        0x2000
-#define __ITMODE_BLK        0x4000
-#define __ITMODE_CHAR       0x8000
 
-#define __IPMODE_MASK       0x0FFF
-#define __IPMODE_O_READ     0x0001
-#define __IPMODE_O_WRITE    0x0002
-#define __IPMODE_O_EXEC     0x0004
-
-#define __IPMODE_G_READ     0x0010
-#define __IPMODE_G_WRITE    0x0020
-#define __IPMODE_G_EXEC     0x0040
-
-#define __IPMODE_U_READ     0x0100
-#define __IPMODE_U_WRITE    0x0200
-#define __IPMODE_U_EXEC     0x0400
-
-#define I_ISREG(mode) (((mode) & __ITMODE_MASK) == __ITMODE_REG)
-#define I_ISDIR(mode) (((mode) & __ITMODE_MASK) == __ITMODE_DIR)
-#define I_ISBLK(mode) (((mode) & __ITMODE_MASK) == __ITMODE_BLK)
-#define I_ISCHAR(mode) (((mode) & __ITMODE_MASK) == __ITMODE_CHAR)
-
-#define O_RDONLY 1
-#define O_WRONLY 2
-#define O_RDWR 3
-
-
+#include "../../../libc/src/include/stdio.h" // for off_t, modes and I_* macros
 
 // note that device fields here (except raw device inodes) are just for bookkeeping
 // the intended solution is for file system drivers to create a file descriptor
@@ -82,7 +53,7 @@ struct {
 // intended way of accessing superblocks and 
 struct superblock_t {
     dev_t device; // bookkeeping
-    int fd; // file descriptor belonging to the underlying device
+    file_descriptor_t * fd; // file descriptor belonging to the underlying device
 
     unsigned char fs_type; // no way we support >256 file systems, bookkeeping, alternatively, for kasserts in fs drivers
 
@@ -126,11 +97,22 @@ int open_raw_device(dev_t device, unsigned short mode); // locks file descriptor
 
 void inode_change_mode(inode_t * inode, unsigned char new_mode);
 
-int sys_open(const char * path, unsigned short mode);
-long sys_close(int fd);
+int sys_open(const char * path, unsigned short flags, unsigned short mode);
+int sys_close(int fd);
 ssize_t sys_read(int fd, void * buf, size_t count);
 ssize_t sys_write(int fd, const void * buf, size_t count);
 off_t sys_seek(int fd, off_t off, int whence);
+
+
+// because we want drivers' file objects to be file descriptors as well
+// and we don't want them in user processes,
+// we need separate functions for direct file_descriptor_t * operations
+// this is theoretically more dangerous as we can't completely get rid of the fd and there could be UAF
+// alternatively we could do message passing and deferring to the kernel but that's much harder
+
+ssize_t read_file(file_descriptor_t * file, void * buf, size_t count);
+ssize_t write_file(file_descriptor_t * file, const void * buf, size_t count);
+off_t seek_file(file_descriptor_t * file, off_t off, int whence);
 
 int sys_dup(int oldfd);
 int sys_dup2(int oldfd, int newfd);

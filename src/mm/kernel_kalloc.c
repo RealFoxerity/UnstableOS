@@ -139,21 +139,22 @@ void kfree(void * p) {
 }
 
 
+static void print_chunk_info(struct heap_header * header) {
+    kprintf("kalloc: Heap 0x%p - 0x%p, size %lx, prev: 0x%p, ", header, header->next_chunk, (unsigned long)header->next_chunk - (unsigned long)header - sizeof(struct heap_header), header->prev_chunk);
+    if (header->flags & KALLOC_CHUNK_USED) kprintf("U, ");
+    if (header->flags & KALLOC_FIRST_CHUNK) kprintf("FC, ");
+    if (header->flags & KALLOC_LAST_CHUNK) kprintf("LC, ");
+    kprintf("\n");
+}
+
 void kalloc_print_heap_objects() {
+    if (current_process) spinlock_acquire(&kalloc_lock);
     struct heap_header * current_heap_object = kernel_heap_base;
 
     while (!(current_heap_object->flags & KALLOC_LAST_CHUNK)) {
-        kprintf("kalloc: Heap 0x%x - 0x%x, size %x, prev: 0x%x, ", current_heap_object, current_heap_object->next_chunk, (unsigned long)current_heap_object->next_chunk - (unsigned long)current_heap_object - sizeof(struct heap_header), current_heap_object->prev_chunk);
-        if (current_heap_object->flags & KALLOC_CHUNK_USED) kprintf("U, ");
-        if (current_heap_object->flags & KALLOC_FIRST_CHUNK) kprintf("FC, ");
-        if (current_heap_object->flags & KALLOC_LAST_CHUNK) kprintf("LC, ");
-        kprintf("\n");
+        print_chunk_info(current_heap_object);
         current_heap_object = current_heap_object->next_chunk;
     }
-    
-    kprintf("kalloc: Heap 0x%x - 0x%x, size %x, prev: 0x%x, ", current_heap_object, current_heap_object->next_chunk, (unsigned long)current_heap_object->next_chunk - (unsigned long)current_heap_object - sizeof(struct heap_header), current_heap_object->prev_chunk);
-    if (current_heap_object->flags & KALLOC_CHUNK_USED) kprintf("U, ");
-    if (current_heap_object->flags & KALLOC_FIRST_CHUNK) kprintf("FC, ");
-    if (current_heap_object->flags & KALLOC_LAST_CHUNK) kprintf("LC, ");
-    kprintf("\n");
+    print_chunk_info(current_heap_object);
+    if (current_process) spinlock_release(&kalloc_lock);
 }

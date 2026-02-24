@@ -10,7 +10,7 @@
 
 struct program load_elf(int elf_fd) { // returns VIRTUAL address of page directory for the elf's new address space
     ssize_t elf_size = sys_seek(elf_fd, 0, SEEK_END);
-    kprintf("size: %u\n", elf_size);
+    kprintf("size: %lu\n", elf_size);
     if (elf_size < 0) return (struct program){0};
     // assumes kernel's address space (aka. data available in all address spaces)
     // assumes program and thread stacks are above heap, and that the program cannot load anything between the heap and stacks
@@ -70,17 +70,12 @@ struct program load_elf(int elf_fd) { // returns VIRTUAL address of page directo
     }
     enable_wp();
     kfree(copy_buffer);
-    
-    paging_map_to_address_space(address_space, PROGRAM_STACK_VADDR-PROGRAM_STACK_SIZE, PROGRAM_STACK_SIZE, PTE_PDE_PAGE_WRITABLE | PTE_PDE_PAGE_USER_ACCESS);
-    paging_map_to_address_space(address_space, PROGRAM_HEAP_VADDR, PROGRAM_HEAP_START_SIZE, PTE_PDE_PAGE_WRITABLE | PTE_PDE_PAGE_USER_ACCESS);
 
     return (struct program) {
         .pd_vaddr = address_space,
         .start = (void *)(unsigned long)ehdr.program_entry_offset,
         .stack = PROGRAM_STACK_VADDR,
         .heap = PROGRAM_HEAP_VADDR,
-        .kernel_stack = kalloc(PROGRAM_KERNEL_STACK_SIZE)+PROGRAM_KERNEL_STACK_SIZE,
-        .kernel_stack_size = PROGRAM_KERNEL_STACK_SIZE,
     };
 }
 

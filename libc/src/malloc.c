@@ -134,24 +134,23 @@ void free(void * p) {
     mutex_unlock(allocator_mutex);
 }
 
+static void print_chunk_info(struct malloc_heap_header * header) {
+    printf("malloc: Heap 0x%p - 0x%p, size %lx, prev: 0x%p, ", header, header->next_chunk, (unsigned long)header->next_chunk - (unsigned long)header - sizeof(struct malloc_heap_header), header->prev_chunk);
+    if (header->flags & MALLOC_CHUNK_USED) printf("U, ");
+    if (header->flags & MALLOC_FIRST_CHUNK) printf("FC, ");
+    if (header->flags & MALLOC_LAST_CHUNK) printf("LC, ");
+    printf("\n");
+}
 
 void malloc_print_heap_objects() {
     mutex_lock(allocator_mutex);
     struct malloc_heap_header * current_heap_object = heap_base;
 
     while (!(current_heap_object->flags & MALLOC_LAST_CHUNK)) {
-        printf("malloc: Heap 0x%x - 0x%x, size %x, prev: 0x%x, ", current_heap_object, current_heap_object->next_chunk, (unsigned long)current_heap_object->next_chunk - (unsigned long)current_heap_object - sizeof(struct malloc_heap_header), current_heap_object->prev_chunk);
-        if (current_heap_object->flags & MALLOC_CHUNK_USED) printf("U, ");
-        if (current_heap_object->flags & MALLOC_FIRST_CHUNK) printf("FC, ");
-        if (current_heap_object->flags & MALLOC_LAST_CHUNK) printf("LC, ");
-        printf("\n");
+        print_chunk_info(current_heap_object);
         current_heap_object = current_heap_object->next_chunk;
     }
     
-    printf("malloc: Heap 0x%x - 0x%x, size %x, prev: 0x%x, ", current_heap_object, current_heap_object->next_chunk, (unsigned long)current_heap_object->next_chunk - (unsigned long)current_heap_object - sizeof(struct malloc_heap_header), current_heap_object->prev_chunk);
-    if (current_heap_object->flags & MALLOC_CHUNK_USED) printf("U, ");
-    if (current_heap_object->flags & MALLOC_FIRST_CHUNK) printf("FC, ");
-    if (current_heap_object->flags & MALLOC_LAST_CHUNK) printf("LC, ");
-    printf("\n");
+    print_chunk_info(current_heap_object);
     mutex_unlock(allocator_mutex);
 }

@@ -36,7 +36,7 @@ void flush_tlb_entry(void * vaddr) {
 }
 
 void print_page_table_entry(const void * pte) {
-    dkprintf("PTE at %x: phys addr %x | Flags: ", pte, *(uint32_t*)pte & (~(PAGE_SIZE_NO_PAE-1)));
+    dkprintf("PTE at %p: phys addr %lx | Flags: ", pte, *(unsigned long*)pte & (~(PAGE_SIZE_NO_PAE-1)));
 
     if ( *(uint32_t*)pte & PTE_PDE_PAGE_PRESENT) {
         kprintf("Present, ");
@@ -85,7 +85,9 @@ void paging_map_phys_addr(void * src_phys_addr, void * target_virt_addr, unsigne
     uint32_t page_table_idx = (uint32_t)target_virt_addr >> 12 & (PAGE_TABLE_ENTRIES - 1);
 
     if (page_table[page_table_idx] & PTE_PDE_PAGE_PRESENT) {
-        dkprintf("Attempted mapping address 0x%x to already used virtual address 0x%x; pdidx: %x, ptidx: %x\nContents of page table:\n", src_phys_addr, target_virt_addr, (uint32_t)target_virt_addr >> 22, page_table_idx);
+        dkprintf("Attempted mapping address 0x%p to already used virtual address 0x%p; pdidx: %lx, ptidx: %lx\nContents of page table:\n", 
+            src_phys_addr, target_virt_addr, (unsigned long)target_virt_addr >> 22, (unsigned long)page_table_idx);
+        
         print_page_table_entry(page_table + page_table_idx);
 
         dpanic("Illegal MMU operation");
@@ -119,7 +121,9 @@ void paging_add_page(void * target_virt_addr, unsigned int flags) {
     uint32_t page_table_idx = (uint32_t)target_virt_addr >> 12 & (PAGE_TABLE_ENTRIES - 1);
     
     if (page_table[page_table_idx] & PTE_PDE_PAGE_PRESENT) {
-        dkprintf("Warning: Attempted adding a new page to already used virtual address 0x%x; pdidx: %x, ptidx: %x\nContents of page table:\n", target_virt_addr, (uint32_t)target_virt_addr >> 22, page_table_idx);
+        dkprintf("Warning: Attempted adding a new page to already used virtual address 0x%p; pdidx: %lx, ptidx: %lx\nContents of page table:\n", 
+            target_virt_addr, (unsigned long)target_virt_addr >> 22, (unsigned long)page_table_idx);
+
         print_page_table_entry(page_table + page_table_idx);
         
         //dpanic("Illegal MMU operation");
@@ -159,7 +163,7 @@ void paging_change_flags(void * target_virt_addr, size_t n, unsigned int flags) 
         PAGE_TABLE_TYPE * page_table = paging_get_page_table(target_virt_addr);
         uint32_t page_table_idx = (uint32_t)target_virt_addr >> 12 & (PAGE_TABLE_ENTRIES - 1);
         if (!(page_table[page_table_idx] & PTE_PDE_PAGE_PRESENT)) {
-            dkprintf("Attempted changing flags on nonexistent page at vaddr 0x%x!\n", target_virt_addr);
+            dkprintf("Attempted changing flags on nonexistent page at vaddr 0x%p!\n", target_virt_addr);
             dpanic("Illegal MMU operation");
             __builtin_unreachable();
         }
@@ -324,7 +328,7 @@ void setup_paging(unsigned long total_free, unsigned long ident_map_end) {
         dpanic("Not enough memory for page directory!\n");
     }
     memset(page_directory, 0, PAGE_DIRECTORY_ENTRIES*sizeof(PAGE_DIRECTORY_TYPE));
-    kprintf("Identity mapping 0x%x - 0x%x...\n", 0, ident_map_top); // see TODO below, this will be wrong
+    kprintf("Identity mapping 0x%x - 0x%lx...\n", 0, ident_map_top); // see TODO below, this will be wrong
     for (int i = 0; i < ident_map_top/PAGE_SIZE_NO_PAE/PAGE_TABLE_ENTRIES + (ident_map_top/PAGE_SIZE_NO_PAE % PAGE_TABLE_ENTRIES != 0)?1:0; i++) {
         page_directory[i] = (uint32_t)pfalloc();
         if (page_directory[i] == 0) {
@@ -365,5 +369,5 @@ void setup_paging(unsigned long total_free, unsigned long ident_map_end) {
     kalloc_prepare(KERNEL_HEAP_BASE, KERNEL_HEAP_BASE + KERNEL_HEAP_START_SIZE, KERNEL_HEAP_BASE + KERNEL_HEAP_SIZE);
     if (KERNEL_HEAP_BASE + KERNEL_HEAP_SIZE > kernel_mem_top) kernel_mem_top = KERNEL_HEAP_BASE + KERNEL_HEAP_SIZE;
 
-    dkprintf("Mapped vmemory 0x%x to 0x%x, alloc. mem: %d\n", KERNEL_HEAP_BASE, KERNEL_HEAP_BASE + KERNEL_HEAP_SIZE, KERNEL_HEAP_SIZE);
+    dkprintf("Mapped vmemory 0x%p to 0x%p, alloc. mem: %d\n", KERNEL_HEAP_BASE, KERNEL_HEAP_BASE + KERNEL_HEAP_SIZE, KERNEL_HEAP_SIZE);
 }

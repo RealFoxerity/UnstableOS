@@ -64,7 +64,7 @@ static inline char ps2_disable_scanning(char device_num) {
     uint8_t res_byte;
     for (int i = 0; i <= PS2_RETRY_COUNT; i++) {
         if (i == PS2_RETRY_COUNT) {
-            kprintf("Error: PS/2 device %d refused to disable scanning\n");
+            kprintf("Error: PS/2 device %d refused to disable scanning\n", device_num);
             return 0;
         }
         if (device_num == 2) ps2_prepare_send_port_2();
@@ -82,7 +82,7 @@ static inline char ps2_enable_scanning(char device_num) {
     uint8_t res_byte;
     for (int i = 0; i <= PS2_RETRY_COUNT; i++) {
         if (i == PS2_RETRY_COUNT){
-            kprintf("Error: PS/2 device %d refused to enable scanning\n");
+            kprintf("Error: PS/2 device %d refused to enable scanning\n", device_num);
             return 0;
         }
         if (device_num == 2) ps2_prepare_send_port_2();

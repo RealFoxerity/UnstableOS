@@ -82,7 +82,7 @@ enum syscalls {
 extern unsigned long _kernel_base, _kernel_top, _kernel_stack_top, boot_mem_top;
 extern size_t system_time_sec, uptime_clicks;
 
-void kprintf(const char *format, ...);
+void __attribute__((format(printf, 1, 2))) kprintf(const char *format, ...);
 
 void __attribute__((noreturn)) panic(char * reason);
 

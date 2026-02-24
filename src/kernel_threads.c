@@ -17,7 +17,7 @@ static inline void * get_thread_stack(process_t * parent_process) {
 }
 
 thread_t * kernel_create_thread(process_t * parent_process, void (* entry_point)(void*), void * arg) {
-    kprintf("create_thread_kernel(pid: %d), free mem: %u\n", parent_process->pid, pf_get_free_memory());
+    kprintf("create_thread_kernel(pid: %lu), free mem: %lu\n", parent_process->pid, pf_get_free_memory());
     if (pf_get_free_memory() < sizeof(thread_t)+PROGRAM_KERNEL_STACK_SIZE) panic("Not enough memory for thread creation");
     
     static size_t tid = 0;
@@ -55,19 +55,23 @@ thread_t * kernel_create_thread(process_t * parent_process, void (* entry_point)
         new->context.iret_frame.sp = new->stack;
         paging_map_to_address_space(parent_process->address_space_vaddr, new->context.iret_frame.sp - PROGRAM_STACK_SIZE, PROGRAM_STACK_SIZE, PTE_PDE_PAGE_WRITABLE | PTE_PDE_PAGE_USER_ACCESS);
 
-        *(void**)new->context.iret_frame.sp = arg;
-        new->context.iret_frame.sp -= sizeof(void*);
-        kprintf("new thread entry point %x\n", entry_point);
+        kprintf("new thread entry point %p\n", entry_point);
     } else {
-        *(void**)new->context.esp = arg;
-        new->context.esp -= sizeof(void*);
-
         new->context.iret_frame.sp = new->context.esp;
+        new->context.esp -= 2 * sizeof(void*);
     }
-    if (parent_process->threads == NULL) panic("Corrupted process struct - parent_process->threads == NULL");
-    
-    parent_process->threads->prev->next = new;
-    new->prev = parent_process->threads->prev;
+    new->context.iret_frame.sp -= sizeof(void*); // without this, = arg is written above 0xF000'0000
+    *(void**)new->context.iret_frame.sp = arg;
+    new->context.iret_frame.sp -= sizeof(void*); 
+    // to be honest, i have no fucking clue why i have to do this
+    // there probably is some 10000000 iq system v abi reason
+
+    if (parent_process->threads == NULL) 
+        parent_process->threads = new;
+    else {
+        parent_process->threads->prev->next = new;
+        new->prev = parent_process->threads->prev;
+    }
     parent_process->threads->prev = new;
 
     //reschedule();

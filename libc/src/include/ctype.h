@@ -5,6 +5,7 @@ char isprint(char c);
 char isalpha(char c);
 char isdigit(char c);
 char isalnum(char c);
+char isspace(char c);
 
 char tolower(char c);
 char islower(char c);
