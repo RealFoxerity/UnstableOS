@@ -17,7 +17,7 @@ static inline void * get_thread_stack(process_t * parent_process) {
 }
 
 thread_t * kernel_create_thread(process_t * parent_process, void (* entry_point)(void*), void * arg) {
-    kprintf("create_thread_kernel(pid: %d), free mem: %d\n", parent_process->pid, pf_get_free_memory());
+    kprintf("create_thread_kernel(pid: %d), free mem: %u\n", parent_process->pid, pf_get_free_memory());
     if (pf_get_free_memory() < sizeof(thread_t)+PROGRAM_KERNEL_STACK_SIZE) panic("Not enough memory for thread creation");
     
     static size_t tid = 0;

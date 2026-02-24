@@ -23,6 +23,8 @@
 #define TTY_L_ICANON 2 // new line buffering
 #define TTY_L_ISIG 4 // enable signals
 #define TTY_L_TOSTOP 8 // set SIGTTOU if background process group tries to write()
+#define TTY_L_ECHOE 16 // echo VERASE as '\b \b' - the standard backspace behavior
+#define TTY_L_ECHOK 32 // echo \n after VKILL
 
 // as you might have noticed, i pick from the posix standard based on how easy things are to implement
 #define TTY_I_CRNL 1 // carriage return -> new line

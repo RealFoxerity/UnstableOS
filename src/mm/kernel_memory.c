@@ -11,10 +11,6 @@
 #pragma clang diagnostic ignored "-Wpointer-to-int-cast"
 
 // NOTE: add error checking for when (somehow???) all of the 4G memory range is available and thus we wouldn't be able to map everything without PAE
-#define KERNEL_HEAP_SIZE (1<<21) // 4 MiB
-static void * const kernel_heap_base = (void*)0x06000000; // 100 MiB, outside of identity mapping and (hopefully) outside of worst case initrd for us and just before gcc's default .text address of 0x08000000, leaving ~33 MiB for kernel's heap
-
-static void * kernel_heap_top = kernel_heap_base + KERNEL_HEAP_SIZE;
 
 #define dkprintf(fmt, ...) kprintf("MM: "fmt, ##__VA_ARGS__)
 #define dsprintf(s, fmt, ...) sprintf(s, "MM: "fmt, ##__VA_ARGS__)
@@ -123,10 +119,11 @@ void paging_add_page(void * target_virt_addr, unsigned int flags) {
     uint32_t page_table_idx = (uint32_t)target_virt_addr >> 12 & (PAGE_TABLE_ENTRIES - 1);
     
     if (page_table[page_table_idx] & PTE_PDE_PAGE_PRESENT) {
-        dkprintf("Attempted adding a new page to already used virtual address 0x%x; pdidx: %x, ptidx: %x\nContents of page table:\n", target_virt_addr, (uint32_t)target_virt_addr >> 22, page_table_idx);
+        dkprintf("Warning: Attempted adding a new page to already used virtual address 0x%x; pdidx: %x, ptidx: %x\nContents of page table:\n", target_virt_addr, (uint32_t)target_virt_addr >> 22, page_table_idx);
         print_page_table_entry(page_table + page_table_idx);
-
-        dpanic("Illegal MMU operation");
+        
+        //dpanic("Illegal MMU operation");
+        return;
     }
 
     void * new_page = pfalloc();
@@ -180,10 +177,10 @@ void paging_unmap_page(void * virt_addr) {
     PAGE_TABLE_TYPE * page_table = paging_get_page_table(virt_addr);
     uint32_t page_table_idx = (uint32_t)virt_addr >> 12 & (PAGE_TABLE_ENTRIES - 1);
 
-    if (!(page_table[page_table_idx] & PTE_PDE_PAGE_PRESENT)) {
-        dkprintf("Tried to unmap an already unmapped virtual page at requested vaddr 0x%x!\n", virt_addr);
-        dpanic("Illegal MMU operation");
-    }
+    //if (!(page_table[page_table_idx] & PTE_PDE_PAGE_PRESENT)) {
+    //    dkprintf("Tried to unmap an already unmapped virtual page at requested vaddr 0x%x!\n", virt_addr);
+    //    dpanic("Illegal MMU operation");
+    //}
     page_table[page_table_idx] = 0;
 
     flush_tlb_entry(virt_addr);
@@ -320,11 +317,7 @@ void setup_paging(unsigned long total_free, unsigned long ident_map_end) {
     ident_map_top = ident_map_end;
 
 
-    if (total_free < KERNEL_HEAP_SIZE) {
-        char errmsg[128];
-        sprintf(errmsg, "Not enough memory available! At least %d bytes of memory required!\n", KERNEL_HEAP_SIZE + (void*)(&_kernel_top));
-        panic(errmsg);
-    }
+    if (total_free < 1<<21) panic("At least 3MB of memory is required for basic kernel functionality!\n");
 
     PAGE_DIRECTORY_TYPE * page_directory = pfalloc();
     if (page_directory == NULL) {
@@ -355,7 +348,7 @@ void setup_paging(unsigned long total_free, unsigned long ident_map_end) {
 
     paging_apply_address_space(kernel_address_space_paddr);
     enable_paging();
-    paging_map_phys_addr(page_directory, kernel_address_space_vaddr, PTE_PDE_PAGE_WRITABLE);
+    paging_map_phys_addr(page_directory, KERNEL_ADDRESS_SPACE_VADDR, PTE_PDE_PAGE_WRITABLE);
 
     dkprintf("Remapping memory areas...\n");
 
@@ -366,9 +359,11 @@ void setup_paging(unsigned long total_free, unsigned long ident_map_end) {
     enable_wp();
 
     dkprintf("Setting up kernel heap...\n");
-    paging_map(kernel_heap_base, KERNEL_HEAP_SIZE, PTE_PDE_PAGE_WRITABLE);
-    kalloc_prepare(kernel_heap_base, kernel_heap_top);
-    if (kernel_heap_top > kernel_mem_top) kernel_mem_top =  kernel_heap_top;
 
-    dkprintf("Mapped vmemory 0x%x to 0x%x, alloc. mem: %d\n", kernel_heap_base, kernel_heap_top, kernel_heap_top-kernel_heap_base);
+    paging_map(KERNEL_HEAP_BASE, KERNEL_HEAP_START_SIZE, PTE_PDE_PAGE_WRITABLE);
+
+    kalloc_prepare(KERNEL_HEAP_BASE, KERNEL_HEAP_BASE + KERNEL_HEAP_START_SIZE, KERNEL_HEAP_BASE + KERNEL_HEAP_SIZE);
+    if (KERNEL_HEAP_BASE + KERNEL_HEAP_SIZE > kernel_mem_top) kernel_mem_top = KERNEL_HEAP_BASE + KERNEL_HEAP_SIZE;
+
+    dkprintf("Mapped vmemory 0x%x to 0x%x, alloc. mem: %d\n", KERNEL_HEAP_BASE, KERNEL_HEAP_BASE + KERNEL_HEAP_SIZE, KERNEL_HEAP_SIZE);
 }

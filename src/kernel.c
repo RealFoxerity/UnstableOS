@@ -2,7 +2,11 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#include "include/block/memdisk.h"
+#include "include/devs.h"
 #include "include/fs/fs.h"
+#include "include/fs/vfs.h"
+#include "include/fs/tarfs.h"
 #include "include/kernel_interrupts.h"
 #include "include/kernel_tty.h"
 #include "include/lowlevel.h"
@@ -212,7 +216,7 @@ void kernel_thread_test(void* _) {
 }
 
 size_t system_time_sec = 0;
-size_t uptime_msec = 0; // incremented by the RTC
+size_t uptime_clicks = 0; // incremented by the RTC
 
 void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     disable_interrupts();
@@ -288,35 +292,52 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     kernel_mem_top = page_frame_alloc_init(mbd, total_usable, (void*)boot_mem_top);
     kprintf("Kernel: Total usable RAM: %u bytes\n", pf_get_free_memory()); //total_usable);
 
+    // initialize basic stuff
     setup_paging(total_usable, boot_mem_top);
-
-    init_fds();
-    init_inodes();
-
-    kernel_print_cpu_info();
-    
     construct_descriptor_tables();
-
     enable_interrupts();
     scheduler_init();
 
     timer_init(0, 1000/KERNEL_TIMER_RESOLUTION_MSEC, TIMER_RATE); // kernel scheduler timer, also enables pic interrupts
     rtc_init();
 
+
+
     tty_alloc_kernel_console();
-
     keyboard_init();
-    
-    // TODO: when keyboard input happens after keyboard_init() but before scheduler_add_process(), kvm hangs
 
-    //readelf(initrd_start, initrd_len);
+    init_fds();
+    init_inodes();
+    init_superblocks();
+
+    kernel_print_cpu_info();
+
+
+    // considering how we do file descriptors, it's guaranteed these will be 0, 1, 2
+    kassert(open_raw_device(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), O_RDWR) >= 0);
+    kassert(open_raw_device(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), O_RDWR) >= 0);
+    kassert(open_raw_device(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), O_RDWR) >= 0);
+
+    dev_t initrd_memdisk = 0;
+    kassert((initrd_memdisk = memdisk_from_range(initrd_start, initrd_len) != (dev_t)-1));
+
+    int initrd_fd = -1;
+    kassert((initrd_fd = open_raw_device(GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0), O_RDONLY)) >= 0);
+
+    mount_root(GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0), FS_TARFS, 0);
+
+    int init_fd = -1;
+    init_fd = sys_open("/init", O_RDONLY);
+    kprintf("%d\n", init_fd);
+    
+    if (init_fd < 0) panic("Couldn't find and run /init");
+
     struct program program = {0};
-    program = load_elf(initrd_start, initrd_len);
+    program = load_elf(init_fd);
     if (program.pd_vaddr == NULL) panic("Exec format error!\n");
     scheduler_add_process(program, 3);
 
-    //kalloc_print_heap_objects();
-
     while (1) {
+        reschedule();
     }
 }

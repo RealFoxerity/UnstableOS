@@ -45,29 +45,102 @@ inode_t * get_free_inode() {
     //return NULL;
 }
 
-inode_t * get_inode(dev_t device, size_t inode_number) { // gets the inode structure with a given device id and fs specific inode id
+static inode_t * __get_inode_raw_device(dev_t device) {
     kassert(kernel_inodes);
-    spinlock_acquire(&kernel_inode_lock);
 
     inode_t * inode = NULL;
     for (int i = 0; i < INODE_LIMIT_KERNEL; i++) {
         if (kernel_inodes[i] != NULL && kernel_inodes[i]->instances != 0 && 
-                kernel_inodes[i]->device == device && kernel_inodes[i]->id == inode_number) {
+                kernel_inodes[i]->device == device && kernel_inodes[i]->is_raw_device) {
             
             inode = kernel_inodes[i];
             break;
         }
     }
-    if (inode == NULL) panic("No valid inode with specified device number and id\n");
+    //if (inode == NULL) panic("No valid raw device inode with specified device number\n");
+
+    return inode;
+}
+
+inode_t * get_inode_raw_device(dev_t device) { // gets the inode representing a raw device instead of a file
+    spinlock_acquire(&kernel_inode_lock);
+    
+    inode_t * inode =  __get_inode_raw_device(device);
 
     spinlock_release(&kernel_inode_lock);
     return inode;
 }
 
-inode_t * inode_from_path(const char * path) {
+inode_t * __get_inode(superblock_t * sb, void * inode_number) {
+    kassert(kernel_inodes);
+
+    inode_t * inode = NULL;
+    for (int i = 0; i < INODE_LIMIT_KERNEL; i++) {
+        if (kernel_inodes[i] != NULL && kernel_inodes[i]->instances != 0 && 
+                kernel_inodes[i]->backing_superblock == sb && kernel_inodes[i]->id == inode_number) {
+            
+            inode = kernel_inodes[i];
+            break;
+        }
+    }
+    //if (inode == NULL) panic("No valid inode with specified superblock and id\n");
+
+    return inode;
+}
+
+inode_t * get_inode(superblock_t * sb, void * inode_number) {
+    spinlock_acquire(&kernel_inode_lock);
+    inode_t * inode = __get_inode(sb, inode_number);
+    spinlock_release(&kernel_inode_lock);
+    return inode;
+}
+inode_t * create_inode(superblock_t * sb, void * inode_number) {
+    spinlock_acquire(&kernel_inode_lock);
+    inode_t * inode = __get_inode(sb, inode_number);
+    if (inode != NULL) {
+        __atomic_add_fetch(&inode->instances, 1, __ATOMIC_RELAXED);
+        goto ret;
+    }
+
+    inode = get_free_inode();
+    kassert(inode);
+
+    inode->backing_superblock = sb;
+    inode->id = inode_number;
+
+    ret:
+    spinlock_release(&kernel_inode_lock);
+    return inode;
+}
+
+void close_inode(inode_t *inode) {
+    __atomic_sub_fetch(&inode->instances, 1, __ATOMIC_RELAXED);
+}
+
+inode_t * inode_from_device(dev_t device) {
     spinlock_acquire(&kernel_inode_lock);
 
+    inode_t * new_inode = __get_inode_raw_device(device);
+    if (new_inode) {
+        new_inode->instances ++;
+        goto end;
+    }
+    
+    new_inode = get_free_inode();
 
+    new_inode->is_raw_device = 1;
+    new_inode->device = device;
 
+    end:
     spinlock_release(&kernel_inode_lock);
+    return new_inode;
 }
+
+void inode_change_mode(inode_t * inode, unsigned char new_mode) {
+    kassert(inode);
+    spinlock_acquire(&inode->lock);
+    inode->mode = new_mode;
+    spinlock_release(&inode->lock);
+}
+
+

@@ -105,7 +105,7 @@ void __attribute__((format(printf, 1, 2))) printf(const char * format, ...) {
     va_start(args, format);
     vfprintf(STDOUT, format, args);
 }
-void __attribute__((format(printf, 2, 3))) fprintf(unsigned int fd, const char * format, ...) {
+void __attribute__((format(printf, 2, 3))) fprintf(int fd, const char * format, ...) {
     va_list args;
     va_start(args, format);
     vfprintf(fd, format, args);
@@ -154,7 +154,7 @@ void vsprintf(char * s, const char * format, va_list args) {
 
 
 
-void vfprintf(unsigned int fd, const char * format, va_list args) {
+void vfprintf(int fd, const char * format, va_list args) {
     const char * next_percent = strchrnul(format, '%');
     
     write(fd, format, next_percent-format);

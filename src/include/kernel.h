@@ -26,11 +26,18 @@
 
 #define SYSCALL_INTERR 0xF0 // if changing, change crt0.s
 
+#define SEEK_SET 0
+#define SEEK_CUR 1
+#define SEEK_END 2
+
 enum syscalls {
     SYSCALL_EXIT = 0, // if changing, change crt0.s, exit(long exitcode)
     SYSCALL_ABORT = 1,
     SYSCALL_OPEN,
     SYSCALL_CLOSE,
+
+    SYSCALL_DUP,
+    SYSCALL_DUP2,
 
     SYSCALL_MKDIR,
     //SYSCALL_CREATE, handled by OPEN
@@ -38,6 +45,7 @@ enum syscalls {
 
     SYSCALL_READ,
     SYSCALL_WRITE,
+    SYSCALL_SEEK,
 
     SYSCALL_STAT,
     SYSCALL_MOUNT,
@@ -72,7 +80,7 @@ enum syscalls {
 };
 
 extern unsigned long _kernel_base, _kernel_top, _kernel_stack_top, boot_mem_top;
-extern size_t system_time_sec, uptime_msec;
+extern size_t system_time_sec, uptime_clicks;
 
 void kprintf(const char *format, ...);
 

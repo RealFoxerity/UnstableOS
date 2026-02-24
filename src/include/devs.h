@@ -15,6 +15,13 @@ enum dev_maj {
     DEV_MAJ_TTY,
 };
 
+#define MEMDISK_LIMIT_KERNEL 4
+enum dev_mem_min {
+    DEV_MEM_MEMDISK0, // will be bound to multiboot first module on boot
+    DEV_MEM_MEMDISK1,
+    DEV_MEM_MEMDISK2,
+    DEV_MEM_MEMDISK3,
+};
 
 #define __TTY_CONSOLE 16
 #define __TTY_SERIAL 8

@@ -218,7 +218,7 @@ void readelf(void * start, size_t size);
 #include "mm/kernel_memory.h"
 #include "kernel_sched.h"
 
-struct program load_elf(void * start, size_t size);
+struct program load_elf(int elf_fd);
 void unload_elf(struct program program);
-char check_elf(void * start, size_t size); // returns 1 if elf is not truncated or broken, generic test, not supported test
+char check_elf(int elf_fd); // returns 1 if elf is not truncated or broken, generic test, not supported test
 #endif
