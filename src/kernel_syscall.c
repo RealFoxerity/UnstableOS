@@ -21,7 +21,8 @@ extern void clear_screen_fatal(); // kernel_interrupts.c
 extern uint8_t vga_x, vga_y;
 #define ssize_t long
 
-static char check_address_range(const void * addr, size_t n, char writable) { // check whether the address range is inside the program, is mapped, and whether it is writable (assumes correct address space)
+static char check_address_range(const void * addr, size_t n, char writable, char in_kernel) { // check whether the address range is inside the program, is mapped, and whether it is writable (assumes correct address space)
+    if (addr == NULL) return 0;
     n += (unsigned long)addr & (PAGE_SIZE_NO_PAE - 1);
     addr = (void*)((unsigned long) addr & ~(PAGE_SIZE_NO_PAE - 1));
 
@@ -30,7 +31,7 @@ static char check_address_range(const void * addr, size_t n, char writable) { //
         if (pte == 0) return 0; // page not present, would cause page fault
 
         if ((PAGE_DIRECTORY_TYPE*)iteraddr >= PTE_ADDR_VIRT_BASE) return 0; // even though this is theoretically a valid kernel operation, probably not intended
-        if (current_process->pid != 0) {
+        if (!in_kernel) {
             if (!(pte & PTE_PDE_PAGE_USER_ACCESS)) return 0;
             if (iteraddr <= kernel_mem_top) return 0;
             
@@ -60,7 +61,8 @@ long sys_getpgid(pid_t target_pid) {
     else return ESRCH;
 }
 
-long kernel_syscall_dispatcher(struct interr_frame * interrupt_frame, enum syscalls syscall_number, long arg1, long arg2, long arg3);
+long kernel_syscall_dispatcher(struct interr_frame * interrupt_frame, enum syscalls syscall_number, long arg1, long arg2, long arg3, long old_ebp, long arg4);
+// since we use system V abi, arg4 is pushed onto the stack by the user
 __attribute__((naked, no_caller_saved_registers)) void interr_syscall(struct interr_frame * interrupt_frame) {
     asm volatile (
         "push %ebp;"
@@ -77,12 +79,14 @@ __attribute__((naked, no_caller_saved_registers)) void interr_syscall(struct int
     );
 }
 
-long kernel_syscall_dispatcher(struct interr_frame * interrupt_frame, enum syscalls syscall_number, long arg1, long arg2, long arg3) {
+long kernel_syscall_dispatcher(struct interr_frame * interrupt_frame, enum syscalls syscall_number, long arg1, long arg2, long arg3, long old_ebp, long arg4) {
     long return_value = ENOSYS;
 
-    // keep code below assignments otherwise the registers could be overwritten
     kassert(current_process);
     kassert(current_thread);
+
+    // we might want to call syscalls from other syscalls and/or drivers
+    char in_kernel = (interrupt_frame->cs & 3) == 0;
 
     switch (syscall_number) {
         case SYSCALL_YIELD:
@@ -109,7 +113,7 @@ long kernel_syscall_dispatcher(struct interr_frame * interrupt_frame, enum sysca
             break;
         
         case SYSCALL_WRITE:
-            if (!check_address_range((const void*)arg2, arg3, 0)) {
+            if (!check_address_range((const void*)arg2, arg3, 0, in_kernel)) {
                 return_value = EFAULT;
                 break;
             }
@@ -117,12 +121,24 @@ long kernel_syscall_dispatcher(struct interr_frame * interrupt_frame, enum sysca
             return_value =  sys_write(arg1, (const void*)arg2, arg3);
             break;
         case SYSCALL_READ:
-            if (!check_address_range((void*)arg2, arg3, 1)) {
+            if (!check_address_range((void*)arg2, arg3, 1, in_kernel)) {
                 return_value = EFAULT;
                 break;
             }
             asm volatile ("sti;");
             return_value = sys_read(arg1, (void*)arg2, arg3);
+            break;
+        case SYSCALL_DUP:
+            asm volatile ("sti;");
+            sys_dup(arg1);
+            break;
+        case SYSCALL_DUP2:
+            asm volatile ("sti;");
+            sys_dup2(arg1, arg2);
+            break;
+        case SYSCALL_SEEK:
+            asm volatile ("sti;");
+            return_value = sys_seek(arg1, arg2, arg3);
             break;
         case SYSCALL_INTERR_RING2_PANIC:
             if ((interrupt_frame->cs & ~3) == GDT_USER_CODE << 3) break; // has to be at least ring 2 or has to be called within a kernel routine
@@ -197,19 +213,22 @@ long kernel_syscall_dispatcher(struct interr_frame * interrupt_frame, enum sysca
         case SYSCALL_SETPGID:
             break;
         case SYSCALL_MOUNT:
-            if (!check_address_range((const void*)arg1, 1, 0)) {
+            if (!check_address_range((const void*)arg1, 1, 0, in_kernel)) {
                 return_value = EFAULT;
                 break;
             }
-            return_value = sys_mount((const char*)arg1, (const char*)arg2, arg3);
+            return_value = sys_mount((const char*)arg1, (const char*)arg2, (unsigned char)arg3, (unsigned short)arg4);
             break;
         case SYSCALL_TCGETPGRP:
         case SYSCALL_TCSETPGRP:
         case SYSCALL_OPEN:
             asm volatile ("sti;");
+            // it is up to sys_open to securely copy the path (arg1)
+            return_value = sys_open((const char *)arg1, arg2);
             break;
         case SYSCALL_CLOSE:
             asm volatile ("sti;");
+            return_value = sys_close(arg1);
             break;
         case SYSCALL_MKDIR:
         case SYSCALL_UNLINK:

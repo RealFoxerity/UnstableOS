@@ -17,7 +17,7 @@ void kprintf_write(const char * buf, size_t count);
 
 static inline void print_time() {
     char curr_uptime[11] = {0}; // a little bird told me that 32 bit integers never surpass 11 chars
-    itoaud(uptime_msec, curr_uptime);
+    itoaud(uptime_clicks, curr_uptime);
 
     kprintf_write("[", 1);
     kprintf_write(curr_uptime, strlen(curr_uptime));

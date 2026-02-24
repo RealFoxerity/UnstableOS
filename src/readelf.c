@@ -3,7 +3,71 @@
 #include "../libc/src/include/string.h"
 #include "../libc/src/include/stdio.h"
 #include "../libc/src/include/endian.h"
+#include "include/fs/fs.h"
+#include "include/kernel.h"
 
+char check_elf(int elf_fd) { // returns 1 if elf is not truncated or broken
+    ssize_t size = sys_seek(elf_fd, 0, SEEK_END);
+    if (size < sizeof(struct elf_header)) return 0;
+
+    sys_seek(elf_fd, 0, SEEK_SET);
+
+    struct elf_header ehdr;
+    sys_read(elf_fd, &ehdr, sizeof(struct elf_header));
+
+    if (memcmp((uint8_t *)ehdr.magic, ELF_MAGIC, sizeof(ELF_MAGIC)-1) != 0) return 0;
+    if (ehdr.arch != ELF_ARCH_32) return 0; // this tool only supports 32 bit files, TODO: add support to recognise 64 bit files
+
+
+    if (ehdr.section_header_entry_count != 0) {
+        // Section header table outside file bounds
+        if (ehdr.section_header_table_offset >= size) return 0;
+        // Section header entry index with section names larger than count of sections
+        if (ehdr.section_header_table_strings_index >= ehdr.section_header_entry_count) return 0;
+        // Section header table truncated
+        if (ehdr.section_header_table_offset + ehdr.section_header_table_entry_size*ehdr.section_header_entry_count > size) return 0;
+
+        struct section_header section_names_section; 
+        sys_seek(elf_fd, ehdr.section_header_table_offset + ehdr.section_header_table_strings_index*ehdr.section_header_table_entry_size, SEEK_SET);
+        sys_read(elf_fd, &section_names_section, sizeof(struct section_header));
+        // Section header entry with section names truncated
+        if (section_names_section.offset + section_names_section.size > size) return 0;
+
+        struct section_header SH;
+        for (int i = 0; i < ehdr.section_header_entry_count; i++) {
+            sys_seek(elf_fd, ehdr.section_header_table_offset + ehdr.section_header_table_entry_size * i, SEEK_SET);
+            sys_read(elf_fd, &SH, sizeof(struct section_header));
+
+            // Section truncated
+            if (SH.offset + SH.size > size) return 0;
+            // Invalid section alignment
+            if (SH.alignment != 0 && SH.vaddr % SH.alignment != 0) return 0;
+        }
+    }
+
+    if (ehdr.program_header_entry_count != 0) {
+        // Program header table outside file bounds
+        if (ehdr.program_header_table_offset >= size) return 0;
+        // Program header table truncated
+        if (ehdr.program_header_table_offset+ehdr.program_header_entry_count*ehdr.program_header_table_entry_size > size) return 0;
+
+        struct program_header PH;
+        for (int i = 0; i < ehdr.program_header_entry_count; i++) {
+            sys_seek(elf_fd, ehdr.program_header_table_offset + ehdr.program_header_table_entry_size * i, SEEK_SET);
+            sys_read(elf_fd, &PH, sizeof(struct program_header));
+            
+            // Program section truncated
+            if (PH.offset + PH.size_file > size) return 0;
+            // Invalid program section size, technically valid but doesn't make any sense
+            if (PH.size_file > PH.size_memory) return 0;
+            // Invalid program section alignment
+            if (PH.alignment != 0 && (PH.vaddr % PH.alignment) != (PH.offset % PH.alignment)) return 0; // i think this is correct? idk
+        }
+    }
+    return 1;
+}
+
+/* TODO: rewrite to file descriptors and/or not include at all :P
 
 static const char * section_header_type_names[] = {
     "NULL",
@@ -58,53 +122,6 @@ static const char * elf_abi_names[] = {
     [ELF_ABI_STRATUS_TECH_OPENVOS] = "Stratus Technologies OpenVOS",
 };
 
-char check_elf(void * start, size_t size) { // returns 1 if elf is not truncated or broken
-    if (size < sizeof(struct elf_header)) return 0;
-    struct elf_header * ehdr = start;
-
-    if (memcmp((uint8_t *)ehdr->magic, ELF_MAGIC, sizeof(ELF_MAGIC)-1) != 0) return 0;
-    if (ehdr->arch != ELF_ARCH_32) return 0; // this tool only supports 32 bit files, TODO: add support to recognise 64 bit files
-
-
-    if (ehdr->section_header_entry_count != 0) {
-        // Section header table outside file bounds
-        if (ehdr->section_header_table_offset >= size) return 0;
-        // Section header table truncated
-        if (ehdr->section_header_table_offset + ehdr->section_header_table_entry_size*ehdr->section_header_entry_count > size) return 0;
-        // Section header entry with section names outside file bounds (.shstrtab)
-        if (ehdr->section_header_table_strings_index*ehdr->section_header_table_entry_size > size) return 0;
-        // Section header entry with section names truncated
-        struct section_header * section_names_section = start + ehdr->section_header_table_offset + ehdr->section_header_table_strings_index*ehdr->section_header_table_entry_size;
-        if (section_names_section->offset + section_names_section->size > size) return 0;
-
-        struct section_header * SH = (start + ehdr->section_header_table_offset);
-        for (int i = 0; i < ehdr->section_header_entry_count; i++) {
-            // Section truncated
-            if (SH->offset + SH->size > size) return 0;
-            // Invalid section alignment
-            if (SH->alignment != 0 && SH->vaddr % SH->alignment != 0) return 0;
-        }
-    }
-
-    if (ehdr->program_header_entry_count != 0) {
-        // Program header table outside file bounds
-        if (ehdr->program_header_table_offset > size) return 0;
-        // Program header table truncated
-        if (ehdr->program_header_table_offset+ehdr->program_header_entry_count*ehdr->program_header_table_entry_size > size) return 0;
-
-        struct program_header * PH = start + ehdr->program_header_table_offset;
-        for (int i = 0; i < ehdr->program_header_entry_count; i++) {
-            // Program section truncated
-            if (PH->offset + PH->size_file > size) return 0;
-            // Invalid program section size, technically valid but doesn't make any sense
-            if (PH->size_file > PH->size_memory) return 0;
-            // Invalid program section alignment
-            if (PH->alignment != 0 && PH->vaddr % PH->alignment != 0) return 0;
-        }
-    }
-    return 1;
-}
-
 void readelf(void * start, size_t size) {
     if (!check_elf(start, size)) {
         printf("Exec format error\n");
@@ -117,13 +134,13 @@ void readelf(void * start, size_t size) {
     for (int i = 0; i < offsetof(struct elf_header, object_type); i++) {
         printf("%hhx ", *(char *)(start + i));
     }
-    printf("\n\tClass:\t\t\t\t%s\n", ehdr->arch == ELF_ARCH_32?"ELF32":(ehdr->arch == ELF_ARCH_64)?"ELF64":"UNK");
-    printf("\tData:\t\t\t\t%s\n", ehdr->data_order == ELF_DO_BE?"Big endian":(ehdr->data_order == ELF_DO_LE)?"Little endian":"UNK");
-    printf("\tHeader Version:\t\t\t%d\n", ehdr->elf_header_version);
-    printf("\tABI:\t\t\t\t%s\n", ehdr->abi>ELF_ABI_STRATUS_TECH_OPENVOS?"UNK":elf_abi_names[ehdr->abi]==0?"UNK":elf_abi_names[ehdr->abi]);
-    printf("\tABI version:\t\t\t%d\n", ehdr->abi_version);
+    printf("\n\tClass:\t\t\t\t%s\n", ehdr.arch == ELF_ARCH_32?"ELF32":(ehdr.arch == ELF_ARCH_64)?"ELF64":"UNK");
+    printf("\tData:\t\t\t\t%s\n", ehdr.data_order == ELF_DO_BE?"Big endian":(ehdr.data_order == ELF_DO_LE)?"Little endian":"UNK");
+    printf("\tHeader Version:\t\t\t%d\n", ehdr.elf_header_version);
+    printf("\tABI:\t\t\t\t%s\n", ehdr.abi>ELF_ABI_STRATUS_TECH_OPENVOS?"UNK":elf_abi_names[ehdr.abi]==0?"UNK":elf_abi_names[ehdr.abi]);
+    printf("\tABI version:\t\t\t%d\n", ehdr.abi_version);
     printf("\tType:\t\t\t\t");
-    switch (le16toh(ehdr->object_type)) {
+    switch (le16toh(ehdr.object_type)) {
         case ELF_OBJ_REL:
             printf("REL (Relocatable file)");
             break;
@@ -139,10 +156,10 @@ void readelf(void * start, size_t size) {
 
         case ELF_OBJ_NONE:
         default:
-            printf("UNK (%hx)", ehdr->object_type);
+            printf("UNK (%hx)", ehdr.object_type);
     }
     printf("\n\tMachine:\t\t\t");
-    switch (le16toh(ehdr->arch_isa)) { // there's way too many gaps for this to be usable with string lookup
+    switch (le16toh(ehdr.arch_isa)) { // there's way too many gaps for this to be usable with string lookup
         case ELF_ISA_UNSPECIFIED:
             printf("No specific ISA");
             break;
@@ -182,27 +199,27 @@ void readelf(void * start, size_t size) {
         default:
             printf("UNK");
     }
-    printf("\n\tVersion:\t\t\t%d\n", le32toh(ehdr->elf_version));
+    printf("\n\tVersion:\t\t\t%d\n", le32toh(ehdr.elf_version));
     printf("\tEntry point address:\t\t");
-    if (ehdr->arch == ELF_ARCH_32) printf("0x%x\n", ehdr->program_entry_offset);
-    else printf("0x%lx\n", ehdr->program_entry_offset);
-    printf("\tStart of program headers:\t%d (bytes into this file)\n", ehdr->arch == ELF_ARCH_32?le32toh(ehdr->program_header_table_offset):le64toh(ehdr->program_header_table_offset));
-    printf("\tStart of section headers:\t%d (bytes into this file)\n", ehdr->arch == ELF_ARCH_32?le32toh(ehdr->section_header_table_offset):le64toh(ehdr->section_header_table_offset));
-    printf("\tFlags:\t\t\t\t0x%x\n", ehdr->flags);
-    printf("\tSize of ELF header:\t\t%d (bytes)\n", le16toh(ehdr->elf_header_size));
-    printf("\tSize of a program header:\t%d (bytes)\n", le16toh(ehdr->program_header_table_entry_size));
-    printf("\tNumber of program headers:\t%d\n", le16toh(ehdr->program_header_entry_count));
-    printf("\tSize of a section header:\t%d (bytes)\n", le16toh(ehdr->section_header_table_entry_size));
-    printf("\tNumber of section headers:\t%d\n", le16toh(ehdr->section_header_entry_count));
-    printf("\tSection table string index:\t%d\n", le16toh(ehdr->section_header_table_strings_index));
+    if (ehdr.arch == ELF_ARCH_32) printf("0x%x\n", ehdr.program_entry_offset);
+    else printf("0x%lx\n", ehdr.program_entry_offset);
+    printf("\tStart of program headers:\t%d (bytes into this file)\n", ehdr.arch == ELF_ARCH_32?le32toh(ehdr.program_header_table_offset):le64toh(ehdr.program_header_table_offset));
+    printf("\tStart of section headers:\t%d (bytes into this file)\n", ehdr.arch == ELF_ARCH_32?le32toh(ehdr.section_header_table_offset):le64toh(ehdr.section_header_table_offset));
+    printf("\tFlags:\t\t\t\t0x%x\n", ehdr.flags);
+    printf("\tSize of ELF header:\t\t%d (bytes)\n", le16toh(ehdr.elf_header_size));
+    printf("\tSize of a program header:\t%d (bytes)\n", le16toh(ehdr.program_header_table_entry_size));
+    printf("\tNumber of program headers:\t%d\n", le16toh(ehdr.program_header_entry_count));
+    printf("\tSize of a section header:\t%d (bytes)\n", le16toh(ehdr.section_header_table_entry_size));
+    printf("\tNumber of section headers:\t%d\n", le16toh(ehdr.section_header_entry_count));
+    printf("\tSection table string index:\t%d\n", le16toh(ehdr.section_header_table_strings_index));
 
     printf("\nSection Headers:\n");
-    if (ehdr->section_header_entry_count == 0) {
+    if (ehdr.section_header_entry_count == 0) {
         printf("No section headers in file\n");
         goto prog_header;
     }
 
-    struct section_header * section_names_section = start + ehdr->section_header_table_offset + ehdr->section_header_table_strings_index*ehdr->section_header_table_entry_size;
+    struct section_header * section_names_section = start + ehdr.section_header_table_offset + ehdr.section_header_table_strings_index*ehdr.section_header_table_entry_size;
 
     printf("\t[Nr]\tName\t\tType\t\tAddress\t\tOffset\n");
     printf("\t\tSize\t\tEntSize\t\tFlags Link Info Align\n\n");
@@ -212,8 +229,8 @@ void readelf(void * start, size_t size) {
     
     char * section_names_table = start + section_names_section->offset;
     char * section_name;
-    struct section_header * SH = (start + ehdr->section_header_table_offset);
-    for (int i = 0; i < ehdr->section_header_entry_count; i++) {
+    struct section_header * SH = (start + ehdr.section_header_table_offset);
+    for (int i = 0; i < ehdr.section_header_entry_count; i++) {
         memset(SHflags, ' ', 13);
         flag_off = 0;
 
@@ -290,7 +307,7 @@ void readelf(void * start, size_t size) {
             SH->info,
             SH->alignment);
         
-        SH = (((void*)SH) + ehdr->section_header_table_entry_size);
+        SH = (((void*)SH) + ehdr.section_header_table_entry_size);
     }
 
     printf("Key to Flags:\n"
@@ -300,7 +317,7 @@ void readelf(void * start, size_t size) {
 
     prog_header:
     printf("\nProgram headers:\n");
-    if (ehdr->program_header_entry_count == 0) {
+    if (ehdr.program_header_entry_count == 0) {
         printf("No program headers in file\n");
         goto end;
     }
@@ -310,8 +327,8 @@ void readelf(void * start, size_t size) {
 
     char PHflags[4];
     PHflags[3] = '\0';
-    struct program_header * PH = start + ehdr->program_header_table_offset;
-    for (int i = 0; i < ehdr->program_header_entry_count; i++) {
+    struct program_header * PH = start + ehdr.program_header_table_offset;
+    for (int i = 0; i < ehdr.program_header_entry_count; i++) {
         memset(PHflags, ' ', 3);
 
         if (PH->flags & ELF_PHF_READABLE) PHflags[0] = 'R';
@@ -334,3 +351,4 @@ void readelf(void * start, size_t size) {
     end:
     return;
 }
+*/

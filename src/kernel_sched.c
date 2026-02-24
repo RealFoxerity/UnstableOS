@@ -66,7 +66,7 @@ static inline void scheduler_init_idle_task() {
 
     idle_task->pid = -1;
     idle_task->ring = 0;
-    idle_task->address_space_vaddr = kernel_address_space_vaddr; 
+    idle_task->address_space_vaddr = KERNEL_ADDRESS_SPACE_VADDR; 
 
     idle_task->threads = kalloc(sizeof(thread_t));
     if (!idle_task->threads) panic("Not enough memory for kernel idle task!\n");
@@ -233,10 +233,12 @@ void scheduler_add_process(struct program program, uint8_t ring) {
 
     process->threads->prev = process->threads;
 
+    spinlock_acquire(&kernel_fd_lock);
     memcpy(process->fds, current_process->fds, sizeof(current_process->fds));
     for (int i = 0; i < FD_LIMIT_PROCESS; i++) {
-        if (process->fds[i] != NULL) process->fds[i]->instances++;
+        if (process->fds[i] != NULL) __atomic_add_fetch(&process->fds[i]->instances, 1, __ATOMIC_RELAXED);
     }
+    spinlock_release(&kernel_fd_lock);
 
     spinlock_acquire(&scheduler_lock);
     process_list->prev->next = process;
@@ -266,7 +268,7 @@ static inline void register_kernel_task(context_t * context) {
     kernel_task->threads->kernel_stack = kernel_ts_stack_top;
     kernel_task->threads->kernel_stack_size = KERNEL_TS_STACK_SIZE;
 
-    kernel_task->address_space_vaddr = kernel_address_space_vaddr;
+    kernel_task->address_space_vaddr = KERNEL_ADDRESS_SPACE_VADDR;
     kernel_task->threads->cr3_state = paging_virt_addr_to_phys(kernel_task->address_space_vaddr);
 
     kernel_task->threads->status = SCHED_RUNNING;
@@ -284,18 +286,7 @@ static inline void register_kernel_task(context_t * context) {
         //kernel_task->prev = process_list->prev;
         //process_list->prev = kernel_task;
     }
-
-
-    kernel_task->fds[0] = kalloc(sizeof(file_descriptor_t));
-    kernel_task->fds[1] = kalloc(sizeof(file_descriptor_t));
-    kernel_task->fds[2] = kalloc(sizeof(file_descriptor_t));
     
-    if (kernel_task->fds[0] == NULL || kernel_task->fds[1] == NULL || kernel_task->fds[2] == NULL) panic("No memory free to allocate kernel's file descriptors");
-
-    memset(kernel_task->fds[0], 0, sizeof(file_descriptor_t));
-    memset(kernel_task->fds[1], 0, sizeof(file_descriptor_t));
-    memset(kernel_task->fds[2], 0, sizeof(file_descriptor_t));
-
     current_process = kernel_task;
     current_thread = kernel_task->threads;
 }

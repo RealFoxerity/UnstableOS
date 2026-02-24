@@ -12,18 +12,18 @@ LDFLAGS	:=-T src/linker.ld
 
 OBJS=$(shell find src/ -name "*.[cs]" | sed 's/[cs]$$/o/g')
 
-all: $(OBJS) libc utils
+all: $(OBJS) libc utils build/memdisk.tar
 	$(CC) $(CFLAGS) $(OBJS) libc/build/libc.a -o build/UnstableOS.bin
 .PHONY: libc utils
 libc:
 	$(MAKE) -C libc
-utils:
+utils: libc
 	$(MAKE) -C utils
 
 .PHONY: clean
 clean:
 	rm -f $(shell find src/ -name "*.o")
-	rm -f build/*
+	rm -rf build/*
 	$(MAKE) -C libc clean
 	$(MAKE) -C utils clean
 	
@@ -33,3 +33,9 @@ src/kernel_interrupts.o: src/kernel_interrupts.c
 
 src/kernel_syscall.o: src/kernel_syscall.c
 	$(CC) $(CFLAGS) -mgeneral-regs-only -mno-red-zone -c src/kernel_syscall.c -o src/kernel_syscall.o
+
+build/memdisk.tar: utils
+	mkdir -p build/initmd
+	cp utils/test/build/test build/initmd/init
+	cp -r utils build/initmd
+	tar -C build/initmd -cf build/memdisk.tar init utils

@@ -101,10 +101,10 @@ void construct_descriptor_tables() {
             else
             ptr = reserved_idt_interr_has_error[i]?(uint32_t)general_fault_handler_error:(uint32_t)general_fault_handler_no_error;
         }
-        //idt_descriptor_entries[i] = idt_generate_descriptor(ptr, GDT_KERNEL_CODE, 0, 0, IDT_GATE_FL_PRESENT | IDT_GATE_FL_GATE_TYPE_32TRAP);
-        
-        idt_descriptor_entries[i] = idt_generate_descriptor(ptr, GDT_KERNEL_CODE, 0, 0, IDT_GATE_FL_PRESENT | IDT_GATE_FL_GATE_TYPE_32INT); 
-        // should be traps, but all defined exceptions take too long to manage processes for it to be useful
+        idt_descriptor_entries[i] = idt_generate_descriptor(ptr, GDT_KERNEL_CODE, 0, 0, IDT_GATE_FL_PRESENT | IDT_GATE_FL_GATE_TYPE_32TRAP);
+        //idt_descriptor_entries[i] = idt_generate_descriptor(ptr, GDT_KERNEL_CODE, 0, 0, IDT_GATE_FL_PRESENT | IDT_GATE_FL_GATE_TYPE_32INT); 
+        // interrupts save the next instruction
+        // we need to save the current (trap) so that we can retry it (e.g. overcommitment + page faults)
     }
 
     //for (int i = RES_INTERR_EXCEPTION_COUNT; i < IDT_INTERR_VECTOR_COUNT; i++) { // so turns out i shouldn't prefill the table...

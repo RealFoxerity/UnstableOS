@@ -1,11 +1,41 @@
 #include "../include/kernel.h"
 #include "../include/fs/fs.h"
 #include "../include/errno.h"
+#include "../include/mm/kernel_memory.h"
+#include "../../libc/src/include/string.h"
 
-superblock_t * kernel_superblocks[FS_LIMIT_KERNEL] = {0};
+superblock_t ** kernel_superblocks;
 spinlock_t kernel_superblock_lock = {0};
 
+void init_superblocks() {
+    kernel_superblocks = kalloc(sizeof(superblock_t *) * FS_LIMIT_KERNEL);
+    kassert(kernel_superblocks);
+    memset(kernel_superblocks, 0, sizeof(superblock_t *) * FS_LIMIT_KERNEL);
+}
+
+superblock_t * get_free_superblock() {
+    kassert(kernel_superblocks);
+    superblock_t * ret = NULL;
+    spinlock_acquire(&kernel_superblock_lock);
+    for (int i = 0; i < FS_LIMIT_KERNEL; i++) {
+        if (kernel_superblocks[i] && !kernel_superblocks[i]->is_mounted) {
+            found:
+            memset(kernel_superblocks[i], 0, sizeof(superblock_t));
+            kernel_superblocks[i]->is_mounted = 1;
+            ret = kernel_superblocks[i];
+            break;
+        }
+        if (!kernel_superblocks[i]) {
+            kernel_superblocks[i] = kalloc(sizeof(superblock_t));
+            goto found;
+        }
+    }
+    spinlock_release(&kernel_superblock_lock);
+    return ret;
+}
+
 superblock_t * get_superblock(dev_t dev) {
+    kassert(kernel_superblocks);
     spinlock_acquire(&kernel_superblock_lock);
     for (int i = 0; i < FS_LIMIT_KERNEL; i++) {
         if (kernel_superblocks[i] != NULL && kernel_superblocks[i]->is_mounted && kernel_superblocks[i]->device) {
@@ -15,35 +45,4 @@ superblock_t * get_superblock(dev_t dev) {
     }
     spinlock_release(&kernel_superblock_lock);
     return NULL;
-} 
-
-long sys_umount(dev_t device) { // TODO: check whether this synchronization actually makes sense in multicore setting :P
-    superblock_t * sb = get_superblock(device);
-    if (sb == NULL) return ENOENT;
-
-    kassert(sb->mountpoint != NULL);
-    kassert(sb->mountpoint->instances > 0);
-
-    spinlock_acquire(&kernel_inode_lock);
-    for (int i = 0; i < INODE_LIMIT_KERNEL; i++) {
-        if (kernel_inodes[i] && kernel_inodes[i]->device == sb->device
-            && (kernel_inodes[i]->instances > kernel_inodes[i]->is_mountpoint ? 1 : 0)) {
-                spinlock_release(&kernel_inode_lock);    
-                return EBUSY;
-        }
-
-    }
-    spinlock_acquire(&sb->lock);
-    sb->is_mounted = 0;
-    
-    sb->mountpoint->instances--;
-    sb->mountpoint->is_mountpoint = 0;
-
-    spinlock_release(&sb->lock);
-    spinlock_release(&kernel_inode_lock);
-    return 0;
-}
-
-long sys_mount(const char * dev_path, const char * mount_path, unsigned short options) {
-
 }

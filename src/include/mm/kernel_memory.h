@@ -51,6 +51,8 @@ void * pfalloc(); // page frame allocator, returns the amount of free space left
 void * pfalloc_1M(); // gets a 1M contiguous memory region, for dma and such
 void pffree(void * page);
 void pffree_1M(void * block_4M_start); // frees memory gotten by pfalloc_1M
+void * pfalloc_dup_page(void * page);
+void * pfalloc_ref_inc(void * page);
 
 void paging_map_phys_addr(void * src_phys_addr, void * target_virt_addr, unsigned int flags);
 void * paging_map_phys_addr_unspecified(void * phys_addr, unsigned int flags); // just naively maps a physical address to nearest free virtual address
@@ -69,7 +71,7 @@ void print_page_table_entry(const void * pte);
 
 void setup_paging(unsigned long total_free, unsigned long ident_map_end);
 
-void kalloc_prepare(void * heap_struct_start, void * heap_top);
+void kalloc_prepare(void * heap_struct_start, void * allocated_heap_top, void * maximum_heap_top);
 
 //#pragma clang diagnostic ignored "-Wignored-attributes"
 void kfree(void * p);
@@ -106,6 +108,12 @@ void flush_caches_writeback();
 extern void * kernel_mem_top;
 extern PAGE_DIRECTORY_TYPE * kernel_address_space_paddr;
 
-#define kernel_address_space_vaddr ((PAGE_DIRECTORY_TYPE*)0x05FFF000) // virtual address of the kernel address space for kernel task scheduling 
+#define ___KERNEL_ADDRESS_SPACE_VADDR 0x04FFF000
+#define KERNEL_ADDRESS_SPACE_VADDR ((PAGE_DIRECTORY_TYPE*)___KERNEL_ADDRESS_SPACE_VADDR) // virtual address of the kernel address space for kernel task scheduling 
+
+#define KERNEL_HEAP_SIZE (1<<21) // 2 MiB
+#define KERNEL_HEAP_START_SIZE (1<<15) // 32KiB
+#define ___KERNEL_HEAP_BASE 0x05000000
+#define KERNEL_HEAP_BASE ((void*)___KERNEL_HEAP_BASE) // before gcc's default .text address of 0x08000000
 
 #endif

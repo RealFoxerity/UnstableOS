@@ -1,6 +1,8 @@
 #include "include/kernel_interrupts.h"
+#include "include/devs.h"
 #include "include/kernel_gdt_idt.h"
 #include "include/kernel_sched.h"
+#include "include/kernel_spinlock.h"
 #include "include/mm/kernel_memory.h"
 #include "include/ps2_keyboard.h"
 #include "include/lowlevel.h"
@@ -10,6 +12,7 @@
 #include "../libc/src/include/string.h"
 #include "include/kernel_tty.h"
 #include "include/errno.h"
+#include "include/block/memdisk.h"
 #include <stdint.h>
 
 #pragma clang diagnostic ignored "-Wexcessive-regsave" // compiling with -mregular-regs-only anyway
@@ -264,13 +267,29 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_page_fa
     asm volatile ("movl %%cr2, %0":"=R"(fault_address));
 
     if (!(error & 1)) { // caused by non-present page, see intel sdm 3A 5-55
-        if (current_process->pid != 0) { // kernel has heap somewhere else and doesn't try to overcomit
-            if (fault_address >= PROGRAM_HEAP_VADDR && fault_address < PROGRAM_HEAP_VADDR + PROGRAM_HEAP_SIZE) { // overcommitment
+        if (fault_address >= MEMDISKS_BASE && fault_address < MEMDISKS_BASE + MEMDISK_LIMIT_KERNEL * DEFAULT_MEMDISK_SIZE && (interrupt_frame->cs & 3) == 0) { // assuming the user cannot read memdisks themselves
+            spinlock_acquire(&memdisk_lock);
+            if (memdisks[GET_MEMDISK_IDX(fault_address)].used && memdisks[GET_MEMDISK_IDX(fault_address)].is_allocated) {
+                paging_add_page(fault_address, PTE_PDE_PAGE_WRITABLE);
+                flush_tlb_entry(fault_address);
+                memset(fault_address, 0, PAGE_SIZE_NO_PAE);
+                spinlock_release(&memdisk_lock);
+                return;
+            } else 
+                spinlock_release(&memdisk_lock);
+        } else { // overcommitment
+            if (fault_address >= PROGRAM_HEAP_VADDR && fault_address < PROGRAM_HEAP_VADDR + PROGRAM_HEAP_SIZE) {
                 paging_add_page(fault_address, PTE_PDE_PAGE_USER_ACCESS | PTE_PDE_PAGE_WRITABLE);
                 flush_tlb_entry(fault_address);
                 return;
             }
-        }
+            // unfortunately due to the kernel's usage pattern (cli, then kalloc), this would never trigger and we'd get a triple fault
+            // else if (fault_address >= KERNEL_HEAP_BASE && fault_address <= KERNEL_HEAP_BASE + KERNEL_HEAP_SIZE) {
+            //    paging_add_page(fault_address, PTE_PDE_PAGE_WRITABLE);
+            //    flush_tlb_entry(fault_address);
+            //    return;
+            //}
+        } 
     }
     
     uint8_t old_tty_color = vga_get_color();
@@ -549,7 +568,7 @@ __attribute__((interrupt, no_caller_saved_registers)) void interr_cmos_rtc(struc
     pic_send_eoi(PIC_INTERR_CMOS_RTC);
 
     if (called_ints & RTC_INT_PERIODIC) {
-        uptime_msec ++;
+        uptime_clicks ++;
     }
     if (called_ints & RTC_INT_ALARM) {
         kprintf("Recieved RTC alarm interrupt\n");

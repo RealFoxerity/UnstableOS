@@ -5,7 +5,7 @@
 #include "../include/kernel.h"
 #include "../include/mm/kernel_memory.h"
 #include "../include/kernel_spinlock.h"
-#include "../include/kernel_sched.h" // so we can use kernel_task as an easy way to figure out if we need to spinlock
+#include "../include/kernel_sched.h" // so we can use current_process as an easy way to figure out if we need to spinlock
 #define KALLOC_MAGIC "KAL"
 
 spinlock_t kalloc_lock = {0};
@@ -26,36 +26,52 @@ struct heap_header { // aligning so that we try to avoid alignment check
 };
 
 static void * kernel_heap_base = NULL;
-
-void kalloc_prepare(void * heap_struct_start, void * heap_top) { // don't call multiple times
+static void * kernel_heap_top = NULL;
+void kalloc_prepare(void * heap_struct_start, void * allocated_heap_top, void * maximum_heap_top) { // don't call multiple times
     kernel_heap_base = heap_struct_start;
+    kernel_heap_top = maximum_heap_top;
     *(struct heap_header*)heap_struct_start = (struct heap_header) {
         .flags = KALLOC_FIRST_CHUNK | KALLOC_LAST_CHUNK,
         .prev_chunk = heap_struct_start,
-        .next_chunk = heap_top
+        .next_chunk = allocated_heap_top
     };
     memcpy(((struct heap_header*)heap_struct_start)->magic, KALLOC_MAGIC, 3);
 }
 
+
+// spinlock operations called with if (current_process), because we need a functional scheduler to use them
+// current_process not being NULL is probably the easiest way to check whether we have initialized the scheduler
+
 #pragma clang diagnostic ignored "-Wignored-attributes"
 void * __attribute__((malloc, malloc(kfree))) kalloc(size_t size) {
-    if (kernel_task) spinlock_acquire(&kalloc_lock);
+    if (current_process) spinlock_acquire(&kalloc_lock);
 
     if (size % KALLOC_ALIGNMENT != 0) size = size + KALLOC_ALIGNMENT - size%KALLOC_ALIGNMENT;
 
-    struct heap_header * current_heap_object = kernel_heap_base;
-    while (current_heap_object->flags & KALLOC_CHUNK_USED || current_heap_object->next_chunk - current_heap_object < size + sizeof(struct heap_header)*2) { // one for the current struct, one for the newly generated at the start of the next chunk
+
+    struct heap_header * current_heap_object;
+
+    try_remapped:
+    current_heap_object = kernel_heap_base;
+
+    while (current_heap_object->flags & KALLOC_CHUNK_USED || (void*)current_heap_object->next_chunk - (void*)current_heap_object < size + sizeof(struct heap_header)*2) { // one for the current struct, one for the newly generated at the start of the next chunk
+        if (memcmp(current_heap_object->magic, KALLOC_MAGIC, sizeof(KALLOC_MAGIC)-1) != 0) panic("Encountered heap object with corrupted magic!");
+
         if (current_heap_object->next_chunk == NULL) panic("Encountered heap object with corrupted next_chunk (null)!");
         if (current_heap_object->flags & KALLOC_LAST_CHUNK) {
-            if (kernel_task) spinlock_release(&kalloc_lock);
+            if ((void*)current_heap_object->next_chunk < kernel_heap_top) {
+                paging_add_page(current_heap_object->next_chunk, PTE_PDE_PAGE_WRITABLE);
+                current_heap_object->next_chunk = (void*)current_heap_object->next_chunk + PAGE_SIZE_NO_PAE;
+                goto try_remapped;
+            }
+            if (current_process) spinlock_release(&kalloc_lock);
             return NULL; // cannot allocate
         }
         current_heap_object = current_heap_object->next_chunk;
     }
     current_heap_object->flags |= KALLOC_CHUNK_USED;
 
-    struct heap_header * next_heap_object = (struct heap_header*)((void *)current_heap_object + sizeof(struct heap_header) + size);
-
+    struct heap_header * next_heap_object = (void *)current_heap_object + sizeof(struct heap_header) + size;
     *next_heap_object = (struct heap_header) {
         .flags = 0 | (current_heap_object->flags & KALLOC_LAST_CHUNK),
         .prev_chunk = current_heap_object,
@@ -66,14 +82,14 @@ void * __attribute__((malloc, malloc(kfree))) kalloc(size_t size) {
     if (current_heap_object->flags & KALLOC_LAST_CHUNK) current_heap_object->flags ^= KALLOC_LAST_CHUNK;
     current_heap_object->next_chunk = next_heap_object;
 
-    if (kernel_task) spinlock_release(&kalloc_lock);
+    if (current_process) spinlock_release(&kalloc_lock);
 
     return (void*)current_heap_object + sizeof(struct heap_header);
 }
 
 void kfree(void * p) {
     if (p == NULL) return;
-    if (kernel_task) spinlock_acquire(&kalloc_lock);
+    if (current_process) spinlock_acquire(&kalloc_lock);
 
     struct heap_header * current_heap_object = (struct heap_header * ) (p - sizeof(struct heap_header));
 
@@ -119,7 +135,7 @@ void kfree(void * p) {
     }
 
     end:
-    if (kernel_task) spinlock_release(&kalloc_lock);
+    if (current_process) spinlock_release(&kalloc_lock);
 }
 
 

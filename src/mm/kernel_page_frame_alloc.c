@@ -5,11 +5,12 @@
 #include "../../libc/src/include/string.h"
 #include "../include/kernel.h"
 
+// TODO: implement locking!
+
 #define kprintf(fmt, ...) kprintf("PF: "fmt, ##__VA_ARGS__)
 
-#define PFALLOC_USED 1
 #define PFALLOC_UNUSED 0
-#define PFALLOC_UNUSABLE PFALLOC_USED
+#define PFALLOC_UNUSABLE 1
 
 static uint8_t * page_frame_table = NULL;
 static void * page_frame_table_start_addr = NULL;
@@ -65,18 +66,72 @@ void * page_frame_alloc_init(multiboot_info_t* mbd, unsigned long free_memory, v
 //static void refill_pft_cache() { // todo: add next X free pages cache
 //
 //}
+
+void * pfalloc_dup_page(void * page) {
+    if (page < page_frame_table_start_addr) {
+        kprintf("Warning: Tried to duplicate a frame outside (below) of managed range!\n");
+        return NULL;
+    }
+    if (page > page_frame_table_start_addr + page_frame_table_entries*PAGE_SIZE_NO_PAE) {
+        kprintf("Warning: Tried to duplicate a frame outside (above) of managed range!\n");
+        return NULL;
+    }
+    int page_index = (page - page_frame_table_start_addr)/PAGE_SIZE_NO_PAE;
+    if (page_frame_table[page_index] == PFALLOC_UNUSED) {
+        kprintf("Warning: Tried to duplicate a freed frame!\n");
+        return NULL;
+    }
+
+
+    void * new_frame = pfalloc();
+    kassert(new_frame);
+    void * mapped_new = paging_map_phys_addr_unspecified(new_frame, PTE_PDE_PAGE_WRITABLE);
+    kassert(mapped_new);
+    void * mapped_old = paging_map_phys_addr_unspecified(page, PTE_PDE_PAGE_WRITABLE);
+    kassert(mapped_old);
+
+    memcpy(mapped_new, mapped_old, PAGE_SIZE_NO_PAE);
+    paging_unmap_page(mapped_new);
+    paging_unmap_page(mapped_old);
+
+    return new_frame;
+}
+
+void * pfalloc_ref_inc(void * page) {
+    if (page < page_frame_table_start_addr) {
+        kprintf("Warning: Tried to increment reference counter for a frame outside (below) of managed range!\n");
+        return NULL;
+    }
+    if (page > page_frame_table_start_addr + page_frame_table_entries*PAGE_SIZE_NO_PAE) {
+        kprintf("Warning: Tried to increment reference counter for a frame outside (above) of managed range!\n");
+        return NULL;
+    }
+    int page_index = (page - page_frame_table_start_addr)/PAGE_SIZE_NO_PAE;
+    if (page_frame_table[page_index] == PFALLOC_UNUSED) {
+        kprintf("Warning: Tried to increment reference counter for a freed frame!\n");
+        return NULL;
+    }
+    if (page_frame_table[page_index] == UINT8_MAX) {
+        void * new_page = pfalloc_dup_page(page);
+        return new_page;
+    } else {
+        __atomic_add_fetch(&page_frame_table[page_index], 1, __ATOMIC_RELAXED);
+        return page;
+    }
+}
+
 void * pfalloc() {
     if (page_frame_table_entries > RESERVED_PAGE_FRAMES_END) {
         for (int i = RESERVED_PAGE_FRAMES_END; i < page_frame_table_entries; i++) {
             if (page_frame_table[i] == PFALLOC_UNUSED) {
-                page_frame_table[i] = PFALLOC_USED;
+                page_frame_table[i] = 1;
                 return page_frame_table_start_addr + i*PAGE_SIZE_NO_PAE;
             }
         }
     }
     for (int i = page_frame_table_entries - 1; i >= 0; i--) {
         if (page_frame_table[i] == PFALLOC_UNUSED) {
-            page_frame_table[i] = PFALLOC_USED;
+            page_frame_table[i] = 1;
             return page_frame_table_start_addr + i*PAGE_SIZE_NO_PAE;
         }
     }
@@ -91,14 +146,14 @@ void * pfalloc_1M() {
             if (page_frame_table_entries - i < PAGE_COUNT_1M) return NULL;
             
             for (int j = 0; j < PAGE_COUNT_1M; j++) {
-                if (page_frame_table[i+j] == PFALLOC_USED) {
+                if (page_frame_table[i+j] == 1) {
                     i+=j+1;
                     goto next_iter;
                 }
             }
 
             for (int j = 0; j < PAGE_COUNT_1M; j++) {
-                page_frame_table[i+j] = PFALLOC_USED;
+                page_frame_table[i+j] = 1;
             }
             return page_frame_table_start_addr + i*PAGE_SIZE_NO_PAE;
         }
@@ -120,7 +175,7 @@ void pffree(void *page) {
         kprintf("Warning: Tried to double free a page!\n");
         return;
     }
-    page_frame_table[page_index] = PFALLOC_UNUSED;
+    __atomic_sub_fetch(&page_frame_table[page_index], 1, __ATOMIC_RELAXED);
 }
 
 void pffree_1M(void * block_4M_start) {
@@ -135,7 +190,7 @@ void pffree_1M(void * block_4M_start) {
     int page_index = (block_4M_start - page_frame_table_start_addr)/PAGE_SIZE_NO_PAE;
     for (int i = 0; i < PAGE_COUNT_1M; i++) {
         if (page_frame_table[page_index+i] == PFALLOC_UNUSED) kprintf("Warning: Tried to double free element %d of 1M block\n", page_index+i);
-        page_frame_table[page_index+i] = PFALLOC_UNUSED;
+        __atomic_sub_fetch(&page_frame_table[page_index+i], 1, __ATOMIC_RELAXED);
     }
 }
 

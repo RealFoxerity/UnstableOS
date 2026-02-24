@@ -99,13 +99,10 @@ static inline void vga_scroll_line() {
 
 void vga_write(const char * s, size_t len) {
     for (int i = 0; i < len; i++) {
-        //if (s[i] == 0x7F) { // delete, should theoretically do nothing, commented out because it produces a nice house character :3
-        //    continue;
-        //}
         if (s[i] == '\r') {
             vga_x = 0; continue;
         }
-        if (s[i] == '\b') {
+        if (s[i] == '\b' /*|| s[i] == 0x7F*/) {
             delete:
             if (vga_x == 0) {
                 if (vga_y == 0) continue;
@@ -114,7 +111,7 @@ void vga_write(const char * s, size_t len) {
             } else {
                 vga_x --;
             }
-            vga_put_char(0, vga_color, vga_x, vga_y); // assuming cursor is in front of text
+            ///*if (s[i] == 0x7F)*/ vga_put_char(0, vga_color, vga_x, vga_y); // assuming cursor is in front of text
             if (vga_x == 0 && vga_y == 0) continue;
             if (vga_x == 0) {
                 if ((((unsigned short *) VGA_TEXT_MODE_ADDR)[(vga_y - 1)*VGA_WIDTH + VGA_WIDTH - 1] & 0xFF) == 0) goto delete;

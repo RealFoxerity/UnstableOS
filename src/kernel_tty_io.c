@@ -75,7 +75,7 @@ void tty_alloc_kernel_console() { // for the kernel task, don't call for user pr
     
     tty_t * kernel_console = tty_init_tty(
         TTY_I_CRNL,
-        TTY_L_ECHO | TTY_L_ICANON | TTY_L_ISIG,
+        TTY_L_ECHO | TTY_L_ECHOE | TTY_L_ECHOK | TTY_L_ICANON | TTY_L_ISIG,
         TTY_O_POST | TTY_O_NLCR,
         default_control_chars, 
         VGA_HEIGHT, VGA_WIDTH, 
@@ -83,26 +83,6 @@ void tty_alloc_kernel_console() { // for the kernel task, don't call for user pr
         0, 0);
     tty_register(kernel_console, DEV_TTY_0);
     tty_register(kernel_console, DEV_TTY_S0);
-
-    spinlock_acquire(&kernel_inode_lock);
-    inode_t * tty_inode = get_free_inode();
-    spinlock_release(&kernel_inode_lock);
-
-    kassert(tty_inode);
-
-    tty_inode->device = GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE);
-    tty_inode->is_raw_device = 1;
-    tty_inode->instances = 1;
-
-
-    spinlock_acquire(&kernel_fd_lock);
-
-    kernel_task->fds[0] = kernel_task->fds[1] = kernel_task->fds[2] = get_free_fd();
-    kassert(kernel_task->fds[0]);
-    kernel_task->fds[0]->instances += 2;
-    kernel_task->fds[0]->inode = tty_inode;
-
-    spinlock_release(&kernel_fd_lock);
 }
 
 int tty_queue_getch(struct tty_queue * tq) { // if 256, got SIGALRM
@@ -166,7 +146,7 @@ void tty_flush_input(tty_t * tty) { // flush for reading on new line or EOF in c
 long tty_ioctl(dev_t dev, unsigned long cmd, unsigned long arg);
 static size_t tty_translate_line_outgoing(const char * s, size_t n, tty_t * tty);
 
-static inline char tty_remove_char(tty_t * tty) { // cannon mode, ERASE char, returns 1 when actually removed a char
+static inline char tty_remove_char(tty_t * tty, char is_vkill) { // cannon mode, ERASE char, returns 1 when actually removed a char
     spinlock_acquire(&tty->iqueue.queue_lock);
     if (REMAIN(&tty->iqueue) > 0) {
         if (!(
@@ -174,8 +154,11 @@ static inline char tty_remove_char(tty_t * tty) { // cannon mode, ERASE char, re
             (tty->params.control_chars[TCC_VEOF] != _POSIX_VDISABLE && tty->iqueue.buffer[tty->iqueue.tail-1] == tty->params.control_chars[TCC_VEOF]) ||
             (tty->params.control_chars[TCC_VEOL] != _POSIX_VDISABLE && tty->iqueue.buffer[tty->iqueue.tail-1] == tty->params.control_chars[TCC_VEOL]) 
         )) {
-            if (tty->params.lmodes & TTY_L_ECHO) {
-                tty_translate_line_outgoing("\b", 1, tty);
+            if (!is_vkill && tty->params.lmodes & TTY_L_ECHO) {
+                if (tty->params.lmodes & TTY_L_ECHOE)
+                    tty_translate_line_outgoing("\b \b", 3, tty);
+                else
+                    tty_translate_line_outgoing((const char *)&tty->params.control_chars[TCC_VERASE], 1, tty);
             }
             DEC_LAST(&tty->iqueue);
             spinlock_release(&tty->iqueue.queue_lock);
@@ -187,7 +170,12 @@ static inline char tty_remove_char(tty_t * tty) { // cannon mode, ERASE char, re
 }
 
 static inline void tty_remove_line(tty_t * tty) { // cannon mode, KILL char
-    while (tty_remove_char(tty));
+    while (tty_remove_char(tty, 1));
+    if (tty->params.lmodes & TTY_L_ECHO) {
+        tty_translate_line_outgoing((const char *)&tty->params.control_chars[TCC_VKILL], 1, tty);
+        if (tty->params.lmodes & TTY_L_ECHOK)
+            tty_translate_line_outgoing("\n", 1, tty);
+    }
 }
 
 static inline size_t tty_translate_line_incoming(const char * s, size_t n, tty_t * tty) {
@@ -213,7 +201,7 @@ static inline size_t tty_translate_line_incoming(const char * s, size_t n, tty_t
 
         if (tty->params.lmodes & TTY_L_ICANON) {
             if (tty->params.control_chars[TCC_VERASE] != _POSIX_VDISABLE && checked == tty->params.control_chars[TCC_VERASE]) {
-                tty_remove_char(tty);
+                tty_remove_char(tty, 0);
                 continue;
             }
             if (tty->params.control_chars[TCC_VKILL] != _POSIX_VDISABLE && checked == tty->params.control_chars[TCC_VKILL]) {

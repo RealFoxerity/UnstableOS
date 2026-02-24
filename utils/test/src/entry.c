@@ -15,7 +15,8 @@ int test_thread(struct uthread_args * self, void* _) {
 }
 
 void show_help() {
-    printf("\nr - print a random number\nmalloc [num] - run malloc with size as integer\nheap - print heap\nt - run a test thread, get return code\nexit - exits\n");
+    printf("\nr - print a random number\nmalloc [num] - run malloc with size as integer\nheap - print heap\nt - run a test thread, get return code\nexit - exits\n"
+                "open [path] - opens a file\nread [fd] [amount] - reads from file\nls [path] - lists directory\n");
 }
 
 #define MAX_INPUT_BUFFER 128
@@ -49,6 +50,12 @@ int main() {
             malloc_print_heap_objects();
         } else if (strcmp("exit\n", input_buf) == 0) {
             exit(EXIT_SUCCESS);
+        } else if (strcmp("open ", input_buf) == 0) {
+
+        } else if (strcmp("read ", input_buf) == 0) {
+
+        } else if (strcmp("ls ", input_buf) == 0) {
+
         } else printf("?");
     }
 }

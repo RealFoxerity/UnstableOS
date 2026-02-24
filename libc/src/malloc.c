@@ -44,7 +44,7 @@ void * __attribute__((malloc, malloc(free))) malloc(size_t size) {
     if (size % MALLOC_ALIGNMENT != 0) size = size + MALLOC_ALIGNMENT - size%MALLOC_ALIGNMENT;
 
     struct malloc_heap_header * current_heap_object = heap_base;
-    while (current_heap_object->flags & MALLOC_CHUNK_USED || current_heap_object->next_chunk - current_heap_object < size + sizeof(struct malloc_heap_header)*2) { // one for the current struct, one for the newly generated at the start of the next chunk
+    while (current_heap_object->flags & MALLOC_CHUNK_USED || (void *)current_heap_object->next_chunk - (void *)current_heap_object < size + sizeof(struct malloc_heap_header)*2) { // one for the current struct, one for the newly generated at the start of the next chunk
         if (current_heap_object->next_chunk == NULL) {
             printf("malloc() current_heap_object->next_chunk == NULL\n");
             exit(255);
