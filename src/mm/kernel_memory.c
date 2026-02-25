@@ -296,21 +296,6 @@ PAGE_DIRECTORY_TYPE * paging_get_address_space_paddr() {
     return out;
 }
 
-void paging_destroy_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr) {
-    if (pd_vaddr == NULL) return;
-    for (int i = 0; i < PAGE_DIRECTORY_ENTRIES; i++) {
-        if ((pd_vaddr[i] & ~(PAGE_SIZE_NO_PAE - 1)) != (PDE_ADDR_VIRT[i]& ~(PAGE_SIZE_NO_PAE - 1)) && pd_vaddr[i] != 0) { // we need to be careful around the kernel addresses
-            pffree((void*) ((unsigned long)pd_vaddr[i] & ~(PAGE_SIZE_NO_PAE-1)));
-        }
-    }
-    //pffree(paging_virt_addr_to_phys(pd_vaddr)); 
-    // no need to free the pd since thats always the last pde, thus being freed at the last for loop iteration
-    
-    
-    paging_unmap_page(pd_vaddr);
-}
-
-
 static unsigned long ident_map_top = IDENT_MAPPING_MAX_ADDR;
 
 PAGE_DIRECTORY_TYPE * kernel_address_space_paddr = NULL;
