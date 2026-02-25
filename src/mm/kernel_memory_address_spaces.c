@@ -136,6 +136,24 @@ PAGE_DIRECTORY_TYPE * paging_create_new_address_space() {
     return page_directory;
 }
 
+void paging_destroy_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr) {
+    if (pd_vaddr == NULL) return;
+    for (int i = 0; i < PAGE_DIRECTORY_ENTRIES - 1; i++) {
+        if (!(pd_vaddr[i] & PTE_PDE_PAGE_PRESENT)) continue;
+
+        if ((pd_vaddr[i] & ~(PAGE_SIZE_NO_PAE - 1)) != (KERNEL_ADDRESS_SPACE_VADDR[i] & ~(PAGE_SIZE_NO_PAE - 1))) { // we need to be careful around the kernel addresses
+            PAGE_TABLE_TYPE * pte = paging_get_page_table_from_address_space(pd_vaddr, (void*)(i*PAGE_TABLE_ENTRIES*PAGE_SIZE_NO_PAE));
+            for (int j = 0; j < PAGE_TABLE_ENTRIES; j++) {
+                if (!(pte[j] & PTE_PDE_PAGE_PRESENT)) continue;
+                pffree((void*)(pte[j] & ~(PAGE_SIZE_NO_PAE - 1)));
+            }
+        }
+    }
+    pffree((void*)(pd_vaddr[PAGE_DIRECTORY_ENTRIES-1] & ~(PAGE_SIZE_NO_PAE-1))); 
+
+    paging_unmap_page(pd_vaddr);
+}
+
 void paging_print_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr) {
     if (pd_vaddr == NULL) return;
     PAGE_TABLE_TYPE * pt_vaddr;
