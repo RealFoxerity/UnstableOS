@@ -752,6 +752,8 @@ static void keyboard_driver_loop() {
             pending_device = -1;
             ps2_driver_thread->status = SCHED_UNINTERR_SLEEP; // thread locking shouldn't be needed if we lock the ps2_pending_lock each time
             spinlock_release(&ps2_pending_lock);
+            reschedule();
+            // second reschedule() here to prevent ps/2 irq from starving the system
         }
     }
 }

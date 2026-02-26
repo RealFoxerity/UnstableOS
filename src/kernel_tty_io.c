@@ -19,7 +19,7 @@ extern size_t tty_com_write(tty_t * tty); // from rs232.c
 
 static size_t tty_console_write(tty_t * tty) {
     struct tty_queue * tq = &tty->oqueue;
-    spinlock_acquire(&tq->queue_lock);
+    spinlock_acquire_interruptible(&tq->queue_lock);
 
     size_t n = REMAIN(tq);
 
@@ -94,7 +94,7 @@ int tty_queue_getch(struct tty_queue * tq) { // if 256, got SIGALRM
     }
     if (current_process->signal & ~MASK_SIGALRM) return 256;
     char out = 0;
-    spinlock_acquire(&tq->queue_lock);
+    spinlock_acquire_interruptible(&tq->queue_lock);
     if (EMPTY(tq)) {
         spinlock_release(&tq->queue_lock);
         goto again;
@@ -111,7 +111,7 @@ int tty_queue_getch(struct tty_queue * tq) { // if 256, got SIGALRM
 
 void tty_queue_putch(struct tty_queue * tq, char c) {
     kassert(tq->head < TTY_BUFFER_SIZE && tq->tail < TTY_BUFFER_SIZE);
-    spinlock_acquire(&tq->queue_lock);
+    spinlock_acquire_interruptible(&tq->queue_lock);
     while (FULL(tq)) { // buffer full
         kprintf("tty buffer full, flushing\n");
         thread_queue_unblock(&tq->read_queue);
@@ -124,7 +124,7 @@ void tty_queue_putch(struct tty_queue * tq, char c) {
         #elif TTY_QUEUE_MODE == 2
             spinlock_release(&tq->queue_lock);
             thread_queue_add(&tq->write_queue, current_process, current_thread, SCHED_UNINTERR_SLEEP); // warning! keyboard input can deadlock kernel
-            spinlock_acquire(&tq->queue_lock);
+            spinlock_acquire_interruptible(&tq->queue_lock);
         #endif
     }
 
@@ -147,7 +147,7 @@ long tty_ioctl(dev_t dev, unsigned long cmd, unsigned long arg);
 static size_t tty_translate_line_outgoing(const char * s, size_t n, tty_t * tty);
 
 static inline char tty_remove_char(tty_t * tty, char is_vkill) { // cannon mode, ERASE char, returns 1 when actually removed a char
-    spinlock_acquire(&tty->iqueue.queue_lock);
+    spinlock_acquire_interruptible(&tty->iqueue.queue_lock);
     if (REMAIN(&tty->iqueue) > 0) {
         if (!(
             tty->iqueue.buffer[tty->iqueue.tail-1] == '\n' ||

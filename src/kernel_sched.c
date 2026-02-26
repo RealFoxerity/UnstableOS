@@ -57,34 +57,7 @@ process_t * kernel_task = NULL;
 process_t * current_process = NULL;
 thread_t * current_thread = NULL;
 
-process_t * idle_task = NULL;
-
 pid_t last_pid = 0;
-
-static inline void scheduler_init_idle_task() {
-    idle_task = kalloc(sizeof(process_t));
-    if (!idle_task) panic("Not enough memory for kernel idle task!\n");
-    memset(idle_task, 0, sizeof(process_t));
-
-    idle_task->pid = -1;
-    idle_task->ring = 0;
-    idle_task->address_space_vaddr = KERNEL_ADDRESS_SPACE_VADDR; 
-
-    idle_task->threads = kalloc(sizeof(thread_t));
-    if (!idle_task->threads) panic("Not enough memory for kernel idle task!\n");
-    memset(idle_task->threads, 0, sizeof(thread_t));
-    // don't write here anyway so this should be safe
-    idle_task->threads->kernel_stack = kernel_ts_stack_top;
-    idle_task->threads->context.esp = idle_task->threads->context.ebp = kernel_ts_stack_top;
-
-    idle_task->threads->context.iret_frame.ip = kernel_idle;
-    idle_task->threads->context.iret_frame.sp = kernel_ts_stack_top;
-    idle_task->threads->context.iret_frame.flags = IA_32_EFL_SYSTEM_INTER_EN | IA_32_EFL_ALWAYS_1;
-    idle_task->threads->context.iret_frame.cs = GDT_KERNEL_CODE << 3;
-    idle_task->threads->context.iret_frame.ss = GDT_KERNEL_DATA << 3;
-
-    idle_task->threads->prev = idle_task->threads->prev;
-}
 
 void print_registers(const context_t * context) {
     kprintf("eax %lx\nebx %lx\necx %lx\nedx %lx\nedi %lx\nesi %lx\n", context->eax, context->ebx, context->ecx, context->edx, context->edi, context->esi);
@@ -131,7 +104,6 @@ static inline void scheduler_init_kernel_task() {
 }
 
 void scheduler_init() {
-    scheduler_init_idle_task();
     scheduler_init_kernel_task();
 }
 
@@ -396,7 +368,6 @@ void schedule(context_t * context) {
                     push_process_to_end(current_process);
                     push_thread_to_end(current_process, current_thread);
                                     
-                    switch_task:
                     switch_context(current_process, current_thread, context);
                     spinlock_release(&scheduler_lock);
                     return;
@@ -424,7 +395,6 @@ void schedule(context_t * context) {
         }
         current_process = current_process->next;
     }
-    current_process = idle_task;
-    current_thread = idle_task->threads;
-    goto switch_task;
+    panic("No viable task exists, corrupted process list?");
+    __builtin_unreachable();
 }

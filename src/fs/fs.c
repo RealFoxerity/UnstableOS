@@ -70,7 +70,7 @@ ssize_t read_file(file_descriptor_t * file, void * buf, size_t count) {
     if (!(file->mode & O_RDONLY)) return EINVAL;
 
     ssize_t ret = 0;
-    spinlock_acquire(&file->access_lock);
+    spinlock_acquire_interruptible(&file->access_lock);
 
     if (!file->inode->is_raw_device) {
         kassert(file->inode->backing_superblock);
@@ -106,7 +106,7 @@ ssize_t write_file(file_descriptor_t * file, const void * buf, size_t count) {
             return EINVAL;
 
     ssize_t ret = 0;
-    spinlock_acquire(&file->access_lock);
+    spinlock_acquire_interruptible(&file->access_lock);
 
     if (!file->inode->is_raw_device) {
         kassert(file->inode->backing_superblock);
@@ -149,7 +149,7 @@ off_t seek_file(file_descriptor_t * file, off_t offset, int whence) {
     }
 
     ssize_t ret = 0;
-    spinlock_acquire(&file->access_lock);
+    spinlock_acquire_interruptible(&file->access_lock);
 
     if (!file->inode->is_raw_device) {
         kassert(file->inode->backing_superblock);

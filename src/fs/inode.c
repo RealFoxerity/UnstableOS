@@ -138,7 +138,7 @@ inode_t * inode_from_device(dev_t device) {
 
 void inode_change_mode(inode_t * inode, unsigned char new_mode) {
     kassert(inode);
-    spinlock_acquire(&inode->lock);
+    spinlock_acquire_interruptible(&inode->lock);
     inode->mode = new_mode;
     spinlock_release(&inode->lock);
 }
