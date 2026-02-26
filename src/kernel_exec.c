@@ -10,29 +10,7 @@
 #include "../libc/src/include/string.h"
 
 #include "include/kernel_gdt_idt.h"
-
-static __attribute__((naked)) void exec_jump(void * new_esp) {
-    asm volatile (
-        "pushl %eax\n\t"
-        // right so for simple arguments, gcc decides that stuff should
-        // be in registers eax, edx... we are in C, there's a convention
-        // called cdecl... and it says... everything onto the stack
-        // why does gcc fucking do this???
-        // AND IT'S NOT EVEN CONSISTENT!
-        // in kernel_interrupts.c we have pic_send_eoi with uint8_t
-        // and that one IS passed on the stack
-        // fuck me, fuck gcc, fuck this hobby
-        // rant over
-
-        "xor %eax, %eax\n\t" // zero out everything
-        "xor %ebx, %ebx\n\t"
-        "xor %ecx, %ecx\n\t"
-        "xor %edx, %edx\n\t"
-        "xor %edi, %edi\n\t"
-        "xor %esi, %esi\n\t"
-        "popl %esp; iret;"
-    );
-}
+#include "include/vga.h"
 
 int sys_exec(const char * path) {
     kassert(current_process);
@@ -98,6 +76,22 @@ int sys_exec(const char * path) {
     }
 
     spinlock_release(&scheduler_lock);
-    exec_jump(target);
+
+    asm volatile ( // check the note in kernel_syscall.c
+        "mov %0, %%ds;"
+        "mov %0, %%es;"
+        "mov %0, %%fs;"
+        "mov %0, %%gs;"
+        "pushl %1\n\t" // save the new esp
+        "xor %%eax, %%eax\n\t" // zero out everything
+        "xor %%ebx, %%ebx\n\t"
+        "xor %%ecx, %%ecx\n\t"
+        "xor %%edx, %%edx\n\t"
+        "xor %%edi, %%edi\n\t"
+        "xor %%esi, %%esi\n\t"
+        "popl %%esp; iret;"
+        ::  "R"(new->context.iret_frame.ss), 
+            "R"(target)
+    );
     __builtin_unreachable();
 }
