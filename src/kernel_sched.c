@@ -9,6 +9,7 @@
 #include "include/elf.h"
 #include "include/lowlevel.h"
 #include "include/kernel_gdt_idt.h"
+#include "include/vga.h"
 #include <stdalign.h>
 #include <stddef.h>
 
@@ -58,7 +59,7 @@ thread_t * current_thread = NULL;
 
 process_t * idle_task = NULL;
 
-size_t last_pid = 0;
+pid_t last_pid = 0;
 
 static inline void scheduler_init_idle_task() {
     idle_task = kalloc(sizeof(process_t));
@@ -304,8 +305,14 @@ static void inline switch_context(process_t * pprocess, thread_t * thread, conte
 
     memcpy(context, &thread->context, sizeof(context_t)-sizeof(struct interr_frame));
 
-    unsigned int data_segment = (thread->context.iret_frame.cs & ~3) == (GDT_KERNEL_CODE << 3) ? (GDT_KERNEL_DATA << 3) : (thread->context.iret_frame.ss);
+    //unsigned int data_segment = (thread->context.iret_frame.cs & ~3) == (GDT_KERNEL_CODE << 3) ? (GDT_KERNEL_DATA << 3) : (thread->context.iret_frame.ss);
+    // this top one is the correct approach, but when testing KVM and real hardware, i always had issues with
+    // the segment selectors getting set incorrectly to kernel selectors which would zero them out when
+    // context switching into userspace raising #GP. this bottom approach fixes this issue, but is technically
+    // wrong. because we don't actually do segmentation and everything is protected via paging, it doesn't actually
+    // matter what segments we use for data at what ring (except the stack which is set based on the cs)
 
+    unsigned int data_segment = (GDT_USER_DATA << 3) | 3;
     asm volatile (
         "movl %0, %%eax;"
         "movl %%eax, %%ds;"
