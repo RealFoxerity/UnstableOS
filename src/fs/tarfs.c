@@ -308,8 +308,7 @@ ssize_t tarfs_read(file_descriptor_t * fd, void * buf, size_t n) {
         n = this->size - fd->off;
     }
 
-    spinlock_acquire(&sb->lock); // so that we can't race for the file descriptor
-    
+    spinlock_acquire_interruptible(&sb->lock); // so that we can't race for the file descriptor
     seek_file(tar_fd, this->record_offset + sizeof(ustar_hdr) + fd->off, SEEK_SET);
     read = read_file(tar_fd, buf, n); // read technically not needed here, but just in case
 

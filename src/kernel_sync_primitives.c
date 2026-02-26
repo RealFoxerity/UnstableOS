@@ -52,7 +52,13 @@ static inline void check_deadlock(sem_t * sem, process_t * pprocess) { // tested
     return;
 }
 
-void spinlock_acquire(spinlock_t * lock) { // sets lock = 1, acquiring it
+void spinlock_acquire(spinlock_t * lock) { // disables interrupts after lock
+    spinlock_acquire_interruptible(lock);
+    asm volatile("cli");
+}
+
+// same as normal spinlock_acquire, but doesn't call cli
+void spinlock_acquire_interruptible(spinlock_t * lock) {
     if (!lock) panic("Tried to lock a NULL spinlock");
 
     asm volatile ("pushf; pop %0;" : "=R"(lock->eflags));
@@ -61,7 +67,6 @@ void spinlock_acquire(spinlock_t * lock) { // sets lock = 1, acquiring it
     do {
         asm volatile ("pause");
     } while (!__atomic_compare_exchange_n(&lock->state, &(unsigned long){SPINLOCK_UNLOCKED}, SPINLOCK_LOCKED, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST));
-    asm volatile("cli");
 }
 
 // WARNING NO WAY TO DETECT DEADLOCKS FOR SPINLOCKING

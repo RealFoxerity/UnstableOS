@@ -337,6 +337,8 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     scheduler_add_process(program, 3);
 
     while (1) {
+        // kernel thread serves as the idle task
+        asm volatile("hlt;");
         reschedule();
     }
 }

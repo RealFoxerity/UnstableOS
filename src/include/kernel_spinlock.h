@@ -10,6 +10,7 @@ struct {
 } typedef spinlock_t;
 
 void spinlock_acquire(spinlock_t * lock); // reschedules instead of busy loop checking, automatically disables interrupts when spinlock locked
+void spinlock_acquire_interruptible(spinlock_t * lock); // same as spinlock_acquire, but doesn't disable interrupts
 void spinlock_acquire_nonreentrant(spinlock_t * lock); // busy loop, also disables interrupts
 void spinlock_release(spinlock_t * lock); // reenables interrupts if they were enabled when acquiring the lock
 #endif

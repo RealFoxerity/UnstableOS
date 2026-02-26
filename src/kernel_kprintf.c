@@ -39,12 +39,23 @@ void kprintf_write(const char * buf, size_t count) { // TODO: rewrite, this is h
         }
         if (buf[i] == '\n') do_print_time = 1;
 
-        if (__builtin_expect(kernel_task == NULL || kernel_task->fds[0] == NULL || kernel_task->fds[0]->inode == NULL, 0)) {
+        /*
+        Normally, we would use the TTY system for the kernel log, however
+        we want (and it's important) for the TTYs to be preemptible
+        Considering kprintf mostly works as a debug tool to observe
+        the internal state of the kernel, I have decided to move it
+        from the TTY subsystem to raw com and vga write routines to
+        avoid numerous deadlocks coming from printing from within
+        interrupted TTY calls (for example kernel_create_thread()
+        call inside the ps/2 driver interrupting tty getch or putch)
+        */
+
+        //if (__builtin_expect(kernel_task == NULL || kernel_task->fds[0] == NULL || kernel_task->fds[0]->inode == NULL, 0)) {
             vga_write(buf+i, 1);
             com_write(0, buf+i, 1);
-        } else {
-            tty_write(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), buf+i, 1);
-        }
+        //} else {
+        //    tty_write(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), buf+i, 1);
+        //}
     }
 }
 
