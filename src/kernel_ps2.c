@@ -589,7 +589,7 @@ static void keyboard_driver_internal(char device_num) {
     uint8_t current_byte = inb(PS2_DATA_PORT);
     if (ps2_present_devices[device_num-1].present == 0) {
         kprintf("Recieved an interrupt for a disabled device! Ignoring\n");
-        goto exit;
+        return;
     }
     enum ps2_internal_states * internal_state;
     if (device_num == 1) 
@@ -677,7 +677,7 @@ static void keyboard_driver_internal(char device_num) {
                 else *internal_state = PS2_NORMAL;
             */
             *internal_state = PS2_WAITING_FOR_PAUSE_2;
-            goto exit;
+            return;
         case PS2_WAITING_FOR_PAUSE_2:
             if (ps2_present_devices[device_num-1].scan_code_set == 2) {
                 if (current_byte == PS2_SC2_3B_PAUSE_2) out = KEY_PAUSE;
@@ -695,16 +695,16 @@ static void keyboard_driver_internal(char device_num) {
                 else kprintf("Warning: recieved garbage data from %d instead of ACK (recv %hhx)\n", device_num, current_byte);
             }
             *internal_state = PS2_NORMAL;
-            goto exit;
+            return;
         case PS2_WAITING_FOR_ECHO:
             if (current_byte != PS2_RESPONSE_ECHO) {
                 kprintf("ERROR: RECIEVED GARBAGE DATA FROM %d INSTEAD OF ECHO (recv %hhx); DISABLING DEVICE\n", device_num, current_byte);
                 outb(PS2_COMM_PORT, device_num == 1?PS2_CONTROLLER_COMMAND_DISABLE_PORT1:PS2_CONTROLLER_COMMAND_DISABLE_PORT2);
                 ps2_present_devices[device_num-1].present = 0;
-                goto exit;
+                return;
             }
             *internal_state = PS2_NORMAL;
-            goto exit;
+            return;
 
         
 
@@ -732,9 +732,6 @@ static void keyboard_driver_internal(char device_num) {
     if (out == (KEY_DELETE | KEY_MOD_LCONTROL_MASK | KEY_MOD_RALT_MASK)) kernel_reset_system();
 
     tty_console_input(out);
-
-    exit:
-    pic_send_eoi(PIC_INTERR_KEYBOARD);
 }
 
 spinlock_t ps2_pending_lock = {0};
@@ -745,15 +742,16 @@ thread_t * ps2_driver_thread = NULL;
 static void keyboard_driver_loop() {
     kassert(ps2_driver_thread);
     while (1) {
-        if (__builtin_expect(pending_device == -1, 0)) reschedule();
+        if (__builtin_expect(pending_device == -1, 0)) {
+            ps2_driver_thread->status = SCHED_UNINTERR_SLEEP;
+            reschedule();
+        }
         else {
             spinlock_acquire(&ps2_pending_lock);
             keyboard_driver_internal(pending_device);
             pending_device = -1;
-            ps2_driver_thread->status = SCHED_UNINTERR_SLEEP; // thread locking shouldn't be needed if we lock the ps2_pending_lock each time
             spinlock_release(&ps2_pending_lock);
-            reschedule();
-            // second reschedule() here to prevent ps/2 irq from starving the system
+            pic_send_eoi(PIC_INTERR_KEYBOARD);
         }
     }
 }
