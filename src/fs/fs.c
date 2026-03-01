@@ -49,14 +49,18 @@ static int check_file(file_descriptor_t * file) {
 int sys_close(int fd) {
     if (fd < 0 || fd >= FD_LIMIT_PROCESS) return EBADF;
 
-    spinlock_acquire(&kernel_fd_lock);
-
     file_descriptor_t * file = current_process->fds[fd];
-    
-    __atomic_sub_fetch(&file->instances, 1, __ATOMIC_RELAXED);
-    if (file->instances == 0) __atomic_sub_fetch(&file->inode->instances, 1, __ATOMIC_RELAXED);
+    if (file == NULL) return EBADF;
 
     current_process->fds[fd] = NULL;
+    return close_file(file);
+}
+
+int close_file(file_descriptor_t * file) {
+    spinlock_acquire(&kernel_fd_lock);
+
+    __atomic_sub_fetch(&file->instances, 1, __ATOMIC_RELAXED);
+    if (file->instances == 0) close_inode(file->inode);
     // call inode_cleanup() maybe
     spinlock_release(&kernel_fd_lock);
     return 0;

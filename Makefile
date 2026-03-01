@@ -12,7 +12,9 @@ LDFLAGS	:=-T src/linker.ld
 
 OBJS=$(shell find src/ -name "*.[cs]" | sed 's/[cs]$$/o/g')
 
-all: $(OBJS) libc utils build/memdisk.tar
+.PHONY: all kernel
+all: kernel utils build/memdisk.tar
+kernel: $(OBJS) libc
 	$(CC) $(CFLAGS) $(OBJS) libc/build/libc.a -o build/UnstableOS.bin
 .PHONY: libc utils
 libc:

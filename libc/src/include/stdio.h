@@ -84,6 +84,7 @@ int getchar();
 char * fgets(char * s, int size, int fd);
 
 int open(const char * path, unsigned short flags, unsigned short mode);
+int close(int fd);
 ssize_t write(int fd, const void * buf, size_t count);
 ssize_t read (int fd, void * buf, size_t count);
 

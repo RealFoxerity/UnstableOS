@@ -17,13 +17,16 @@ long syscall(unsigned long syscall_number, ...) { // interrupt handler in kernel
     va_list args;
     va_start(args, syscall_number);
 
-    unsigned long arg1 = va_arg(args, unsigned long), arg2 = va_arg(args, unsigned long), arg3 = va_arg(args, unsigned long);
-    
+    unsigned long arg1 = va_arg(args, unsigned long), arg2 = va_arg(args, unsigned long), 
+                    arg3 = va_arg(args, unsigned long), arg4 = va_arg(args, unsigned long);
+
     long out = syscall_number;
     asm volatile (
+        "pushl %0;"
         "int $" STR(SYSCALL_INTERR)"\n\t"
+        "addl $0x4, %%esp"
         :"+a" (out)
-        :"D"(arg1), "S"(arg2), "d"(arg3)
+        :"m"(arg4), "D"(arg1), "S"(arg2), "d"(arg3)
     );
     return out;
 }
@@ -40,4 +43,21 @@ void abort() {
 
 int exec(const char * path) {
     return syscall(SYSCALL_EXEC, path);
+}
+pid_t fork() {
+    return syscall(SYSCALL_FORK);
+}
+pid_t spawn(const char * path) {
+    return syscall(SYSCALL_SPAWN, path);
+}
+void yield() {
+    syscall(SYSCALL_YIELD);
+}
+
+pid_t getpid() {
+    return syscall(SYSCALL_GETPID);
+}
+
+pid_t wait(int * wstatus) {
+    return syscall(SYSCALL_WAIT, wstatus);
 }

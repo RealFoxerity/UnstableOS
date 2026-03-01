@@ -24,4 +24,5 @@
 #define ENOMEM -21
 #define EROFS -22
 #define ENOEXEC -23
+#define ECHILD -24
 #endif

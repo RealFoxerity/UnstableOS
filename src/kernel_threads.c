@@ -16,16 +16,16 @@ static inline void * get_thread_stack(process_t * parent_process) {
     return NULL;
 }
 
+pid_t last_tid = 0;
 thread_t * kernel_create_thread(process_t * parent_process, void (* entry_point)(void*), void * arg) {
     kprintf("create_thread_kernel(pid: %lu), free mem: %lu\n", parent_process->pid, pf_get_free_memory());
     if (pf_get_free_memory() < sizeof(thread_t)+PROGRAM_KERNEL_STACK_SIZE) panic("Not enough memory for thread creation");
-    
-    static size_t tid = 0;
+
     thread_t * new = kalloc(sizeof(thread_t));
     if (new == NULL) panic("Not enough memory to allocate a new thread");
 
     memset(new, 0, sizeof(thread_t));
-    new->tid = ++tid;
+    new->tid = __atomic_add_fetch(&last_tid, 1, __ATOMIC_RELAXED);
     new->status = SCHED_RUNNABLE;
 
     new->kernel_stack = kalloc(PROGRAM_KERNEL_STACK_SIZE) + PROGRAM_KERNEL_STACK_SIZE;
@@ -54,8 +54,6 @@ thread_t * kernel_create_thread(process_t * parent_process, void (* entry_point)
         if (new->stack == NULL) panic("Unable to create thread - all thread slots used up");
         new->context.iret_frame.sp = new->stack;
         paging_map_to_address_space(parent_process->address_space_vaddr, new->context.iret_frame.sp - PROGRAM_STACK_SIZE, PROGRAM_STACK_SIZE, PTE_PDE_PAGE_WRITABLE | PTE_PDE_PAGE_USER_ACCESS);
-
-        kprintf("new thread entry point %p\n", entry_point);
     } else {
         new->context.iret_frame.sp = new->context.esp;
         new->context.esp -= 2 * sizeof(void*);

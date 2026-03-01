@@ -10,7 +10,6 @@
 
 struct program load_elf(int elf_fd) { // returns VIRTUAL address of page directory for the elf's new address space
     ssize_t elf_size = sys_seek(elf_fd, 0, SEEK_END);
-    kprintf("size: %lu\n", elf_size);
     if (elf_size < 0) return (struct program){0};
     // assumes kernel's address space (aka. data available in all address spaces)
     // assumes program and thread stacks are above heap, and that the program cannot load anything between the heap and stacks

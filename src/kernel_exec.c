@@ -95,3 +95,62 @@ int sys_exec(const char * path) {
     );
     __builtin_unreachable();
 }
+
+int sys_spawn(const char *path) {
+    kassert(current_process);
+
+    int elf_fd = sys_open(path, O_RDONLY, 0);
+    if (elf_fd < 0) return elf_fd;
+    if (I_ISDIR(current_process->fds[elf_fd]->inode->mode)) {
+        sys_close(elf_fd);
+        return EISDIR;
+    }
+    struct program new_prog = load_elf(elf_fd);
+    sys_close(elf_fd);
+    if (new_prog.pd_vaddr == NULL) {
+        kprintf("Exec format error on attempted spawn() by pid %lu tid %lu!\n", current_process->pid, current_thread->tid);
+        return ENOEXEC;
+    }
+
+    spinlock_acquire(&scheduler_lock);
+    process_t * proc = kalloc(sizeof(process_t));
+    kassert(proc);
+
+    // we need to copy multiple fields, so might as well copy everything
+    memcpy(proc, current_process, sizeof(process_t));
+    proc->ppid = current_process->pid;
+    proc->pid = __atomic_add_fetch(&last_pid, 1, __ATOMIC_RELAXED);
+    proc->address_space_vaddr = new_prog.pd_vaddr;
+
+    if (process_list->next == NULL) {
+        // kernel spawning /init
+        proc->ring = 3;
+        paging_apply_address_space(paging_virt_addr_to_phys(new_prog.pd_vaddr));
+    }
+
+    proc->signal = proc->exitcode = 0;
+    memset(proc->semaphores, 0, sizeof(proc->semaphores));
+    memset(proc->thread_stacks, 0, sizeof(proc->thread_stacks));
+    memset(proc->fds, 0, sizeof(proc->fds));
+
+    // copy stdin, stdout, stderr
+    memcpy(proc->fds, current_process->fds, 3 * sizeof(file_descriptor_t *));
+    for (int i = 0; i < 3; i++)
+        if (proc->fds[i])
+            __atomic_add_fetch(&proc->fds[i]->instances, 1, __ATOMIC_RELAXED);
+
+    __atomic_add_fetch(&proc->pwd->instances, 1, __ATOMIC_RELAXED);
+    __atomic_add_fetch(&proc->root->instances, 1, __ATOMIC_RELAXED);
+
+    
+    proc->threads = NULL;
+    thread_t * new_thread = kernel_create_thread(proc, new_prog.start, NULL);
+    kassert(new_thread);
+
+
+    // relink to process_list
+    APPEND_DOUBLE_LINKED_LIST(proc, process_list)
+
+    spinlock_release(&scheduler_lock);
+    return proc->pid;
+}

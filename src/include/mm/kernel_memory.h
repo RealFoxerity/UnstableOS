@@ -15,7 +15,14 @@ enum PTE_FLAGS {
     PTE_PDE_PAGE_ACCESSED_DURING_TRANSLATE = 32,
     PTE_PAGE_DIRTY = 64, // not applicable in PDE
     //PTE_PAGE_ATTRIBUTE_TABLE = 128, // = 0
+    //PTE_PDE_PAGE_GLOBAL = 256
+    PTE_PDE_USER1 = 512, // following values are free for us to use
+    PTE_PDE_USER2 = 1024,
+    PTE_PDE_USER3 = 2048,
 };
+#define PTE_FORK_WRITABLE PTE_PDE_USER1
+// this page was duplicated during fork() and was originally writable - replace on page fault
+
 /*
 PDE structure for 4kib page sizes
                             0 - 7                                          8 - 11           12 - 31
