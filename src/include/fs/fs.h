@@ -109,7 +109,7 @@ off_t sys_seek(int fd, off_t off, int whence);
 // we need separate functions for direct file_descriptor_t * operations
 // this is theoretically more dangerous as we can't completely get rid of the fd and there could be UAF
 // alternatively we could do message passing and deferring to the kernel but that's much harder
-
+int close_file(file_descriptor_t * file); // primarily for closing on exit()
 ssize_t read_file(file_descriptor_t * file, void * buf, size_t count);
 ssize_t write_file(file_descriptor_t * file, const void * buf, size_t count);
 off_t seek_file(file_descriptor_t * file, off_t off, int whence);

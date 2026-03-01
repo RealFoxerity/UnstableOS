@@ -44,7 +44,7 @@ void reschedule() {
     asm volatile ("push %0; popf;" :: "R"(prev_eflags));
 }
 
-__attribute__((naked)) void kernel_idle() { // in case all processes/threads are sleeping
+__attribute__((naked)) void kernel_idle() { // loop to jump to when a thread is supposed to end
     asm volatile (
         "loop:\n\t"
         "hlt; jmp loop"
@@ -53,6 +53,8 @@ __attribute__((naked)) void kernel_idle() { // in case all processes/threads are
 
 // process_list->prev = last item in the (doubly) linked list, last item has ->next NULL so we know when we reach the end
 process_t * process_list = NULL;
+process_t * zombie_list = NULL;
+
 process_t * kernel_task = NULL;
 process_t * current_process = NULL;
 thread_t * current_thread = NULL;
@@ -110,95 +112,15 @@ void scheduler_init() {
 static inline void push_process_to_end(process_t * process) {
     if (process->next == NULL) return; // already at the end
 
-    if (process == process_list) {
-        // process->next->prev is already valid (process)
-        // process->prev is also already valid (previous last process)
-
-        process_list = process->next;
-
-        process->prev->next = process;
-
-        process->next = NULL;
-        return;
-    }
-
-    // unlink from queue
-    process->next->prev = process->prev;
-    process->prev->next = process->next;
-
-    // link at the end
-    process_list->prev->next = process;
-    process->prev = process_list->prev;
-
-    // restore metadata
-    process_list->prev = process;
-    process->next = NULL;
+    UNLINK_DOUBLE_LINKED_LIST(process, process_list)
+    APPEND_DOUBLE_LINKED_LIST(process, process_list);
 }
 
 static inline void push_thread_to_end(process_t * pprocess, thread_t * thread) {
     if (thread->next == NULL) return; // already at the end
 
-    if (thread == pprocess->threads) {
-        // process->next->prev is already valid (process)
-        // process->prev is also already valid (previous last process)
-
-        pprocess->threads = thread->next;
-
-        thread->prev->next = thread;
-
-        thread->next = NULL;
-        return;
-    }
-
-    // unlink from queue
-    thread->next->prev = thread->prev;
-    thread->prev->next = thread->next;
-
-    // link at the end
-    pprocess->threads->prev->next = thread;
-    thread->prev = pprocess->threads->prev;
-
-    // restore metadata
-    pprocess->threads->prev = thread;
-    thread->next = NULL;
-}
-
-
-void scheduler_add_process(struct program program, uint8_t ring) { // called for the very first process
-    if (process_list == NULL) panic("Called scheduler_add_process() before scheduler was initialized!");
-
-    process_t * process = kalloc(sizeof(process_t));
-    if (process == NULL) panic("Failed to allocate memory for process struct\n");
-    memset(process, 0, sizeof(process_t));
-
-    process->ring = ring;
-    process->pid = ++last_pid;
-
-    process->ppid = current_process->pid;
-    process->pgrp = current_process->pgrp;
-    process->session = current_process->session;
-
-    process->address_space_vaddr = program.pd_vaddr;
-
-    paging_apply_address_space(paging_virt_addr_to_phys(program.pd_vaddr));
-    kernel_create_thread(process, program.start, NULL);
-
-    spinlock_acquire(&kernel_fd_lock);
-    //memcpy(process->fds, current_process->fds, sizeof(current_process->fds));
-    memcpy(process->fds, current_process->fds, sizeof(struct file_descriptor_t *) * 3);
-    //for (int i = 0; i < FD_LIMIT_PROCESS; i++) {
-    for (int i = 0; i <= STDERR; i++) { // TODO: fix when implementing O_CLOEXEC
-        if (process->fds[i] != NULL) __atomic_add_fetch(&process->fds[i]->instances, 1, __ATOMIC_RELAXED);
-    }
-    spinlock_release(&kernel_fd_lock);
-
-    spinlock_acquire(&scheduler_lock);
-    process_list->prev->next = process;
-    process->prev = process_list->prev;
-    process_list->prev = process;
-    spinlock_release(&scheduler_lock);
-
-    reschedule();
+    UNLINK_DOUBLE_LINKED_LIST(thread, pprocess->threads)
+    APPEND_DOUBLE_LINKED_LIST(thread, pprocess->threads);
 }
 
 #define KERNEL_ARGV0 "kernel/core"
@@ -251,13 +173,20 @@ static inline void scheduler_remove_process(process_t * process) {
 
     paging_destroy_address_space(current_process->address_space_vaddr);
 
-    if (process->next != NULL) process->next->prev = process->prev;
-    else process_list->prev = process->prev; // is at the end process->prev->next handled by next line
+    spinlock_acquire(&kernel_fd_lock);
+    // locked because we need to check for fds with instance 0
 
-    if (process != process_list) process->prev->next = process->next;
-    else process_list = process->next; // metadata fixed in process->next != NULL
-    
-    kfree(process);
+    for (int i = 0; i < FD_LIMIT_PROCESS; i++) {
+        if (process->fds[i]) {
+            close_file(process->fds[i]);
+        }
+    }
+    spinlock_release(&kernel_fd_lock);
+
+    UNLINK_DOUBLE_LINKED_LIST(process, process_list)
+
+    //kfree(process);
+    // not freed because we want to form a zombie queue for wait()
 }
 
 static void inline switch_context(process_t * pprocess, thread_t * thread, context_t * context) {
@@ -374,7 +303,7 @@ void schedule(context_t * context) {
                 case SCHED_STOPPED:
                 case SCHED_INTERR_SLEEP:
                 case SCHED_UNINTERR_SLEEP:
-                case SCHED_ZOMBIE:
+                case SCHED_WAITING:
                     break;
                 case SCHED_THREAD_CLEANUP:
                     kernel_destroy_thread(current_process, current_thread);
@@ -389,6 +318,41 @@ void schedule(context_t * context) {
                         panic("Tried to kill init");
                     }
                     scheduler_remove_process(current_process); // aka any thread can terminate the whole process
+                    
+                    // reparent all child processes if any
+                    process_t * checked = process_list;
+                    process_t * parent = NULL;
+                    while (checked != NULL) {
+                        if (checked->pid == current_process->ppid)
+                            parent = checked;
+                        if (checked->ppid == current_process->pid)
+                            checked->ppid = current_process->ppid;
+                        checked = checked->next;
+                    }
+                    // cleanup zombie list
+                    checked = zombie_list;
+                    while (checked != NULL) {
+                        if (checked->ppid == current_process->pid) {
+                            UNLINK_DOUBLE_LINKED_LIST(checked, zombie_list)
+
+                            checked = checked->next;
+                            kfree(checked->prev); // avoid uaf
+                            continue;
+                        }
+                        checked = checked->next;
+                    }
+
+                    APPEND_DOUBLE_LINKED_LIST(current_process, zombie_list)
+
+                    // wake up parent process
+                    thread_t * checked_thread = parent->threads;
+                    while (checked_thread != NULL) {
+                        if (checked_thread->status == SCHED_WAITING) {
+                            checked_thread->status = SCHED_RUNNABLE;
+                            break;
+                        }
+                        checked_thread = checked_thread->next;
+                    }
                     goto scheduler_start; // internal reschedule()
             }
             current_thread = current_thread->next;

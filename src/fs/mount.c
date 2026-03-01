@@ -57,7 +57,7 @@ long mount_root(dev_t dev, unsigned char type, unsigned short options) {
     spinlock_acquire(&root_inode->lock);
     root_inode->next_superblock = root_inode->backing_superblock;
     root_inode->is_mountpoint = 1;
-    root_inode->instances ++; // because pwd and root for kernel task
+    root_inode->instances += 2; // because pwd and root for kernel task
     spinlock_release(&root_inode->lock);
 
     root_mountpoint->mountpoint = root_inode;

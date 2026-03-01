@@ -18,10 +18,14 @@ int test_thread(struct uthread_args * self, void* test_val) {
 
 void show_help() {
     printf("\nr - print a random number\nmalloc [num] - run malloc with size as integer\n"
-                "heap - print heap\nt - run a test thread, get return code\nexit - exits\n"
-                "open [path] - opens a file\nread [fd] [amount] - reads from file\n"
+                "heap - print heap\nt - run a test thread, get return code\nexit [exitcode] - exits\n"
+                "open [path] - opens a file\n"
+                "close [fd] - closes a file descriptor\n"
+                "read [fd] [amount] - reads from file\n"
                 "seek [+/-/ ] [fd] [off] - seeks into a file - ahead, from end, set\n"
-                "ls [path] - lists directory\nexec [path] - runs an ELF file\n");
+                "ls [path] - lists directory\nexec [path] - runs an ELF file\n"
+                "spawn [path] - test out new process creation\n"
+                "fork - test out fork\n");
 }
 
 
@@ -60,9 +64,10 @@ int main() {
     printf("Testing shell env, H for help\n");
     char input_buf[MAX_INPUT_BUFFER];
     ssize_t read_bytes = 0;
+    pid_t our_pid = getpid();
     while(1) {
         memset(input_buf, 0, MAX_INPUT_BUFFER);
-        printf("> ");
+        printf("%lu > ", our_pid);
         read_bytes = read(0, input_buf, MAX_INPUT_BUFFER - 1);
         assert(read_bytes > 0);
 
@@ -86,13 +91,26 @@ int main() {
             printf("Allocated %lu bytes at address 0x%p\n", amount, malloc(amount));
         } else if (strcmp("heap\n", input_buf) == 0) {
             malloc_print_heap_objects();
-        } else if (strcmp("exit\n", input_buf) == 0) {
-            exit(EXIT_SUCCESS);
+        } else if (strcmp("exit ", input_buf) == 0) {
+            long exitcode;
+            if (sscanf(input_buf, "exit %lu", &exitcode) != 1) {
+                printf("Bad argument!\n");
+                continue;
+            }
+            exit(exitcode);
         } else if (strcmp("open ", input_buf) == 0) {
             input_buf[read_bytes - 1] = '\0'; // get rid of new line
             char * path = input_buf + 5;
             printf("New fd: %d\n", open(path, O_RDWR, 0));
-        } else if (strcmp("read ", input_buf) == 0) {
+        } else if (strcmp("close ", input_buf) == 0) {
+            int fd = -1;
+            if (sscanf(input_buf, "close %d", &fd) != 1) {
+                printf("Bad argument!\n");
+                continue;
+            }
+            printf("Close: %d\n", close(fd));
+        } 
+        else if (strcmp("read ", input_buf) == 0) {
             unsigned long amount = 0;
             int fd = -1;
             if (sscanf(input_buf, "read %d %lu", &fd, &amount) != 2) {
@@ -142,6 +160,26 @@ int main() {
             input_buf[read_bytes - 1] = '\0'; // get rid of new line
             char * path = input_buf + 5;
             printf("Uh-oh exec() failed with %d\n", exec(path));
+        } else if (strcmp("spawn ", input_buf) == 0) {
+            input_buf[read_bytes - 1] = '\0'; // get rid of new line
+            char * path = input_buf + 6;
+            long ret = spawn(path);
+            printf("Spawn: %ld\n", ret);
+            if (ret > 0) {
+                printf("Spawn successful\nWaiting on process termination\n");
+                int wstatus;
+                pid_t child = wait(&wstatus);
+                printf("Child pid %lu exited with %d\n", child, WEXITSTATUS(wstatus));
+            }
+        } else if (strcmp("fork\n", input_buf) == 0) {
+            pid_t child = fork();
+            switch (child) {
+                case 0:
+                    printf("forked\n");
+                    exit(0);
+                default:
+                    printf("New child pid %lu\n", child);
+            }
         } else printf("?");
     }
 }

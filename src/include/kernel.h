@@ -22,6 +22,28 @@
     }\
 }
 
+#define UNLINK_DOUBLE_LINKED_LIST(item, list) {     \
+    if (item->next != NULL)                         \
+        item->next->prev = item->prev;              \
+    else                                            \
+        list->prev = item->prev;                    \
+    if (item != list)                               \
+        item->prev->next = item->next;              \
+    else                                            \
+        list = item->next;                          \
+}
+
+#define APPEND_DOUBLE_LINKED_LIST(item, list) {     \
+    item->next = NULL;                              \
+    if (list == NULL) {                             \
+        list = item;                                \
+    } else {                                        \
+        item->prev = list->prev;                    \
+        list->prev->next = item;                    \
+    }                                               \
+    list->prev = item;                              \
+}
+
 #define PATH_MAX 4096
 
 #define SYSCALL_INTERR 0xF0 // if changing, change crt0.s
@@ -54,12 +76,15 @@ enum syscalls {
     SYSCALL_SBRK, // increments the data segment of the current running process, return previous end
 
     SYSCALL_EXEC,
+    SYSCALL_FORK,
+    SYSCALL_SPAWN, // spawn a new process (fork() + exec())
+
     SYSCALL_GETPID,
     //SYSCALL_SETSID,
     SYSCALL_GETPGID, // getpgid(pid_t target_pid)
     SYSCALL_SETPGID, // setpgid(pid_t target_pid, pid_t target_pgid)
     SYSCALL_KILL,
-    SYSCALL_WAIT,
+    SYSCALL_WAIT, // waits on any child to exit(), pid_t wait()
 
     SYSCALL_CREATE_THREAD, // create_thread(void (* entry_point)(void*), void * args)
     SYSCALL_EXIT_THREAD, // like exit() but for threads, no exitcode, has to be done via userspace (see libc/src/threads.c)

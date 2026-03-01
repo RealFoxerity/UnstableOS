@@ -1,4 +1,5 @@
 #include "../include/fs/fs.h"
+#include "../include/fs/vfs.h"
 #include "../include/mm/kernel_memory.h"
 #include "../include/kernel.h"
 #include "../../libc/src/include/string.h"
@@ -114,7 +115,12 @@ inode_t * create_inode(superblock_t * sb, void * inode_number) {
 }
 
 void close_inode(inode_t *inode) {
+    spinlock_acquire(&inode->lock);
     __atomic_sub_fetch(&inode->instances, 1, __ATOMIC_RELAXED);
+    if (inode->instances == 0)
+        if (inode->backing_superblock->funcs->release)
+                inode->backing_superblock->funcs->release(inode);
+    spinlock_release(&inode->lock);
 }
 
 inode_t * inode_from_device(dev_t device) {

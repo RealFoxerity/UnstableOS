@@ -68,11 +68,11 @@ enum pstatus_t {
     SCHED_STOPPED, // SIGTTOU, STGTTIN, SIGSTOP, resumes by SIGCONT
 
     SCHED_INTERR_SLEEP,
-    SCHED_UNINTERR_SLEEP, 
+    SCHED_UNINTERR_SLEEP,
+    SCHED_WAITING, // process called wait()
 
     SCHED_THREAD_CLEANUP, // thread called thread_exit()
     SCHED_CLEANUP, // process called exit() or otherwise crashed
-    SCHED_ZOMBIE, // process indefinitely waiting on parent process to collect exit code left in the process_t struct
 } typedef pstatus_t;
 
 #pragma clang diagnostic ignored "-Wc99-designator"
@@ -149,7 +149,7 @@ struct session_t {
 } typedef session_t;
 
 struct process_t {
-    unsigned char ring; // so that drivers and kernel can have their own processes, keep as the first element or fix PIT PIC ISR
+    unsigned char ring; // so that drivers and kernel can have their own processes
     pid_t pid, ppid, 
         pgrp, // used for tty interrupts
         session, ses_leader;
@@ -192,7 +192,6 @@ struct program {
 void kernel_idle();
 void scheduler_init();
 void schedule(context_t * context);
-void scheduler_add_process(struct program program, uint8_t ring);
 void scheduler_print_process(const process_t * process);
 void scheduler_print_processes();
 
@@ -203,11 +202,17 @@ void reschedule();
 
 void kernel_destroy_thread(process_t * parent_process, thread_t * current_thread);
 thread_t *  kernel_create_thread(process_t * parent_process, void (* entry_point)(void*), void * arg);
+extern process_t * process_list;
+extern process_t * zombie_list;
+
 extern process_t * current_process;
 extern thread_t * current_thread;
 extern process_t * kernel_task;
 
 extern spinlock_t scheduler_lock;
+
+extern pid_t last_pid;
+extern pid_t last_tid;
 
 void thread_queue_unblock(thread_queue_t * thread_queue);
 void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, enum pstatus_t new_status);

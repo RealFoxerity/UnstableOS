@@ -4,9 +4,11 @@
 
 #include "include/block/memdisk.h"
 #include "include/devs.h"
+#include "include/errno.h"
 #include "include/fs/fs.h"
 #include "include/fs/vfs.h"
 #include "include/fs/tarfs.h"
+#include "include/kernel_exec.h"
 #include "include/kernel_interrupts.h"
 #include "include/kernel_tty.h"
 #include "include/lowlevel.h"
@@ -326,15 +328,14 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
 
     mount_root(GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0), FS_TARFS, 0);
 
-    int init_fd = -1;
-    init_fd = sys_open("/init", O_RDONLY, 0);
-    
-    if (init_fd < 0) panic("Couldn't find and run /init");
-
-    struct program program = {0};
-    program = load_elf(init_fd);
-    if (program.pd_vaddr == NULL) panic("Exec format error!\n");
-    scheduler_add_process(program, 3);
+    switch (sys_spawn("/init")) {
+        case 1: break; // success, pid 1
+        case ENOEXEC: panic("Exec format error on init process!");
+        case ENOENT: panic("Failed to locate /init!");
+        case EISDIR: panic("/init is a directory!");
+        default:
+            panic("Failed to load /init!\n");
+    }
 
     while (1) {
         // kernel thread serves as the idle task

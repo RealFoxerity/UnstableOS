@@ -11,6 +11,7 @@ long syscall(unsigned long syscall_number, ...);
 void __attribute__((noreturn)) exit(long exit_code);
 void __attribute__((noreturn)) abort();
 int exec(const char * path);
+void yield();
 
 #define assert(cond) {\
     if (!(cond)) {\
@@ -22,7 +23,12 @@ int exec(const char * path);
 typedef size_t pid_t;
 
 int waitpid(pid_t pid, int * status, int options);
+pid_t fork();
+pid_t getpid();
+pid_t spawn(const char * path);
+pid_t wait(int * wstatus);
 
+#define WEXITSTATUS(wstatus) (wstatus & 0xFF)
 
 //void malloc_prepare(void * heap_struct_start, void * heap_top);
 

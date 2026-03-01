@@ -280,7 +280,6 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_page_fa
         } else { // overcommitment
             if (fault_address >= PROGRAM_HEAP_VADDR && fault_address < PROGRAM_HEAP_VADDR + PROGRAM_HEAP_SIZE) {
                 paging_add_page(fault_address, PTE_PDE_PAGE_USER_ACCESS | PTE_PDE_PAGE_WRITABLE);
-                flush_tlb_entry(fault_address);
                 return;
             }
             // unfortunately due to the kernel's usage pattern (cli, then kalloc), this would never trigger and we'd get a triple fault
