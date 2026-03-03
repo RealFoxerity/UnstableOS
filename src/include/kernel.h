@@ -72,9 +72,6 @@ enum syscalls {
     SYSCALL_STAT,
     SYSCALL_MOUNT,
 
-    SYSCALL_BRK, // sets the end of the data segment to a specified pointer
-    SYSCALL_SBRK, // increments the data segment of the current running process, return previous end
-
     SYSCALL_EXEC,
     SYSCALL_FORK,
     SYSCALL_SPAWN, // spawn a new process (fork() + exec())

@@ -32,6 +32,8 @@ clean:
 src/kernel_interrupts.o: src/kernel_interrupts.c
 	$(CC) $(CFLAGS) -mgeneral-regs-only -mno-red-zone -c src/kernel_interrupts.c -o src/kernel_interrupts.o
 
+src/kernel_page_fault.o: src/kernel_page_fault.c
+	$(CC) $(CFLAGS) -mgeneral-regs-only -mno-red-zone -c src/kernel_page_fault.c -o src/kernel_page_fault.o
 
 src/kernel_syscall.o: src/kernel_syscall.c
 	$(CC) $(CFLAGS) -mgeneral-regs-only -mno-red-zone -c src/kernel_syscall.c -o src/kernel_syscall.o

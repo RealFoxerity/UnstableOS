@@ -45,13 +45,22 @@ int sys_exec(const char * path) {
 
     // both of these should be safe because all kernel stacks are inside the kernel AS which is copied
     paging_apply_address_space(paging_virt_addr_to_phys(new_prog.pd_vaddr));
-    paging_destroy_address_space(current_process->address_space_vaddr);
+
+    PAGE_DIRECTORY_TYPE * mapped_as = paging_map_phys_addr_unspecified(current_process->address_space_paddr, PTE_PDE_PAGE_WRITABLE);
+    paging_destroy_address_space(mapped_as);
+    paging_unmap_page(mapped_as);
 
     //memset(current_process->thread_stacks, 0, sizeof(current_process->thread_stacks)); // shouldn't be needed
-    memset(current_process->semaphores, 0, sizeof(current_process->semaphores));
+    
+    for (int i = 0; i < PROGRAM_MAX_SEMAPHORES; i++) {
+        if (current_process->semaphores[i] == NULL) continue;
+        if (__atomic_sub_fetch(&current_process->semaphores[i]->used, 1, __ATOMIC_RELAXED) == 0)
+            kfree(current_process->semaphores[i]);
+    }
+
     current_process->signal = 0;
 
-    current_process->address_space_vaddr = new_prog.pd_vaddr;
+    current_process->address_space_paddr = paging_virt_addr_to_phys(new_prog.pd_vaddr);
 
     thread_t * new = kernel_create_thread(current_process, new_prog.start, NULL);
     kfree(new->kernel_stack - new->kernel_stack_size); // we need to preserve the current stack
@@ -97,6 +106,10 @@ int sys_exec(const char * path) {
 }
 
 int sys_spawn(const char *path) {
+
+    kprintf("spawn free mem %lu\n", kalloc_get_free_memory());
+
+
     kassert(current_process);
 
     int elf_fd = sys_open(path, O_RDONLY, 0);
@@ -120,7 +133,7 @@ int sys_spawn(const char *path) {
     memcpy(proc, current_process, sizeof(process_t));
     proc->ppid = current_process->pid;
     proc->pid = __atomic_add_fetch(&last_pid, 1, __ATOMIC_RELAXED);
-    proc->address_space_vaddr = new_prog.pd_vaddr;
+    proc->address_space_paddr = paging_virt_addr_to_phys(new_prog.pd_vaddr);
 
     if (process_list->next == NULL) {
         // kernel spawning /init

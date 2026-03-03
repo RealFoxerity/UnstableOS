@@ -40,7 +40,7 @@ thread_t * kernel_create_thread(process_t * parent_process, void (* entry_point)
     new->context.iret_frame.cs = parent_process->ring == 0 ? (GDT_KERNEL_CODE << 3) : ((GDT_USER_CODE << 3) | 3);
     new->context.iret_frame.flags = IA_32_EFL_ALWAYS_1 | IA_32_EFL_SYSTEM_INTER_EN;
     new->context.iret_frame.ip = entry_point;
-    new->cr3_state = paging_virt_addr_to_phys(parent_process->address_space_vaddr);
+    new->cr3_state = parent_process->address_space_paddr;
 
     new->context.esp = new->kernel_stack - sizeof(struct interr_frame); 
     // scheduler has to memcpy the interr_frame struct to switch context
@@ -53,7 +53,10 @@ thread_t * kernel_create_thread(process_t * parent_process, void (* entry_point)
         new->stack_size = PROGRAM_STACK_SIZE;
         if (new->stack == NULL) panic("Unable to create thread - all thread slots used up");
         new->context.iret_frame.sp = new->stack;
-        paging_map_to_address_space(parent_process->address_space_vaddr, new->context.iret_frame.sp - PROGRAM_STACK_SIZE, PROGRAM_STACK_SIZE, PTE_PDE_PAGE_WRITABLE | PTE_PDE_PAGE_USER_ACCESS);
+
+        PAGE_DIRECTORY_TYPE * mapped_as = paging_map_phys_addr_unspecified(parent_process->address_space_paddr, PTE_PDE_PAGE_WRITABLE);
+        paging_map_to_address_space(mapped_as, new->context.iret_frame.sp - PROGRAM_STACK_SIZE, PROGRAM_STACK_SIZE, PTE_PDE_PAGE_WRITABLE | PTE_PDE_PAGE_USER_ACCESS);
+        paging_unmap_page(mapped_as);
     } else {
         new->context.iret_frame.sp = new->context.esp;
         new->context.esp -= 2 * sizeof(void*);
@@ -81,16 +84,33 @@ void kernel_destroy_thread(process_t * parent_process, thread_t * thread) {
     
     if (parent_process->ring != 0) { // ring 0 stack is the kernel_stack
         parent_process->thread_stacks[GET_STACK_IDX_FROM_ADDR(thread->stack)] = 0;
-        paging_unmap_to_address_space(parent_process->address_space_vaddr, 
+
+        PAGE_DIRECTORY_TYPE * mapped_as = paging_map_phys_addr_unspecified(parent_process->address_space_paddr, PTE_PDE_PAGE_WRITABLE);
+        
+        for (void * addr = thread->stack - thread->stack_size; addr < thread->stack; ) {
+            int pd_idx = (unsigned long)addr >> 22;
+            kassert(mapped_as[pd_idx] & PTE_PDE_PAGE_PRESENT);
+
+            PAGE_TABLE_TYPE * pt = paging_map_phys_addr_unspecified((void *)(unsigned long)(mapped_as[pd_idx] & ~(PAGE_SIZE_NO_PAE - 1)), PTE_PDE_PAGE_WRITABLE);
+            kassert(pt);
+            for (int i = ((unsigned long)addr >> 12) & ((1<<10) - 1); i < PAGE_TABLE_ENTRIES && addr < thread->stack; i++, addr += PAGE_SIZE_NO_PAE) {
+                //kassert(pt[i] & PTE_PDE_PAGE_PRESENT);
+                if (!(pt[i] & PTE_PDE_PAGE_PRESENT)) {
+                    kprintf("Warning: Unmapped page on vaddr %p when freeing thread stack %p\n", get_vaddr(pd_idx, i), thread->stack);
+                    continue;
+                }
+                pffree((void*)(unsigned long)(pt[i] & ~(PAGE_SIZE_NO_PAE - 1)));
+            }
+            paging_unmap_page(pt);
+        }
+        
+        paging_unmap_to_address_space(mapped_as, 
             thread->stack - thread->stack_size, 
             thread->stack_size);
+        paging_unmap_page(mapped_as);
     }
     
-    if (thread->next != NULL) thread->next->prev = thread->prev;
-    else parent_process->threads->prev = thread->prev; // is at the end process->prev->next handled by next line
-
-    if (thread != parent_process->threads) thread->prev->next = thread->next;
-    else parent_process->threads = thread->next; // metadata fixed in process->next != NULL
+    UNLINK_DOUBLE_LINKED_LIST(thread, parent_process->threads);
 
     kfree(thread);
     //reschedule(); // kernel_destroy_thread is meant to be ran from within schedule(), calling reschedule() would deadlock the scheduler for a given running core

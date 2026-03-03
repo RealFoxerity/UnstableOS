@@ -4,7 +4,7 @@
 #include "../../libc/src/include/string.h"
 #include "../include/kernel.h"
 #include "../include/mm/kernel_memory.h"
-
+#include "../include/kernel_spinlock.h"
 
 #pragma clang diagnostic ignored "-Wint-to-pointer-cast"
 #pragma clang diagnostic ignored "-Wvoid-pointer-to-int-cast"
@@ -114,8 +114,11 @@ void paging_memmove_to_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr, void * data
     paging_apply_address_space(current_address_space); // switch to the original
 }
 
+spinlock_t address_spaces_lock = {0};
+
 PAGE_DIRECTORY_TYPE * paging_create_new_address_space() {
-    
+    spinlock_acquire(&address_spaces_lock);
+
     PAGE_DIRECTORY_TYPE * page_directory_paddr = pfalloc();
     if (page_directory_paddr == NULL) {
         panic("Failed to allocate page directory for new address space!\n");
@@ -132,12 +135,16 @@ PAGE_DIRECTORY_TYPE * paging_create_new_address_space() {
     memcpy(page_directory, KERNEL_ADDRESS_SPACE_VADDR, PAGE_DIRECTORY_ENTRIES*sizeof(PAGE_DIRECTORY_TYPE)); // copying the ENTIRE kernel space, considering there shouldn't be anything extra and we need most of it for interrupts, this should be good enough
 
     page_directory[PAGE_DIRECTORY_ENTRIES-1] = ((unsigned long)page_directory_paddr&~(PAGE_SIZE_NO_PAE-1)) | PTE_PDE_PAGE_PRESENT | PTE_PDE_PAGE_WRITABLE | PTE_PDE_PAGE_USER_ACCESS; // obv different physical address
-
+    
+    spinlock_release(&address_spaces_lock);
     return page_directory;
 }
 
 void paging_destroy_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr) {
     if (pd_vaddr == NULL) return;
+
+    spinlock_acquire(&address_spaces_lock);
+
     for (int i = 0; i < PAGE_DIRECTORY_ENTRIES - 1; i++) {
         if (!(pd_vaddr[i] & PTE_PDE_PAGE_PRESENT)) continue;
 
@@ -147,11 +154,15 @@ void paging_destroy_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr) {
                 if (!(pte[j] & PTE_PDE_PAGE_PRESENT)) continue;
                 pffree((void*)(pte[j] & ~(PAGE_SIZE_NO_PAE - 1)));
             }
+            paging_unmap_page(pte);
+            pffree((void*)(pd_vaddr[i] & ~(PAGE_SIZE_NO_PAE - 1)));
         }
     }
     pffree((void*)(pd_vaddr[PAGE_DIRECTORY_ENTRIES-1] & ~(PAGE_SIZE_NO_PAE-1))); 
 
     paging_unmap_page(pd_vaddr);
+    
+    spinlock_release(&address_spaces_lock);
 }
 
 void paging_print_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr) {

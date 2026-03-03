@@ -4,7 +4,7 @@ Paging Virtual Memory Map
 
 0x0300'0000 - 0x04FF'BFFF 4 memdisks of around 8.3MB each
 0x04FF'F000 - 0x04FF'FFFF kernel's PDEs
-0x0500'0000 - 0x051F'FFFF kernel heap
+0x0500'0000 - 0x053F'FFFF kernel heap
 
 
 0xA000'0000 - 0xDFFF'FFFF program heap

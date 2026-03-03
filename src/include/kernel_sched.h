@@ -7,7 +7,11 @@
 #include "mm/kernel_memory.h"
 #include "fs/fs.h"
 
-#define PROGRAM_STACK_SIZE (1<<16) // 64KiB
+#define PROGRAM_STACK_SIZE (1<<16) // 64KiB please keep a multiple of page size
+#if PROGRAM_STACK_SIZE % PAGE_SIZE_NO_PAE != 0
+#error "Program stack size is not a multiple of page size!"
+#endif
+
 #define PROGRAM_KERNEL_STACK_SIZE (1<<13) // 8KiB
 
 #define ___PROGRAM_STACK_VADDR (0xF0000000) // top, need this as an integer for the #if to work
@@ -22,7 +26,7 @@
 #define ___PROGRAM_HEAP_VADDR (0xA0000000) // base
 #define PROGRAM_HEAP_VADDR ((void*)___PROGRAM_HEAP_VADDR) // base
 #define PROGRAM_HEAP_SIZE (0x40000000) // 1GiB
-#define PROGRAM_HEAP_START_SIZE (0x90000) // 0.5MiB, the initially allocated amount, call brk/sbrk to increase
+#define PROGRAM_HEAP_START_SIZE (0x90000) // 0.5MiB, the initially allocated amount
 
 #define PROGRAM_MINIMUM_AVAIL_MEMORY (PROGRAM_HEAP_START_SIZE+PROGRAM_STACK_SIZE+PROGRAM_KERNEL_STACK_SIZE)
 
@@ -119,7 +123,7 @@ struct thread_queue {
 } typedef thread_queue_t;
 
 struct sem_t {
-    unsigned char used;
+    unsigned long used;
     unsigned long value;
     struct thread_queue waiting_queue;
 } typedef sem_t;
@@ -155,7 +159,7 @@ struct process_t {
         session, ses_leader;
 
     unsigned long uid, gid;
-    PAGE_DIRECTORY_TYPE * address_space_vaddr;
+    PAGE_DIRECTORY_TYPE * address_space_paddr;
     
     char thread_stacks[PROGRAM_THREADS_MAX]; 
     // a way to keep track of available address ranges, 1 = used
@@ -167,7 +171,7 @@ struct process_t {
 
     long exitcode;
 
-    sem_t semaphores[PROGRAM_MAX_SEMAPHORES];
+    sem_t * semaphores[PROGRAM_MAX_SEMAPHORES];
     unsigned short signal;
 
     inode_t * pwd, * root; // chdir(), chroot()

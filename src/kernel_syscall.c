@@ -26,8 +26,8 @@ static char check_address_range(const void * addr, size_t n, char writable, char
     addr = (void*)((unsigned long) addr & ~(PAGE_SIZE_NO_PAE - 1));
 
     for (const void * iteraddr = addr; iteraddr < addr+n && iteraddr >= addr; iteraddr += PAGE_SIZE_NO_PAE) { // > addr in case we wrap around
-        PAGE_TABLE_TYPE pte = paging_get_pte(iteraddr);
-        if (pte == 0) {
+        PAGE_TABLE_TYPE * pte = paging_get_pte(iteraddr);
+        if (pte == NULL) {
             if (!(iteraddr >= PROGRAM_HEAP_VADDR && iteraddr < PROGRAM_HEAP_VADDR + PROGRAM_HEAP_SIZE))
                 return 0;
             else {
@@ -40,10 +40,11 @@ static char check_address_range(const void * addr, size_t n, char writable, char
 
         if ((PAGE_DIRECTORY_TYPE*)iteraddr >= PTE_ADDR_VIRT_BASE) return 0; // even though this is theoretically a valid kernel operation, probably not intended
         if (!in_kernel) {
-            if (!(pte & PTE_PDE_PAGE_USER_ACCESS)) return 0;
+            if (!(*pte & PTE_PDE_PAGE_USER_ACCESS)) return 0;
             if (iteraddr <= kernel_mem_top) return 0;
             
-            if (writable && !(pte & PTE_PDE_PAGE_WRITABLE)) return 0; 
+            if (writable && !(*pte & PTE_PDE_PAGE_WRITABLE))
+                if (!fork_cow_page((void*)iteraddr)) return 0;
             // the intel architecture allows writes into unwritable memory in ring 0 (see bit 16 of cr0), 
             // this would normally be a check inside the kernel too, but due to the way we map the programs in
             // this would disallow the write() into the new address space
@@ -157,10 +158,12 @@ long kernel_syscall_dispatcher(context_t ctx) {
 
         case SYSCALL_SEM_INIT:
             for (int i = 0; i < PROGRAM_MAX_SEMAPHORES; i++) {
-                if (!current_process->semaphores[i].used) {
-                    memset(&current_process->semaphores[i].waiting_queue, 0, sizeof(thread_queue_t));
-                    current_process->semaphores[i].used = 1;
-                    current_process->semaphores[i].value = arg1;
+                if (current_process->semaphores[i] == NULL)
+                    current_process->semaphores[i] = kalloc(sizeof(sem_t));
+                if (!current_process->semaphores[i]->used) {
+                    memset(&current_process->semaphores[i]->waiting_queue, 0, sizeof(thread_queue_t));
+                    current_process->semaphores[i]->used = 1;
+                    current_process->semaphores[i]->value = arg1;
                     return_value = i;
                     goto syscall_exit;
                 }
@@ -172,11 +175,13 @@ long kernel_syscall_dispatcher(context_t ctx) {
                 return_value = EINVAL;
                 break;
             }
-            if (!current_process->semaphores[arg1].used) {
+            if (current_process->semaphores[arg1] == NULL ||
+                !current_process->semaphores[arg1]->used
+            ) {
                 return_value = EINVAL;
                 break;
             }
-            if (current_process->semaphores[arg1].value + 1 == 0) { // TODO: fix for atomicity?
+            if (current_process->semaphores[arg1]->value + 1 == 0) { // TODO: fix for atomicity?
                 return_value = ERANGE;
                 break;
             }
@@ -189,8 +194,10 @@ long kernel_syscall_dispatcher(context_t ctx) {
                 return_value = EINVAL;
                 break;
             }
-            if (!current_process->semaphores[arg1].used) {
-                kprintf("Called sem_wait on invalid (unused) semaphore (%lu)\n", arg1);
+            if (current_process->semaphores[arg1] == NULL ||
+                !current_process->semaphores[arg1]->used
+            ) {
+                kprintf("Thread %lu of process %lu called sem_wait on invalid semaphore (%lu)\n", current_thread->tid, current_process->pid, arg1);
 
                 return_value = EINVAL;
                 break;
@@ -204,11 +211,16 @@ long kernel_syscall_dispatcher(context_t ctx) {
                 return_value = EINVAL;
                 break;
             }
-            if (!current_process->semaphores[arg1].used) {
+            if (current_process->semaphores[arg1] == NULL ||
+                !current_process->semaphores[arg1]->used) {
                 return_value = EINVAL;
                 break;
             }
-            current_process->semaphores[arg1].used = 0;
+
+            // TODO: not thread safe, fix
+            if (__atomic_sub_fetch(&current_process->semaphores[arg1]->used, 1, __ATOMIC_RELAXED) == 0)
+                kfree(current_process->semaphores[arg1]);
+            current_process->semaphores[arg1] = NULL;
             break;
         case SYSCALL_GETPID:
             return_value = current_process->pid;
@@ -258,8 +270,6 @@ long kernel_syscall_dispatcher(context_t ctx) {
         case SYSCALL_MKDIR:
         case SYSCALL_UNLINK:
         case SYSCALL_STAT:
-        case SYSCALL_BRK:
-        case SYSCALL_SBRK:
         case SYSCALL_KILL:
         default: 
             return_value = ENOSYS;

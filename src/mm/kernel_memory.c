@@ -97,17 +97,17 @@ void paging_map_phys_addr(void * src_phys_addr, void * target_virt_addr, unsigne
     flush_tlb_entry(target_virt_addr);
 }
 
-PAGE_TABLE_TYPE paging_get_pte(const void * virt_addr) {
+PAGE_TABLE_TYPE * paging_get_pte(const void * virt_addr) {
     uint32_t page_directory_idx = (uint32_t)virt_addr >> 22;
     uint32_t page_table_idx = (uint32_t)virt_addr >> 12 & (PAGE_TABLE_ENTRIES - 1);
 
-    if (!(PDE_ADDR_VIRT[page_directory_idx] & PTE_PDE_PAGE_PRESENT)) return 0;
+    if (!(PDE_ADDR_VIRT[page_directory_idx] & PTE_PDE_PAGE_PRESENT)) return NULL;
 
     PAGE_TABLE_TYPE * pt = PTE_ADDR_VIRT_BASE + PAGE_TABLE_ENTRIES * page_directory_idx;
     
-    if (!(pt[page_table_idx] & PTE_PDE_PAGE_PRESENT)) return 0;
+    if (!(pt[page_table_idx] & PTE_PDE_PAGE_PRESENT)) return NULL;
 
-    return pt[page_table_idx];
+    return &pt[page_table_idx];
 }
 
 void paging_remap(void * old_virt_addr, void * new_virt_addr, unsigned int flags) {
@@ -207,7 +207,7 @@ void * paging_map_phys_addr_unspecified(void * phys_addr, unsigned int flags) {
     phys_addr = (void *)((unsigned long)phys_addr & ~(PAGE_SIZE_NO_PAE - 1));
 
     PAGE_TABLE_TYPE * pt;
-    for (int i = 0; i < PAGE_DIRECTORY_ENTRIES; i++) {
+    for (int i = 0; i < PAGE_DIRECTORY_ENTRIES - 1; i++) {
         if (!(PDE_ADDR_VIRT[i] & PTE_PDE_PAGE_PRESENT)) { // init space for new page table if missing
             PAGE_TABLE_TYPE * new_page = pfalloc();
             if (new_page == NULL) {
@@ -215,7 +215,7 @@ void * paging_map_phys_addr_unspecified(void * phys_addr, unsigned int flags) {
             }
             PDE_ADDR_VIRT[i] = (unsigned long) new_page;
             PDE_ADDR_VIRT[i] &= ~(PAGE_SIZE_NO_PAE-1);
-            PDE_ADDR_VIRT[i] |= PTE_PDE_PAGE_PRESENT | PTE_PDE_PAGE_WRITABLE;
+            PDE_ADDR_VIRT[i] |= PTE_PDE_PAGE_PRESENT | PTE_PDE_PAGE_WRITABLE | PTE_PDE_PAGE_USER_ACCESS;
             memset(PTE_ADDR_VIRT_BASE + PAGE_TABLE_ENTRIES * i, 0, PAGE_TABLE_ENTRIES*sizeof(PAGE_TABLE_TYPE));
         }
         for (int j = 0; j < PAGE_TABLE_ENTRIES; j++) {
