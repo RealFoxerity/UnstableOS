@@ -92,6 +92,7 @@ static PAGE_DIRECTORY_TYPE * fork_dup_address_space() {
                     new_ptes[j] &= ~PTE_FORK_WRITABLE;
                     new_ptes[j] |= PTE_PDE_PAGE_WRITABLE;
                 }
+                new_ptes[j] &= PAGE_SIZE_NO_PAE - 1;
                 new_ptes[j] |= (unsigned long)inc_page;
             }
 
