@@ -74,7 +74,7 @@ void scheduler_print_processes() {
         printed_thread = printed->threads;
         while (printed_thread != NULL) {
             kprintf("pid %8lu, tid %lu, cr3 %p, eip %p, kernel esp %p, process esp %p, state %d, command %s\n", 
-            printed->pid, printed_thread->tid, printed->address_space_vaddr, printed_thread->context.iret_frame.ip, printed_thread->context.esp, printed_thread->context.iret_frame.sp, printed_thread->status,
+            printed->pid, printed_thread->tid, printed->address_space_paddr, printed_thread->context.iret_frame.ip, printed_thread->context.esp, printed_thread->context.iret_frame.sp, printed_thread->status,
             printed->argc > 0?(printed->argv != NULL ? (printed->argv[0] != NULL ? printed->argv[0]:"(nil)"):"(nil)"):"(nil)");
 
             printed_thread = printed_thread->next;
@@ -142,8 +142,8 @@ static inline void register_kernel_task(context_t * context) {
     kernel_task->threads->kernel_stack = kernel_ts_stack_top;
     kernel_task->threads->kernel_stack_size = KERNEL_TS_STACK_SIZE;
 
-    kernel_task->address_space_vaddr = KERNEL_ADDRESS_SPACE_VADDR;
-    kernel_task->threads->cr3_state = paging_virt_addr_to_phys(kernel_task->address_space_vaddr);
+    kernel_task->address_space_paddr = paging_virt_addr_to_phys(KERNEL_ADDRESS_SPACE_VADDR);
+    kernel_task->threads->cr3_state = kernel_task->address_space_paddr;
 
     kernel_task->threads->status = SCHED_RUNNING;
 
@@ -171,17 +171,23 @@ static inline void scheduler_remove_process(process_t * process) {
         kernel_destroy_thread(process, process->threads);
     }
 
-    paging_destroy_address_space(current_process->address_space_vaddr);
+    paging_apply_address_space(paging_virt_addr_to_phys(KERNEL_ADDRESS_SPACE_VADDR));
 
-    spinlock_acquire(&kernel_fd_lock);
-    // locked because we need to check for fds with instance 0
+    PAGE_DIRECTORY_TYPE * mapped_as = paging_map_phys_addr_unspecified(current_process->address_space_paddr, PTE_PDE_PAGE_WRITABLE);
+    paging_destroy_address_space(mapped_as);
+    paging_unmap_page(mapped_as);
 
     for (int i = 0; i < FD_LIMIT_PROCESS; i++) {
         if (process->fds[i]) {
             close_file(process->fds[i]);
         }
     }
-    spinlock_release(&kernel_fd_lock);
+
+    for (int i = 0; i < PROGRAM_MAX_SEMAPHORES; i++) {
+        if (process->semaphores[i] == NULL) continue;
+        if (__atomic_sub_fetch(&process->semaphores[i]->used, 1, __ATOMIC_RELAXED) == 0)
+            kfree(process->semaphores[i]);
+    }
 
     UNLINK_DOUBLE_LINKED_LIST(process, process_list)
 

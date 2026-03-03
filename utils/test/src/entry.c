@@ -65,6 +65,8 @@ int main() {
     char input_buf[MAX_INPUT_BUFFER];
     ssize_t read_bytes = 0;
     pid_t our_pid = getpid();
+    int wstatus;
+
     while(1) {
         memset(input_buf, 0, MAX_INPUT_BUFFER);
         printf("%lu > ", our_pid);
@@ -167,7 +169,6 @@ int main() {
             printf("Spawn: %ld\n", ret);
             if (ret > 0) {
                 printf("Spawn successful\nWaiting on process termination\n");
-                int wstatus;
                 pid_t child = wait(&wstatus);
                 printf("Child pid %lu exited with %d\n", child, WEXITSTATUS(wstatus));
             }
@@ -175,10 +176,12 @@ int main() {
             pid_t child = fork();
             switch (child) {
                 case 0:
-                    printf("forked\n");
-                    exit(0);
+                    our_pid = getpid();
+                    break;
                 default:
-                    printf("New child pid %lu\n", child);
+                    printf("New child pid %lu, waiting\n", child);
+                    wait(&wstatus);
+                    printf("exitcode: %d\n", WEXITSTATUS(wstatus));
             }
         } else printf("?");
     }

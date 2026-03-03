@@ -158,3 +158,21 @@ void kalloc_print_heap_objects() {
     print_chunk_info(current_heap_object);
     if (current_process) spinlock_release(&kalloc_lock);
 }
+
+size_t kalloc_get_free_memory() {
+    if (current_process) spinlock_acquire(&kalloc_lock);
+    
+    size_t occupied_mem = 0;
+    struct heap_header * current_heap_object = kernel_heap_base;
+
+    while (!(current_heap_object->flags & KALLOC_LAST_CHUNK)) {
+        if (current_heap_object->flags & KALLOC_CHUNK_USED)
+            occupied_mem += (size_t)current_heap_object->next_chunk - (size_t)current_heap_object - sizeof(struct heap_header);
+        current_heap_object = current_heap_object->next_chunk;
+    }
+    if (current_heap_object->flags & KALLOC_CHUNK_USED)
+            occupied_mem += (size_t)current_heap_object->next_chunk - (size_t)current_heap_object;
+
+    if (current_process) spinlock_release(&kalloc_lock);
+    return (size_t)(kernel_heap_top - kernel_heap_base) - occupied_mem;
+}

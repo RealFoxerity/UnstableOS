@@ -103,9 +103,13 @@ struct interr_frame {
     unsigned long ss; // stack segment
 } __attribute__((packed));
 
+void print_segment_selector_error(unsigned long error);
+void print_interr_frame(struct interr_frame * interr_frame);
+
 __attribute__((interrupt, no_caller_saved_registers)) void general_fault_handler_error(struct interr_frame * interrupt_frame, unsigned long error);
 __attribute__((interrupt, no_caller_saved_registers)) void general_fault_handler_no_error(struct interr_frame * interrupt_frame);
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_default(struct interr_frame * interrupt_frame);
+__attribute__((interrupt, no_caller_saved_registers)) void interr_page_fault(struct interr_frame * interrupt_frame, unsigned long error);
 
 __attribute__((naked, no_caller_saved_registers)) void interr_syscall(struct interr_frame * interrupt_frame);
 

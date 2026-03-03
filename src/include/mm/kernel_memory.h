@@ -34,7 +34,10 @@ present, r/w, user/kernel, writethrough, cache disable, accessed, dirty, 0, 0   
 
 */
 
-#define get_vaddr(pdidx, ptidx) ((void*)(((pdidx) << 22) | ((ptidx) << 12)))
+#include "../kernel_spinlock.h"
+extern spinlock_t address_spaces_lock;
+
+#define get_vaddr(pdidx, ptidx) ((void*)(((long)(pdidx) << 22) | ((long)(ptidx) << 12)))
 
 #define PAGE_SIZE_NO_PAE 0x1000
 #define PAGE_DIRECTORY_TYPE uint32_t
@@ -72,7 +75,7 @@ void paging_remap(void * old_virt_addr, void * new_virt_addr, unsigned int flags
 void paging_change_flags(void * target_virt_addr, size_t n, unsigned int flags);
 
 void * paging_virt_addr_to_phys(void * virt);
-PAGE_TABLE_TYPE paging_get_pte(const void * virt_addr); // returns the value of the page table entry for a given address, 0 = not present (to check for permissions for example)
+PAGE_TABLE_TYPE * paging_get_pte(const void * virt_addr); // returns the page table entry for a given address, NULL = not present (to check for permissions for example)
 
 void print_page_table_entry(const void * pte);
 
@@ -85,7 +88,7 @@ void kfree(void * p);
 void * __attribute__((malloc /*, malloc(kfree)*/)) kalloc(size_t size);
 
 void kalloc_print_heap_objects();
-
+size_t kalloc_get_free_memory();
 
 void paging_apply_address_space(const PAGE_DIRECTORY_TYPE * pd_paddr);
 PAGE_DIRECTORY_TYPE * paging_get_address_space_paddr();
@@ -118,7 +121,7 @@ extern PAGE_DIRECTORY_TYPE * kernel_address_space_paddr;
 #define ___KERNEL_ADDRESS_SPACE_VADDR 0x04FFF000
 #define KERNEL_ADDRESS_SPACE_VADDR ((PAGE_DIRECTORY_TYPE*)___KERNEL_ADDRESS_SPACE_VADDR) // virtual address of the kernel address space for kernel task scheduling 
 
-#define KERNEL_HEAP_SIZE (1<<21) // 2 MiB
+#define KERNEL_HEAP_SIZE (1<<22) // 4 MiB
 #define KERNEL_HEAP_START_SIZE (1<<15) // 32KiB
 #define ___KERNEL_HEAP_BASE 0x05000000
 #define KERNEL_HEAP_BASE ((void*)___KERNEL_HEAP_BASE) // before gcc's default .text address of 0x08000000
