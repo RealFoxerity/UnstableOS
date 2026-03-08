@@ -199,6 +199,11 @@ int sys_open(const char * path, unsigned short flags, unsigned short mode) {
         final_path = next_slash + 1;
     }
 
+    if (flags & O_DIRECTORY && !I_ISDIR(new->mode)) {
+        ret = ENOTDIR;
+        goto err;
+    }
+
     spinlock_acquire(&kernel_fd_lock);
     
     int fd = -1;

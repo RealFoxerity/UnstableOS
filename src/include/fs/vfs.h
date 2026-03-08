@@ -21,6 +21,7 @@ so
 */
 #define PATH_METADIR "//"
 
+#include "../../../libc/src/include/dirent.h"
 struct vfs_ops {
     int (*fs_init)   (superblock_t * sb); // called on mount, 0 = success
     int (*fs_deinit) (superblock_t * sb); // called on umount, 0 = success
@@ -48,7 +49,12 @@ struct vfs_ops {
     int (*rmdir)     (superblock_t * sb, const char * pathname);
 
     inode_t*(*create)(superblock_t * sb, inode_t * parent, const char * pathname, unsigned short mode);
-    //int (*readdir) (int fd, struct directory_entry * dirent, unsigned int count);
+    
+    // note: fd offset 0 is considered the "." folder to simplify userspace rewinddir()
+    ssize_t (*readdir) (file_descriptor_t * fd, struct dirent * dent, size_t dent_size);
+    //off_t(*telldir)(file_descriptor_t * fd); // handled via normal seek()
+    //off_t(*seekdir)(file_descriptor_t * fd);
+    //void(*rewinddir)(file_descriptor_t * fd);
 };
 
 #define SUPPORTED_FS_COUNT 1

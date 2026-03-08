@@ -1,4 +1,5 @@
 #include "../../../libc/src/include/stdio.h"
+#include "../../../libc/src/include/dirent.h"
 #include "../../../libc/src/include/string.h"
 #include "../../../libc/src/include/stdlib.h"
 #include "../../../src/include/kernel.h"
@@ -157,13 +158,35 @@ int main() {
 
             printf("Seek: %ld\n", seek(fd, off, SEEK_SET));
         } else if (strcmp("ls ", input_buf) == 0) {
-
-        } else if (strcmp("exec ", input_buf) == 0) {
             input_buf[read_bytes - 1] = '\0'; // get rid of new line
+            const char * path = input_buf + 3;
+
+            DIR * root = opendir(path);
+            if (root == NULL) {
+                printf("Bad argument, or path does not exist\n");
+                continue;
+            }
+            struct dirent * dent;
+            while ((dent = readdir(root)) != NULL) {
+                switch (dent->d_type) {
+                    case DT_DIR:
+                        printf("\e[44m");
+                        printf("%s", dent->d_name);
+                        printf("\e[0m");
+                        break;
+                    default:
+                        printf("%s", dent->d_name);
+                }
+                printf("  ");
+            }
+            putchar('\n');
+            closedir(root);
+        } else if (strcmp("exec ", input_buf) == 0) {
+            input_buf[read_bytes - 1] = '\0';
             char * path = input_buf + 5;
             printf("Uh-oh exec() failed with %d\n", exec(path));
         } else if (strcmp("spawn ", input_buf) == 0) {
-            input_buf[read_bytes - 1] = '\0'; // get rid of new line
+            input_buf[read_bytes - 1] = '\0';
             char * path = input_buf + 6;
             long ret = spawn(path);
             printf("Spawn: %ld\n", ret);

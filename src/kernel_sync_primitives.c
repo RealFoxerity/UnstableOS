@@ -63,6 +63,13 @@ void spinlock_acquire_interruptible(spinlock_t * lock) {
 
     asm volatile ("pushf; pop %0;" : "=R"(lock->eflags));
 
+    // current process being null is an easy way to tell if the scheduler is initialized
+    // before scheduler, we don't have interrupts and enabling them wouldn't be good
+    if (!current_process) {
+        lock->state = SPINLOCK_LOCKED;
+        return;
+    }
+
     asm volatile("sti");
     do {
         asm volatile ("pause");
@@ -75,6 +82,11 @@ void spinlock_acquire_nonreentrant(spinlock_t * lock) {
     if (!lock) panic("Tried to lock a NULL spinlock");
 
     asm volatile ("pushf; pop %0;" : "=R"(lock->eflags));
+
+    if (!current_process) {
+        lock->state = SPINLOCK_LOCKED;
+        return;
+    }
 
     do {
         asm volatile ("pause");

@@ -34,6 +34,13 @@ int getc(int fd) {
 }
 int getchar() {return getc(STDIN);}
 
+int putc(int c, int fd) {
+    if (write(fd, &c, 1) <= 0)
+        return EOF;
+    return c;
+}
+int putchar(int c) {return putc(c, STDOUT);}
+
 // really, really, REALLY bad and slow
 // this bs will slow down our scanf, a lot
 // TODO: fix when finally implementing proper FILE *

@@ -342,7 +342,7 @@ void setup_paging(unsigned long total_free, unsigned long ident_map_end) {
     dkprintf("Remapping memory areas...\n");
 
     // VGA text mode cache remap, won't do anything, but in case we setup write-through sometimes, vga has to be write-back otherwise huge performance penalty
-    paging_change_flags((void*)(unsigned long)VGA_TEXT_MODE_ADDR, VGA_WIDTH*VGA_HEIGHT*sizeof(uint16_t), PTE_PDE_PAGE_WRITABLE);
+    paging_change_flags((void*)(unsigned long)VGA_PAGE_ADDR, display_width*display_height*sizeof(uint16_t), PTE_PDE_PAGE_WRITABLE);
 
     dkprintf("Enabling WP bit...\n");
     enable_wp();

@@ -6,6 +6,7 @@
 #include "../include/kernel_tty_io.h"
 #include "../include/block/memdisk.h"
 
+#include <stddef.h>
 spinlock_t kernel_fd_lock = {0};
 
 file_descriptor_t ** kernel_fds;
@@ -141,8 +142,6 @@ off_t seek_file(file_descriptor_t * file, off_t offset, int whence) {
     int test = check_file(file);
     if (test != 0) return test;
 
-    if (I_ISDIR(file->inode->mode)) return EISDIR;
-
     switch (whence) {
         case SEEK_SET:
         case SEEK_CUR:
@@ -233,12 +232,8 @@ int sys_dup2(int oldfd, int newfd) {
 
     spinlock_acquire(&kernel_fd_lock);
 
-    if (current_process->fds[newfd] == 0) { // close the fd
-        kassert(check_file(current_process->fds[newfd]) == 0);
-        __atomic_sub_fetch(&current_process->fds[newfd]->instances, 1, __ATOMIC_RELAXED);
-        if (current_process->fds[newfd]->instances == 0) 
-            __atomic_sub_fetch(&current_process->fds[newfd]->inode->instances, 1, __ATOMIC_RELAXED);
-
+    if (current_process->fds[newfd] != NULL) { // close the fd
+        close_file(current_process->fds[newfd]);
         current_process->fds[newfd] = NULL;
     }
 
@@ -248,4 +243,25 @@ int sys_dup2(int oldfd, int newfd) {
     spinlock_release(&kernel_fd_lock);
 
     return newfd;
+}
+
+
+
+ssize_t sys_readdir(int fd, struct dirent * dent, size_t dent_size) {
+    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return EBADF;
+    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return EBADF;
+
+    file_descriptor_t * file = current_process->fds[fd];
+    int test = check_file(file);
+    if (test != 0) return test;
+
+    if (!I_ISDIR(file->inode->mode)) return ENOTDIR;
+
+    if (!file->inode->backing_superblock->funcs->readdir) return EINVAL;
+
+    spinlock_acquire_interruptible(&file->access_lock);
+    ssize_t ret = file->inode->backing_superblock->funcs->readdir(file, dent, dent_size);
+    spinlock_release(&file->access_lock);
+
+    return ret;
 }

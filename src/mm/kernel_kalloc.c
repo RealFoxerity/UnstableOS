@@ -38,13 +38,9 @@ void kalloc_prepare(void * heap_struct_start, void * allocated_heap_top, void * 
     memcpy(((struct heap_header*)heap_struct_start)->magic, KALLOC_MAGIC, 3);
 }
 
-
-// spinlock operations called with if (current_process), because we need a functional scheduler to use them
-// current_process not being NULL is probably the easiest way to check whether we have initialized the scheduler
-
 #pragma clang diagnostic ignored "-Wignored-attributes"
 void * __attribute__((malloc, malloc(kfree))) kalloc(size_t size) {
-    if (current_process) spinlock_acquire(&kalloc_lock);
+    spinlock_acquire(&kalloc_lock);
 
     if (size % KALLOC_ALIGNMENT != 0) size = size + KALLOC_ALIGNMENT - size%KALLOC_ALIGNMENT;
 
@@ -64,7 +60,7 @@ void * __attribute__((malloc, malloc(kfree))) kalloc(size_t size) {
                 current_heap_object->next_chunk = (void*)current_heap_object->next_chunk + PAGE_SIZE_NO_PAE;
                 goto try_remapped;
             }
-            if (current_process) spinlock_release(&kalloc_lock);
+            spinlock_release(&kalloc_lock);
             return NULL; // cannot allocate
         }
         current_heap_object = current_heap_object->next_chunk;
@@ -82,14 +78,14 @@ void * __attribute__((malloc, malloc(kfree))) kalloc(size_t size) {
     if (current_heap_object->flags & KALLOC_LAST_CHUNK) current_heap_object->flags ^= KALLOC_LAST_CHUNK;
     current_heap_object->next_chunk = next_heap_object;
 
-    if (current_process) spinlock_release(&kalloc_lock);
+    spinlock_release(&kalloc_lock);
 
     return (void*)current_heap_object + sizeof(struct heap_header);
 }
 
 void kfree(void * p) {
     if (p == NULL) return;
-    if (current_process) spinlock_acquire(&kalloc_lock);
+    spinlock_acquire(&kalloc_lock);
 
     struct heap_header * current_heap_object = (struct heap_header * ) (p - sizeof(struct heap_header));
 
@@ -135,7 +131,7 @@ void kfree(void * p) {
     }
 
     end:
-    if (current_process) spinlock_release(&kalloc_lock);
+    spinlock_release(&kalloc_lock);
 }
 
 
@@ -148,7 +144,7 @@ static void print_chunk_info(struct heap_header * header) {
 }
 
 void kalloc_print_heap_objects() {
-    if (current_process) spinlock_acquire(&kalloc_lock);
+    spinlock_acquire(&kalloc_lock);
     struct heap_header * current_heap_object = kernel_heap_base;
 
     while (!(current_heap_object->flags & KALLOC_LAST_CHUNK)) {
@@ -156,11 +152,11 @@ void kalloc_print_heap_objects() {
         current_heap_object = current_heap_object->next_chunk;
     }
     print_chunk_info(current_heap_object);
-    if (current_process) spinlock_release(&kalloc_lock);
+    spinlock_release(&kalloc_lock);
 }
 
 size_t kalloc_get_free_memory() {
-    if (current_process) spinlock_acquire(&kalloc_lock);
+    spinlock_acquire(&kalloc_lock);
     
     size_t occupied_mem = 0;
     struct heap_header * current_heap_object = kernel_heap_base;
@@ -173,6 +169,6 @@ size_t kalloc_get_free_memory() {
     if (current_heap_object->flags & KALLOC_CHUNK_USED)
             occupied_mem += (size_t)current_heap_object->next_chunk - (size_t)current_heap_object;
 
-    if (current_process) spinlock_release(&kalloc_lock);
+    spinlock_release(&kalloc_lock);
     return (size_t)(kernel_heap_top - kernel_heap_base) - occupied_mem;
 }
