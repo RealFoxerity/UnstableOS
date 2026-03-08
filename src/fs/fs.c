@@ -37,6 +37,36 @@ file_descriptor_t * get_free_fd() {
     //return NULL;
 }
 
+int get_fd_from_inode(inode_t * inode, unsigned short flags) {
+    if (inode == NULL) return EINVAL;
+    spinlock_acquire(&kernel_fd_lock);
+
+    int fd = -1;
+    for (int i = 0; i < FD_LIMIT_PROCESS; i++) {
+        if (!current_process->fds[i]) {
+            fd = i;
+            break;
+        }
+    }
+
+    if (fd == -1) {
+        spinlock_release(&kernel_fd_lock);
+        return EMFILE;
+    }
+
+    file_descriptor_t * file = get_free_fd();
+    if (!file) {
+        spinlock_release(&kernel_fd_lock);
+        return ENFILE;
+    }
+
+    file->inode = inode;
+    file->mode = flags;
+    current_process->fds[fd] = file;
+    spinlock_release(&kernel_fd_lock);
+    return fd;
+}
+
 static int check_file(file_descriptor_t * file) {
     if (file == NULL) return EBADF;
 

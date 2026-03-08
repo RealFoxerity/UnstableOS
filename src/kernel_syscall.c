@@ -239,9 +239,21 @@ long kernel_syscall_dispatcher(context_t ctx) {
             // it is up to sys_open to securely copy the path (arg1)
             return_value = sys_open((const char *)arg1, arg2, arg3);
             break;
+        case SYSCALL_OPENAT:
+            asm volatile ("sti;");
+            return_value = sys_openat(arg1, (const char *)arg2, arg3, arg4);
+            break;
         case SYSCALL_CLOSE:
             asm volatile ("sti;");
             return_value = sys_close(arg1);
+            break;
+        case SYSCALL_CHDIR:
+            asm volatile ("sti;");
+            return_value = sys_chdir((const char *)arg1);
+            break;
+        case SYSCALL_CHROOT:
+            asm volatile ("sti;");
+            return_value = sys_chroot((const char *)arg1);
             break;
         case SYSCALL_EXEC:
             asm volatile ("sti;");

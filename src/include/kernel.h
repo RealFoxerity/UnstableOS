@@ -68,6 +68,9 @@ enum syscalls {
 
     SYSCALL_READDIR, // theoretically could be implemented in read()
 
+    SYSCALL_CHDIR,
+    SYSCALL_CHROOT,
+
     SYSCALL_STAT,
     SYSCALL_MOUNT,
 

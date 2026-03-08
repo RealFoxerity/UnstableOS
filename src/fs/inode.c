@@ -144,9 +144,7 @@ inode_t * inode_from_device(dev_t device) {
 
 void inode_change_mode(inode_t * inode, unsigned short new_mode) {
     kassert(inode);
-    spinlock_acquire_interruptible(&inode->lock);
-    inode->mode = new_mode;
-    spinlock_release(&inode->lock);
+    __atomic_store_n(&inode->mode, new_mode, __ATOMIC_RELAXED);
 }
 
 

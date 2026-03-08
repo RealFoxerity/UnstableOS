@@ -5,6 +5,9 @@
 int open(const char * path, unsigned short flags, unsigned short mode) {
     return syscall(SYSCALL_OPEN, path, flags, mode);
 }
+int openat(int fd, const char * path, unsigned short flags, unsigned short mode) {
+    return syscall(SYSCALL_OPEN, fd, path, flags, mode);
+}
 int close(int fd) {
     return syscall(SYSCALL_CLOSE, fd);
 }

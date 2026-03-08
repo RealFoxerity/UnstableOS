@@ -61,3 +61,10 @@ pid_t getpid() {
 pid_t wait(int * wstatus) {
     return syscall(SYSCALL_WAIT, wstatus);
 }
+
+int chdir(const char * path) {
+    return syscall(SYSCALL_CHDIR, path);
+}
+int chroot(const char * path) {
+    return syscall(SYSCALL_CHROOT, path);
+}

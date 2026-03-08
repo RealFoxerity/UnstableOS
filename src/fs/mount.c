@@ -61,7 +61,8 @@ long mount_root(dev_t dev, unsigned char type, unsigned short options) {
     spinlock_release(&root_inode->lock);
 
     root_mountpoint->mountpoint = root_inode;
-    
+    root_superblock->mountpoint = root_inode;
+
     spinlock_release(&mount_tree_lock);
 
     kernel_task->pwd = kernel_task->root = root_inode;

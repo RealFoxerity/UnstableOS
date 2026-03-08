@@ -28,6 +28,9 @@ pid_t getpid();
 pid_t spawn(const char * path);
 pid_t wait(int * wstatus);
 
+int chdir(const char * path);
+int chroot(const char * path);
+
 #define WEXITSTATUS(wstatus) (wstatus & 0xFF)
 
 //void malloc_prepare(void * heap_struct_start, void * heap_top);
