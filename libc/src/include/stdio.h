@@ -14,6 +14,10 @@ typedef ssize_t off_t; // TODO: when finally implementing errno, change to size_
 #define STDOUT 1
 #define STDERR 2
 
+#define SEEK_SET 0
+#define SEEK_CUR 1
+#define SEEK_END 2
+
 #define __ITMODE_MASK       0xF000
 #define __ITMODE_REG        0x1000
 #define __ITMODE_DIR        0x2000
@@ -60,6 +64,7 @@ typedef ssize_t off_t; // TODO: when finally implementing errno, change to size_
 #define O_RDWR 3
 #define O_CREAT 4 // not yet implemented
 #define O_TRUNC 8 // not yet implemented 
+#define O_DIRECTORY 16 // open() fails with ENOTDIR if resolved to a regular file
 
 void vfprintf(int fd, const char * format, va_list args);
 void __attribute__((format(printf, 2, 3))) fprintf(int fd, const char * format, ...);
@@ -80,6 +85,9 @@ int vsscanf(const char * s, const char * format, va_list args);
 
 int getc(int fd);
 int getchar();
+
+int putc(int c, int fd);
+int putchar(int c);
 
 char * fgets(char * s, int size, int fd);
 

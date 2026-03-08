@@ -32,10 +32,10 @@
 
 #define tty_write(buf, count) tty_write(buf, count); com_write(1, buf, count);
 
-void panic(char * reason) { // using vga_write and com_write in case we don't have tty at that point and/or it would cause a recursive panic/deadlock
+void panic(char * reason) { // using console_write and com_write in case we don't have tty at that point and/or it would cause a recursive panic/deadlock
     char errmsg[128];
-    sprintf(errmsg, "\n\n##############################\nKernel Panic: %s", reason);
-    vga_write(errmsg, strlen(errmsg));
+    sprintf(errmsg, "\n\n\e[41m##############################\nKernel Panic: %s", reason);
+    console_write(errmsg, strlen(errmsg));
     com_write(0, errmsg, strlen(errmsg));
     asm volatile (
         "cli\n\t"
@@ -226,14 +226,15 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     boot_mem_top = (uint32_t)&_kernel_top; // the lowest free address
     void * initrd_start = NULL;
     unsigned long initrd_len = 0;
+    vga_init_graphics();
     com_init(0, 115200, 8, 1, COM_PARITY_NONE, COM_BUFFER_1);
-    vga_clear();
 
     kprintf("Running " KERNEL_VERSION ", compiled at "__TIMESTAMP__"\n");
 
     kernel_entry_addr_log();
     
     if (magic != MULTIBOOT_BOOTLOADER_MAGIC || !(mbd->flags & MULTIBOOT_INFO_MEM_MAP)) {
+        kprintf("%p\n", mbd);
         panic("Bootloader didn't return valid physical memory map!");
     }
 

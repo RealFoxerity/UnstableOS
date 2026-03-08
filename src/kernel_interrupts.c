@@ -9,6 +9,8 @@
 #include "include/errno.h"
 #include <stdint.h>
 
+// TODO: fix console stuff
+
 #pragma clang diagnostic ignored "-Wexcessive-regsave" // compiling with -mregular-regs-only anyway
 #pragma clang diagnostic ignored "-Wc99-designator"
 #pragma clang diagnostic ignored "-Wpointer-to-int-cast"
@@ -23,20 +25,22 @@ const char reserved_idt_interr_has_error[RES_INTERR_EXCEPTION_COUNT] = {
     [INT_FAULT_CONTROL_PROT_EXCEPTION] = 1,
 };
 
-extern uint8_t vga_x, vga_y;
+extern uint8_t console_x, console_y;
 
 void clear_screen_fatal() {
-    vga_enable_blink();
-    vga_disable_cursor();
-    vga_set_color(VGA_COLOR_BLACK, VGA_COLOR_LIGHT_RED | VGA_COLOR_BLINK);
-    uint8_t color = vga_get_color();
-    //memset((uint16_t*)VGA_TEXT_MODE_ADDR, vga_get_color(), VGA_WIDTH*VGA_HEIGHT*sizeof(uint16_t));
-
-    for (uint8_t i = 0; i < VGA_WIDTH; i++) {
-        for (uint8_t j = 0; j < VGA_HEIGHT; j++) {
-            vga_put_char(19, color, i, j); // 19 = double exclamation mark
+    vga_clear_screen();
+    for (int i = 0; i < display_width; i += console_font_width*4) {
+        for (int j = 0; j < display_height; j += console_font_height*4) {
+            // 19 = double exclamation
+            vga_blit_char_buffered(19,
+                i, j,
+                CONSOLE_COLOR_RED,
+                CONSOLE_COLOR_BRIGHT_RED,
+                1,
+                4);
         }
     }
+    vga_swap_buffers();
 }
 
 void print_segment_selector_error(unsigned long error) {
@@ -98,10 +102,10 @@ void print_interr_frame(struct interr_frame * interr_frame) {
 }
 
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_divide_error(struct interr_frame * interrupt_frame) {
-    kprintf("\n\n#### ISR: FPE caught! ####\n\n");
+    kprintf("\n\n\e[41m#### ISR: FPE caught! ####\e[0m\n\n");
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_debug_trap(struct interr_frame * interrupt_frame) {
-    kprintf("\n\n#### ISR: DEBUG caught! ####\n\n");
+    kprintf("\n\n\e[41m#### ISR: DEBUG caught! ####\e[0m\n\n");
     //panic("Debug");
 }
 
@@ -114,36 +118,30 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_nmi(str
     if (portB & NMI_CONTROL_B_PARITY_CHECK || portB & NMI_CONTROL_B_CHANNEL_CHECK) {
         clear_screen_fatal();
         if (portB & NMI_CONTROL_B_PARITY_CHECK) {
-            vga_x = VGA_WIDTH/2 - (sizeof(NMI_RAM_ABORT)-1)/2, vga_y = VGA_HEIGHT/2;
-            kprintf(NMI_RAM_ABORT);
+            panic(NMI_RAM_ABORT);
         } else {
-            vga_x = VGA_WIDTH/2 - (sizeof(NMI_CHANNEL_ABORT)-1)/2, vga_y = VGA_HEIGHT/2;
-            kprintf(NMI_CHANNEL_ABORT);
+            panic(NMI_CHANNEL_ABORT);
         }
-        
-        asm volatile ("cli; hlt;");
         __builtin_unreachable();
     }
     if (portA & NMI_CONTROL_A_WATCHDOG_TIMER) {
-        vga_x = VGA_WIDTH/2 - (sizeof(NMI_WATCHDOG_ABORT)-1)/2, vga_y = VGA_HEIGHT/2;
-        kprintf(NMI_WATCHDOG_ABORT);
-        asm volatile ("cli; hlt;");
+        panic(NMI_WATCHDOG_ABORT);
         __builtin_unreachable();
     }
 
-    kprintf("\n\n#### ISR: NMI caught! ####\n\n");
+    kprintf("\n\n\e41m#### ISR: NMI caught! ####\e0m\n\n");
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_breakpoint(struct interr_frame * interrupt_frame) {
-    kprintf("\n\n#### ISR: Breakpoint caught! ####\n\n");
+    kprintf("\n\n\e41m#### ISR: Breakpoint caught! ####\e0m\n\n");
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_overflow(struct interr_frame * interrupt_frame) {
-    kprintf("\n\n#### ISR: Integer overflow (INTO) caught! ####\n\n");
+    kprintf("\n\n\e41m#### ISR: Integer overflow (INTO) caught! ####\e0m\n\n");
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_bound_range_ex(struct interr_frame * interrupt_frame) {
-    kprintf("\n\n#### ISR: Bound index outside of range! ####\n\n");
+    kprintf("\n\n\e41m#### ISR: Bound index outside of range! ####\e0m\n\n");
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_invalid_opcode(struct interr_frame * interrupt_frame) {
-    kprintf("\n\n#### ISR: Tried to execute invalid opcode at %p! ####\n\n", interrupt_frame->ip);
+    kprintf("\n\n\e41m#### ISR: Tried to execute invalid opcode at %p! ####\e0m\n\n", interrupt_frame->ip);
     print_interr_frame(interrupt_frame);
 
     scheduler_print_process(current_process);
@@ -165,14 +163,12 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_invalid
     interrupt_frame->ss = GDT_KERNEL_DATA << 3;
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_dev_not_avail(struct interr_frame * interrupt_frame) {
-    kprintf("\n\n#### ISR: FPU Coprocessor not present or not ready! ####\n\n");
+    kprintf("\n\n\e41m#### ISR: FPU Coprocessor not present or not ready! ####\e0m\n\n");
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_double_fault_abort(struct interr_frame * interrupt_frame, unsigned long error) {
-    //uint8_t old_tty_color = vga_get_color();
-    //tty_clear();
-    vga_set_color(VGA_COLOR_BLACK, VGA_COLOR_LIGHT_RED);
+    clear_screen_fatal();
 
-    kprintf("#### ISR: CRITICAL - CAUGHT A DOUBLE FAULT! ####\n");
+    kprintf("\e41m#### ISR: CRITICAL - CAUGHT A DOUBLE FAULT! ####\e0m\n");
     print_interr_frame(interrupt_frame);
     scheduler_print_process(current_process);
 
@@ -195,44 +191,29 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_double_
     */
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_coprocessor_segment_overrun(struct interr_frame * interrupt_frame) {
-    kprintf("\n\n#### ISR: FPU coprocessor memory segment overran! ####\n\n");
+    kprintf("\n\n\e41m#### ISR: FPU coprocessor memory segment overran! ####\e0m\n\n");
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_invalid_tss(struct interr_frame * interrupt_frame, unsigned long error) {
-    uint8_t old_tty_color = vga_get_color();
-    vga_set_color(VGA_COLOR_LIGHT_RED, VGA_COLOR_BLACK);
-
-    kprintf("\n\n#### ISR: TASK SWITCH ENCOUTERED INVALID TSS ENTRY! ####\n");
+    kprintf("\n\n\e41m#### ISR: TASK SWITCH ENCOUTERED INVALID TSS ENTRY! ####\n");
     print_segment_selector_error(error);
     print_interr_frame(interrupt_frame);
-
-    vga_set_color(old_tty_color&0x0F, (old_tty_color&0xF0) >> 4);
+    kprintf("\e0m");
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_segment_not_present(struct interr_frame * interrupt_frame, unsigned long error) {
-    uint8_t old_tty_color = vga_get_color();
-    vga_set_color(VGA_COLOR_LIGHT_RED, VGA_COLOR_BLACK);
-
-    kprintf("\n\n#### ISR: REFERENCED MEMORY SEGMENT IS NOT PRESENT! ####\n");
+    kprintf("\n\n\e41m#### ISR: REFERENCED MEMORY SEGMENT IS NOT PRESENT! ####\n");
     print_segment_selector_error(error);
     print_interr_frame(interrupt_frame);
-
-    vga_set_color(old_tty_color&0x0F, (old_tty_color&0xF0) >> 4);
+    kprintf("\e0m");
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_stack_segment_fault(struct interr_frame * interrupt_frame, unsigned long error) {
-    uint8_t old_tty_color = vga_get_color();
-    vga_set_color(VGA_COLOR_LIGHT_RED, VGA_COLOR_BLACK);
-
-    kprintf("\n\n#### ISR: REFERENCE STACK ADDRESS OUTSIDE STACK SEGMENT! ####\n");
+    kprintf("\n\n\e41m#### ISR: REFERENCE STACK ADDRESS OUTSIDE STACK SEGMENT! ####\n");
     print_segment_selector_error(error);
     print_interr_frame(interrupt_frame);
-
-    vga_set_color(old_tty_color&0x0F, (old_tty_color&0xF0) >> 4);
+    kprintf("\e0m");
 }
 extern struct idt_gate * idt_descriptor_entries;
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_general_protection(struct interr_frame * interrupt_frame, unsigned long error) {
-    uint8_t old_tty_color = vga_get_color();
-    vga_set_color(VGA_COLOR_LIGHT_RED, VGA_COLOR_BLACK);
-
-    kprintf("#### ISR: Segmentation fault - Protection violation! ####\n");
+    kprintf("\n\e41m#### ISR: Segmentation fault - Protection violation! ####\n");
     kprintf("SEL ERR:\t");
     print_segment_selector_error(error);
     print_interr_frame(interrupt_frame);
@@ -240,16 +221,17 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_general
     scheduler_print_process(current_process);
 
     if (current_process->pid == 0) {
+        clear_screen_fatal();
         panic("Kernel task cannot be recovered from a segmentation fault");
         __builtin_unreachable();
     } else if (current_process->pid == 1) {
+        clear_screen_fatal();
         panic("Attempted to kill init!");
         __builtin_unreachable();
     } else {
-        kprintf("Terminating process id %lu\n", current_process->pid);
+        kprintf("Terminating process id %lu\n\e0m", current_process->pid);
         current_thread->status = SCHED_CLEANUP;
     }
-    vga_set_color(old_tty_color&0x0F, (old_tty_color&0xF0) >> 4);
     
     interrupt_frame->ip = kernel_idle;
     interrupt_frame->cs = GDT_KERNEL_CODE << 3;
@@ -257,23 +239,21 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_general
 
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_x87_float_error(struct interr_frame * interrupt_frame, unsigned long error) {
-    kprintf("\n\n#### ISR: x87 FPE! ####\n\n");
+    kprintf("\n\n\e41m#### ISR: x87 FPE! ####\e0m\n\n");
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_alignment_check(struct interr_frame * interrupt_frame, unsigned long error) {
-    kprintf("\n\n#### ISR: Caught unaligned memory access! ####\n");
+    kprintf("\n\n\e41m#### ISR: Caught unaligned memory access! ####\n");
     print_segment_selector_error(error);
     print_interr_frame(interrupt_frame);
+    kprintf("\e0m");
 }
 
 #define CHECK_MACHINE_ERROR " #### ISR: PANIC - INTERNAL HW ERROR - CHECK MACHINE; HALTING #### "
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_machine_check_abort(struct interr_frame * interrupt_frame, unsigned long error) {
     clear_screen_fatal();
-
-    vga_x = VGA_WIDTH/2 - (sizeof(CHECK_MACHINE_ERROR)-1)/2, vga_y = VGA_HEIGHT/2;
-    
-    kprintf(CHECK_MACHINE_ERROR);
-    
-    asm volatile("cli; hlt;");
+    kprintf("\e[%d;0f", display_height_chars/2);
+    panic(CHECK_MACHINE_ERROR);
+    __builtin_unreachable();    
 }
 //__attribute__((interrupt, no_caller_saved_registers)) void interr_simd_fpe(struct interr_frame * interrupt_frame);
 //__attribute__((interrupt, no_caller_saved_registers)) void interr_virtualization_exception(struct interr_frame * interrupt_frame);
@@ -284,23 +264,11 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_machine
 
 
 __attribute__((interrupt, no_caller_saved_registers)) void general_fault_handler_error(struct interr_frame * interrupt_frame, unsigned long error) { // ul to shut clang
-    uint8_t old_tty_color = vga_get_color();
-    // tty_clear();
-    vga_set_color(VGA_COLOR_BLACK, VGA_COLOR_LIGHT_RED);
-
-    kprintf("PANIC: UNREGISTERED CPU FAULT, ERR CODE %lx\n", error);
-    
-    vga_set_color(old_tty_color&0x0F, (old_tty_color&0xF0) >> 4);
+    kprintf("\e41mPANIC: UNREGISTERED CPU FAULT, ERR CODE %lx\e0m\n", error);
 }
 
 __attribute__((interrupt, no_caller_saved_registers)) void general_fault_handler_no_error(struct interr_frame * interrupt_frame) { // ul to shut clang
-    uint8_t old_tty_color = vga_get_color();
-    // tty_clear();
-    vga_set_color(VGA_COLOR_BLACK, VGA_COLOR_LIGHT_RED);
-
-    kprintf("PANIC: UNREGISTERED CPU FAULT, ERR CODE\n");
-    
-    vga_set_color(old_tty_color&0x0F, (old_tty_color&0xF0) >> 4);
+    kprintf("\e41mPANIC: UNREGISTERED CPU FAULT, ERR CODE\e0m\n");
 }
 
 

@@ -5,6 +5,7 @@
 #define USTAR_MAGIC_ALT "ustar " // gnu tar produces this, version is then " \0", idk
 #define MAX_PATH_TAR 255
 enum ustar_file_types {
+    USTAR_NORMAL_ALT = 0,
     USTAR_NORMAL = '0',
     USTAR_HARD_LINK = '1',
     USTAR_SYMBOLIC_LINK = '2',
@@ -46,6 +47,7 @@ int tar_unload_fs(superblock_t * sb); // frees the internal lookup structure
 off_t tarfs_seek(file_descriptor_t * fd, off_t off, int whence);
 inode_t * tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname);
 ssize_t tarfs_read(file_descriptor_t * fd, void * buf, size_t n);
+ssize_t tarfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_size);
 
 #include "vfs.h"
 extern const struct vfs_ops tar_op;

@@ -1,0 +1,68 @@
+Important registers required to be set by the mode switching code and their values
+
+VGA_GC_DATA_REG index 5 - Graphics mode register
+    sets framebuffer access options
+    bit 7 unused
+    bit 6 Shift256 -- 256-Color shift mode
+        1 - bit 5 ignored, registers loaded with 256 colors in mind
+        0 - bit 5 enabled
+    bit 5 Shift register interleave mode
+        1 - even data in input gets written to even maps and vice versa, not used
+        0 - written to the specified location as is
+    bit 4 Host O/E mode memory addressing enable
+        unused, should be set as in index 6 bit 1
+    bit 3 Read mode
+        1 - read mode 1, not used because we do double buffering
+            reference color palette index gets set in index 2
+            plane bit mask is set in index 7
+            -> returns 1 for each bit in planes selected by index 7 that match bit in index 2
+        0 - read mode 0, not used because we do double buffering
+            plane is set in index 4
+            -> returns the value in that plane
+        read mode 1 would allow extremely fast comparisons, but can't "read"
+    bit 2 unused
+    bit 1-0 Write mode
+        way to complicated to explain
+        suffice to say, we aren't a 286 where this would matter
+        set to 0 and don't worry about it
+    
+VGA_GC_DATA_REG index 6 - Miscellaneous graphics register
+    sets memory map size, access parity, and graphics/text mode
+    bit 7-4 unused
+    bit 3-2 Memory Map Select
+        00 - 0xA0000 - 0xBFFFF 128K
+            used in e.g. hilinear
+        01 - 0xA0000 - 0xB0000 64K
+            used in e.g. mode 12, 13, X
+    bit 1 Chain O/E enable
+        1 - highest bit selects plane number, unused
+        0 - disabled
+    bit 0 Alphanumeric Disable
+        1 - graphics
+        0 - text mode
+
+VGA Attribute register index 0x10 - Attribute mode control register
+    bit 7 Palette bits 5-4 select
+        1 - bits 5 and 4 of DAC specified color replacement
+            replaced by values in bits 1 and 0 in attribute index 0x14
+        0 - no action
+    bit 6 8 bit color enable
+        1 - data is sampled expecting 8 bits of color
+            used in e.g. mode 13, X, hilienear
+        0 - data is sampled expecting 4 bits or less
+            used in e.g. mode 12
+    bit 5 Pixel panning mode
+        for splitscreen hw scrolling, not used
+    bit 4 unused
+    bit 3 Blink enable
+        1 - highest bit of palette index selects blinking
+        0 - normal color mode
+    bit 2 Line graphics enable (in text mode)
+        1 - extends the font to 9 chars
+            if char 0xC0 - 0xDF (lines and stuff), then duplicates the 8th column
+            if other, sets to background
+        0 - doesn't
+    bit 1 Monochrome emulation - unused
+    bit 0 Attribute controller graphics enable
+        1 - graphics
+        0 - text

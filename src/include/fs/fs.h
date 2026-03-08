@@ -95,14 +95,18 @@ inode_t * create_inode(superblock_t * sb, void * inode_number);
 void close_inode(inode_t * inode);
 int open_raw_device(dev_t device, unsigned short mode); // locks file descriptor lock itself
 
-void inode_change_mode(inode_t * inode, unsigned char new_mode);
+void inode_change_mode(inode_t * inode, unsigned short new_mode);
 
 int sys_open(const char * path, unsigned short flags, unsigned short mode);
+int sys_openat(int fd, const char * path, unsigned short flags, unsigned short mode);
+
 int sys_close(int fd);
 ssize_t sys_read(int fd, void * buf, size_t count);
 ssize_t sys_write(int fd, const void * buf, size_t count);
 off_t sys_seek(int fd, off_t off, int whence);
 
+#include "../../../libc/src/include/dirent.h"
+ssize_t sys_readdir(int fd, struct dirent * dent, size_t dent_size);
 
 // because we want drivers' file objects to be file descriptors as well
 // and we don't want them in user processes,

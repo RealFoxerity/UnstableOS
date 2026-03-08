@@ -51,7 +51,7 @@ void kprintf_write(const char * buf, size_t count) { // TODO: rewrite, this is h
         */
 
         //if (__builtin_expect(kernel_task == NULL || kernel_task->fds[0] == NULL || kernel_task->fds[0]->inode == NULL, 0)) {
-            vga_write(buf+i, 1);
+            console_write(buf+i, 1);
             com_write(0, buf+i, 1);
         //} else {
         //    tty_write(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), buf+i, 1);

@@ -24,10 +24,10 @@ static size_t tty_console_write(tty_t * tty) {
     size_t n = REMAIN(tq);
 
     if (tq->head <= tq->tail) {
-        vga_write(tq->buffer + tq->head, n);
+        console_write(tq->buffer + tq->head, n);
     } else {
-        vga_write(tq->buffer + tq->head, TTY_BUFFER_SIZE - tq->head);
-        vga_write(tq->buffer, tq->tail);
+        console_write(tq->buffer + tq->head, TTY_BUFFER_SIZE - tq->head);
+        console_write(tq->buffer, tq->tail);
     }
 
     tty_com_write(tty);
@@ -78,7 +78,7 @@ void tty_alloc_kernel_console() { // for the kernel task, don't call for user pr
         TTY_L_ECHO | TTY_L_ECHOE | TTY_L_ECHOK | TTY_L_ICANON | TTY_L_ISIG,
         TTY_O_POST | TTY_O_NLCR,
         default_control_chars, 
-        VGA_HEIGHT, VGA_WIDTH, 
+        display_height, display_width, 
         tty_console_write, 0, 
         0, 0);
     tty_register(kernel_console, DEV_TTY_0);

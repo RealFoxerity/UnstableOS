@@ -17,7 +17,7 @@
 
 extern void clear_screen_fatal(); // kernel_interrupts.c
 
-extern uint8_t vga_x, vga_y;
+extern uint8_t console_x, console_y;
 #define ssize_t long
 
 static char check_address_range(const void * addr, size_t n, char writable, char in_kernel) { // check whether the address range is inside the program, is mapped, and whether it is writable (assumes correct address space)
@@ -147,15 +147,14 @@ long kernel_syscall_dispatcher(context_t ctx) {
             asm volatile ("sti;");
             return_value = sys_seek(arg1, arg2, arg3);
             break;
-        case SYSCALL_INTERR_RING2_PANIC:
-            if ((ctx.iret_frame.cs & ~3) == GDT_USER_CODE << 3) break; // has to be at least ring 2 or has to be called within a kernel routine
-        
-            clear_screen_fatal();
-            vga_x = VGA_WIDTH/2 - (sizeof(SYSCALL_PANIC_TEXT)-1)/2, vga_y = VGA_HEIGHT/2;
-            kprintf(SYSCALL_PANIC_TEXT);
-            asm volatile ("cli; hlt;");
+        case SYSCALL_READDIR:
+            if (!check_address_range((void*)arg2, arg3, 1, in_kernel)) {
+                return_value = EFAULT;
+                break;
+            }
+            asm volatile ("sti;");
+            return_value = sys_readdir(arg1, (void*)arg2, arg3);
             break;
-
         case SYSCALL_SEM_INIT:
             for (int i = 0; i < PROGRAM_MAX_SEMAPHORES; i++) {
                 if (current_process->semaphores[i] == NULL)

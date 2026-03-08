@@ -9,154 +9,397 @@
 #include "../libc/src/include/string.h"
 #include "../libc/src/include/ctype.h"
 #include "include/kernel_tty.h"
-#include "include/lowlevel.h"
 
-void vga_enable_blink() { // effectively removes the 16th background color (white)
-    uint8_t current_attr = vga_read_attribute(VGA_ATTRIBUTE_MODE_CONTROL);
-    current_attr |= MODE_CONTROL_BLINK;
-    vga_write_attribute(VGA_ATTRIBUTE_MODE_CONTROL, current_attr);    
-}
-void vga_disable_blink() {
-    uint8_t current_attr = vga_read_attribute(VGA_ATTRIBUTE_MODE_CONTROL);
-    current_attr &= ~MODE_CONTROL_BLINK;
-    vga_write_attribute(VGA_ATTRIBUTE_MODE_CONTROL, current_attr);    
-}
+// TODO: you can use backspace on chars that aren't there :P
 
-#define MAX_SCANLINE 15
-void vga_enable_cursor(uint8_t cursor_start, uint8_t cursor_end) { // scanlines?  no clue
+int console_x = 0; // signed to make bounds checking easier
+int console_y = 0;
 
-    outb(0x3D4, 0x0A);
-	outb(0x3D5, (inb(0x3D5) & 0xC0) | cursor_start);
+int console_saved_x = 0;
+int console_saved_y = 0;
 
-	outb(0x3D4, 0x0B);
-	outb(0x3D5, (inb(0x3D5) & 0xE0) | cursor_end);
+char console_cursor_shown = 0;
+char console_cursor_blinking = 0;
 
-}
-void vga_disable_cursor() {
-    outb(0x3D4, 0x0A);
-	outb(0x3D5, 0x20);
-}
-void vga_move_cursor(uint8_t x, uint8_t y) {
-    uint32_t interr_enabled = 0;
-    asm volatile (
-        "pushf\n\t"
-        "andl $"STR(IA_32_EFL_SYSTEM_INTER_EN) ", (%%esp)\n\t"
-        "pop %0\n\t"
-        "cli"
-        : "=r"(interr_enabled)
-    );
-    outb(0x3D4, 0x0F);
-	outb(0x3D5, (uint8_t) ((y*VGA_WIDTH + x) & 0xFF));
-	outb(0x3D4, 0x0E);
-	outb(0x3D5, (uint8_t) (((y*VGA_WIDTH + x) >> 8) & 0xFF));
+unsigned char console_tab_width = 8;
 
-    if (interr_enabled) asm volatile("sti;");
+enum console_colors_palette console_color_fg = CONSOLE_COLOR_WHITE;
+enum console_colors_palette console_color_bg = CONSOLE_COLOR_BLACK;
+enum console_colors_palette console_default_color_fg = CONSOLE_COLOR_WHITE;
+enum console_colors_palette console_default_color_bg = CONSOLE_COLOR_BLACK;
+
+char console_reversed_colors = 0;
+
+#define MAX_ANSI_SEQUENCE 16
+
+#define FONT_MULTIPLIER 1
+
+void console_move_cursor(uint8_t x, uint8_t y) {
+    
 }
 
-
-/*
-    vga text format
-    7   6 - 4   3 - 0   |   7 - 0
-blink   BGC     FGC         ascii codepoint
-*/
-uint8_t vga_x = 0, vga_y = 0;
-
-struct vga_cursor_pos vga_get_cursor() {
-    return (struct vga_cursor_pos) {vga_x, vga_y};
-}
-
-#define get_char(char, color) ((uint16_t)(char | (color << 8)))
-
-#define vga_buf ((uint16_t*)VGA_TEXT_MODE_ADDR)
-
-static uint8_t vga_color = VGA_DEF_COLOR;
-
-uint8_t vga_get_color() {return vga_color;}
-
-void vga_set_color(char vga_fg, char vga_bg) {
-    vga_color = get_color(vga_fg, vga_bg);
-}
-
-void vga_put_char(char c, uint8_t color, uint8_t x, uint8_t y) {
-    vga_buf[y*VGA_WIDTH + x] = get_char(c, color);
-}
-
-void vga_clear() {
-    vga_x = vga_y = 0;
-    for (int i = 0; i < VGA_WIDTH; i++) {
-        for (int j = 0; j < VGA_HEIGHT; j++) {
-            vga_put_char(0, vga_color, i, j);
-        }
+static void handle_ansi_escapes(const char * ansi_sequence) {
+    /*
+    this is a pretty simple implementation with a lot missing
+    we support:
+    most common SGR type (\e[<num>m) escapes
+    cursor manipulation types A, B, C, D, E, F, G, H, a, d, f, j, k
+    cursor blink off/on
+    clear screen type J/0J 1J 2J 3J, K/0K 1K 2K
+    scroll commands S T
+    partially the nonstandard \e[=#h modesettings
+    */
+    switch (ansi_sequence[1]) { // 1 char escapes
+        case 'm':
+            reset_graphics:
+            console_color_fg = console_default_color_fg;
+            console_color_bg = console_default_color_bg;
+            console_reversed_colors = 0;
+            return;
+        case 'J':
+            erase_cursor_screen_end:
+            vga_fill(0, display_width - 1, 
+                (console_y+1)*console_font_width*FONT_MULTIPLIER, display_height, 
+                console_color_bg, 1);
+        case 'K':
+            erase_cursor_line_end:
+            vga_fill(console_x*console_font_width*FONT_MULTIPLIER, display_width - 1, 
+                    console_y*console_font_height*FONT_MULTIPLIER, (console_y+1)*console_font_height*FONT_MULTIPLIER - 1, 
+                    console_color_bg, 1);
+            return;
+        case 's':
+            console_saved_x = console_x;
+            console_saved_y = console_y;
+            return;;
+        case 'u':
+            if (console_saved_x >= display_width_chars/FONT_MULTIPLIER)
+                console_saved_x = display_width_chars/FONT_MULTIPLIER - 1;
+            if (console_saved_y >= display_height_chars/FONT_MULTIPLIER)
+                console_saved_y = display_height_chars/FONT_MULTIPLIER;
+            console_x = console_saved_x % (display_width_chars/FONT_MULTIPLIER);
+            console_y = console_saved_y % (display_height_chars/FONT_MULTIPLIER);
+            return;
+        case 'H':
+            console_x = console_y = 0;
+            return;
+        case 'A':
+            console_y --;
+            if (console_y < 0) console_y = 0;
+            return;
+        case 'B':
+            console_y ++;
+            if (console_y > display_height_chars/FONT_MULTIPLIER) console_y = display_height_chars/FONT_MULTIPLIER - 1;
+            return;
+        case 'C':
+            console_x ++;
+            if (console_x > display_width_chars/FONT_MULTIPLIER) console_x = display_width_chars/FONT_MULTIPLIER - 1;
+            return;
+        case 'D':
+            console_x --;
+            if (console_x < 0) console_x = 0;
+            return;
     }
-    vga_move_cursor(0, 0);
-    vga_enable_cursor(0, MAX_SCANLINE);
+
+    char csi = 0;
+    int id = 0, id2 = 0;
+
+    if (sscanf(ansi_sequence, "[?%u%c", &id, &csi) == 2) {
+        switch (id) {
+            case 12:
+                switch (csi) {
+                    case 'h':
+                        console_cursor_blinking = 1;
+                        return;
+                    case 'l':
+                        console_cursor_blinking = 0;
+                    default:
+                        return;
+                }
+        }
+        return;
+    }
+
+    // modesettings, see https://gist.github.com/ConnerWill/d4b6c776b509add763e17f9f113fd25b
+    if (sscanf(ansi_sequence, "[=%u%c", &id, &csi) == 2) {
+        switch (csi) {
+            case 'l':
+                vga_set_mode_12();
+            default:
+                return;
+            case 'h': break;
+        }
+
+        // because we don't have most of them defined,
+        // i took some liberty with the unused ones
+        switch (id) {
+            case 13:
+            case 19:
+                console_x = console_y = 0;
+                vga_set_mode_13();
+                return;
+            case 18:
+                console_x = console_y = 0;
+                vga_set_mode_12();
+                return;
+            case 20:
+                console_x = console_y = 0;
+                vga_set_mode_X();
+                return;
+            case 21:
+                console_x = console_y = 0;
+                vga_set_mode_X_wide();
+                return;
+            case 28:
+                console_x = console_y = 0;
+                vga_set_mode_12_wide();
+                return;
+        }
+        return;
+    }
+
+    if (sscanf(ansi_sequence, "[%d%c", &id, &csi) != 2) goto ansi2params;
+
+    enum console_colors_palette temp;
+    switch (csi) {
+        // scroll up
+        case 'S':
+            kprintf("scroll up\n");
+            vga_move_region(0, id*console_font_height*FONT_MULTIPLIER, display_width, display_height, 0, 0);
+            return;
+        // scroll down
+        case 'T':
+            vga_move_region(0, 0, display_width, display_height, 0, id*console_font_height*FONT_MULTIPLIER);
+            return;
+        // graphics rendition modes
+        case 'm':
+            switch (id) {
+                case 0: goto reset_graphics;
+                case 7:
+                    // so we don't have to do ifs in our drawing code
+                    temp = console_color_bg;
+                    console_color_bg = console_color_fg;
+                    console_color_fg = temp;
+                    console_reversed_colors = 1;
+                    return;
+                case 27:
+                    if (!console_reversed_colors) return;
+                    temp = console_color_bg;
+                    console_color_bg = console_color_fg;
+                    console_color_fg = temp;
+                    return;
+                case 30 ... 37:
+                    console_color_fg = id - 30;
+                    return;
+                case 39:
+                    console_color_fg = console_default_color_bg;
+                    return;
+                case 40 ... 47:
+                    console_color_bg = id - 40;
+                    return;
+                case 49:
+                    console_color_bg = console_color_bg;
+                    return;
+                case 90 ... 97:
+                    console_color_fg = id - 90 + 8;
+                    return;
+                case 100 ...107:
+                    console_color_bg = id - 90 + 8;
+                    return;
+            }
+            return;
+        
+        // clear screen
+        case 'J':
+            switch (id) {
+                case 0: goto erase_cursor_screen_end;
+                case 1:
+                    // erase from beginning to cursor, TODO: maybe use vga_fill?
+                    for (int y = 0; y <= console_y * console_font_height*FONT_MULTIPLIER; y++) {
+                        for (int x = 0; 
+                            x <= (
+                                    (y == console_y*console_font_height*FONT_MULTIPLIER) ?
+                                    console_x*console_font_width*FONT_MULTIPLIER :
+                                    display_width - 1
+                            ); x++) {
+                            vga_write_pixel_buffered(x, y, console_color_bg, 1);
+                        }
+                    }
+                    vga_swap_buffers();
+                    return;
+                case 3:
+                    // entire screen including scrollback (in our case jump up)
+                    console_move_cursor(0, 0);
+                    console_x = console_y = 0;
+                case 2:
+                    // entire screen
+                    vga_fill(0, display_width - 1,
+                        0, display_height - 1,
+                        console_color_bg, 1);
+                    return;
+            }
+            return;
+        // clear line
+        case 'K':
+            switch (id) {
+                case 0: goto erase_cursor_line_end;
+                case 1:
+                    // erase from cursor to beginning of line
+                    vga_fill(0, console_x * console_font_width * FONT_MULTIPLIER,
+                        console_y*console_font_height*FONT_MULTIPLIER, (console_y+1)*console_font_height*FONT_MULTIPLIER - 1, 
+                        console_color_bg, 1);
+                    return;
+                case 2:
+                    // erase entire line
+                    vga_fill(0, display_width - 1, 
+                        console_y*console_font_height*FONT_MULTIPLIER, (console_y+1)*console_font_height*FONT_MULTIPLIER - 1, 
+                        console_color_bg, 1);
+                    return;
+            }
+            return;
+        // cursor operations
+        case 'F':
+            console_x = 0;
+        case 'A':
+            console_y -= id;
+            if (console_y < 0) console_y = 0;
+            return;
+        case 'E':
+            console_x = 0;
+        case 'a':
+        case 'B':
+            console_y += id;
+            if (console_y > display_height_chars/FONT_MULTIPLIER) console_y = display_height_chars/FONT_MULTIPLIER - 1;
+            return;
+        case 'k':
+        case 'C':
+            console_x += id;
+            if (console_x > display_width_chars/FONT_MULTIPLIER) console_x = display_width_chars/FONT_MULTIPLIER - 1;
+            return;
+        case 'j':
+        case 'D':
+            console_x -= id;
+            if (console_x < 0) console_x = 0;
+            return;
+        case 'G':
+            console_x = id;
+            if (console_x > display_width_chars/FONT_MULTIPLIER) console_x = display_width_chars/FONT_MULTIPLIER - 1;
+            return;
+        case 'd':
+            console_y = id;
+            if (console_y > display_height_chars/FONT_MULTIPLIER) console_y = display_height_chars/FONT_MULTIPLIER - 1;
+            return;
+        default:
+            return;
+    }
+
+    ansi2params:
+    if (sscanf(ansi_sequence, "[=%u;%u%c", &id, &id2, &csi) != 3) return;
+
+    switch (csi) {
+        // absolute cursor positioning
+        case 'H':
+        case 'f':
+            console_y = id;
+            console_x = id2;
+            if (console_y > display_height_chars/FONT_MULTIPLIER) console_y = display_height_chars/FONT_MULTIPLIER - 1;
+            if (console_x > display_width_chars/FONT_MULTIPLIER) console_x = display_width_chars/FONT_MULTIPLIER - 1;
+            return;
+    }
+
 }
 
-static inline void vga_scroll_line() {
-    memcpy(vga_buf, vga_buf + VGA_WIDTH, VGA_WIDTH*(VGA_HEIGHT-1)*sizeof(uint16_t)); // basic 1 line scrollback
-    memset(vga_buf + (VGA_HEIGHT-1) * VGA_WIDTH, 0, VGA_WIDTH*sizeof(uint16_t));
+static char ansi_escape_state_machine(char c) {
+    static char waiting = 0;
+    static int read_chars = -1;
+    static char sequence[MAX_ANSI_SEQUENCE+1] = {0};
+    if (c == '\e') {
+        waiting = 1;
+        if (read_chars != -1)
+            memset(sequence, 0, read_chars);
+        read_chars = -1;
+        return 1;
+    }
+    if (waiting) {
+        if (read_chars == -1) {
+            if (c != '[') { // we don't support the other ones
+                waiting = 0;
+                return 0;
+            }
+            read_chars = 0;
+        }
+
+        // probably broken/partially dropped sequence - give up
+        if (read_chars >= MAX_ANSI_SEQUENCE || !isprint(c)) {
+            waiting = 0;
+            return 0;
+        }
+        
+        switch (c) {
+            case 'A'...'Z':
+            case 'a'...'z':
+            case '@':
+            case '`':
+                // the termination char
+                waiting = 2;
+            default:
+                sequence[read_chars++] = c;
+        }
+        if (waiting == 2) {
+            sequence[read_chars] = 0;
+            waiting = 0;
+            handle_ansi_escapes(sequence);
+        }
+        return 1;
+    }
+    return 0;
 }
 
-void vga_write(const char * s, size_t len) {
+void console_write(const char * s, size_t len) {
     for (int i = 0; i < len; i++) {
+        if (ansi_escape_state_machine(s[i])) continue;
+
         if (s[i] == '\r') {
-            vga_x = 0; continue;
+            console_x = 0; continue;
         }
         if (s[i] == '\b' /*|| s[i] == 0x7F*/) {
-            delete:
-            if (vga_x == 0) {
-                if (vga_y == 0) continue;
-                vga_y -= 1;
-                vga_x = VGA_WIDTH-1;
+            if (console_x == 0) {
+                if (console_y == 0) continue;
+                console_y -= 1;
+                console_x = display_width_chars/FONT_MULTIPLIER - 1;
             } else {
-                vga_x --;
+                console_x --;
             }
             ///*if (s[i] == 0x7F)*/ vga_put_char(0, vga_color, vga_x, vga_y); // assuming cursor is in front of text
-            if (vga_x == 0 && vga_y == 0) continue;
-            if (vga_x == 0) {
-                if ((((unsigned short *) VGA_TEXT_MODE_ADDR)[(vga_y - 1)*VGA_WIDTH + VGA_WIDTH - 1] & 0xFF) == 0) goto delete;
-            } else {
-                if ((((unsigned short *) VGA_TEXT_MODE_ADDR)[vga_y*VGA_WIDTH + vga_x - 1] & 0xFF) == 0) goto delete;
+            continue;
+        }
+        if (s[i] == '\n') {
+            new_line:
+            console_x = 0;
+            console_y ++;
+            if (console_y >= display_height_chars / FONT_MULTIPLIER) {
+                console_y = display_height_chars / FONT_MULTIPLIER - 1;
+                vga_hw_scroll_scanlines(console_font_height*FONT_MULTIPLIER);
+                vga_fill(0, display_width - 1, 
+                    display_height - console_font_height*FONT_MULTIPLIER, display_height - 1, 
+                    console_default_color_bg, 1);
             }
             continue;
         }
         if (s[i] == '\t') {
-            vga_x += TAB_WIDTH - (vga_x % TAB_WIDTH);
-            if (vga_x >= VGA_WIDTH) {
-                vga_x = 0;
-                vga_y ++;
-                if (vga_y >= VGA_HEIGHT) {
-                    vga_y = VGA_HEIGHT - 1;
-                    vga_scroll_line();
-                }
+            console_x += console_tab_width - (console_x % console_tab_width);
+            if (console_x >= display_width_chars / FONT_MULTIPLIER) {
+                goto new_line;
             }
             continue;
         }
-        if (s[i] == '\n') {
-            vga_x = 0;
-            //vga_y = (vga_y+1)%VGA_HEIGHT;
-            vga_y ++;
-            if (vga_y >= VGA_HEIGHT) {
-                vga_y = VGA_HEIGHT - 1;
-                vga_scroll_line();
-            }
-            continue;
-        }
-        vga_put_char(s[i], vga_color, vga_x, vga_y);
-        vga_x ++;
-        if (vga_x >= VGA_WIDTH) {
-            vga_x = 0;
-            
-            //vga_y = (vga_y+1)%VGA_HEIGHT;
-            vga_y ++;
-            if (vga_y >= VGA_HEIGHT) {
-                vga_y = VGA_HEIGHT - 1;
-                vga_scroll_line();
-            }
-            continue;
-        }
+        //vga_put_char(s[i], vga_color, vga_x, vga_y);
+        vga_blit_char(s[i], console_x*console_font_width*FONT_MULTIPLIER, 
+                            console_y*console_font_height*FONT_MULTIPLIER, 
+                    console_color_fg, console_color_bg, 1, FONT_MULTIPLIER);
+        console_x ++;
+        if (console_x >= display_width_chars / FONT_MULTIPLIER) goto new_line;
     }
-    vga_move_cursor(vga_x, vga_y);
+    console_move_cursor(console_x, console_y);
 }
 
 
@@ -258,8 +501,12 @@ void tty_console_input_terminal_input_seq(uint32_t scancode) { // vt and partial
     if (mods == 1)
         sprintf(esc_buf, esc_val >= 'A' ? "\e[%c"   : "\e[%d~", esc_val);
     else
-        if (esc_val >= 'A')
-            sprintf(esc_buf, "\e[%d%c", mods, esc_val);
+        if (esc_val >= 'A') {
+            if (!mods)
+                sprintf(esc_buf, "\e[%c", esc_val);
+            else
+                sprintf(esc_buf, "\e[%d%c", mods, esc_val);
+        }
         else
             sprintf(esc_buf, "\e[%d;%d~", esc_val, mods);
 
@@ -297,15 +544,4 @@ void tty_console_input(uint32_t scancode) { // convert ps2 input into normal asc
     }
     if ((scancode & ~KEY_BASE_SCANCODE_MASK & ~(KEY_MOD_LSHIFT_MASK) & ~(KEY_MOD_RSHIFT_MASK)) == KEY_MOD_LCONTROL_MASK && translated_scancode == '?') translated_scancode = '\x7F'; // can't get to ? on english layout without shift
     if (translated_scancode != '\0' || explicit_nullbyte) tty_write_to_tty(&translated_scancode, 1, GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE));
-}
-
-
-void console_write(tty_t * tty) {
-    while (!EMPTY(&tty->oqueue)) {
-        char checked = tty->oqueue.buffer[tty->oqueue.head+1];
-        // TODO: implement ansi escape codes
-        switch (checked) {
-            
-        }
-    }
 }

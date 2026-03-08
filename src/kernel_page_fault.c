@@ -42,11 +42,8 @@ __attribute__((interrupt, no_caller_saved_registers)) void interr_page_fault(str
     } else { // fork() CoW
         if (fork_cow_page(fault_address)) return;
     }
-    
-    uint8_t old_tty_color = vga_get_color();
-    vga_set_color(VGA_COLOR_LIGHT_RED, VGA_COLOR_BLACK);
 
-    kprintf("\n\n#### ISR: Segmentation fault - Invalid memory reference! ####\nTried to reference address %p\n", fault_address);
+    kprintf("\n\n\e41m#### ISR: Segmentation fault - Invalid memory reference! ####\nTried to reference address %p\n", fault_address);
     print_segment_selector_error(error);
     print_interr_frame(interrupt_frame);
 
@@ -59,10 +56,9 @@ __attribute__((interrupt, no_caller_saved_registers)) void interr_page_fault(str
         panic("Attempted to kill init!");
         __builtin_unreachable();
     } else {
-        kprintf("Terminating process...\n");
+        kprintf("Terminating process...\e0m\n");
         current_thread->status = SCHED_CLEANUP;
     }
-    vga_set_color(old_tty_color&0x0F, (old_tty_color&0xF0) >> 4);
     
     interrupt_frame->ip = kernel_idle;
     interrupt_frame->cs = GDT_KERNEL_CODE << 3;

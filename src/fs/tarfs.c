@@ -19,6 +19,7 @@ const struct vfs_ops tar_op = {
     .lookup = tarfs_lookup,
     .seek = tarfs_seek,
     .read = tarfs_read,
+    .readdir = tarfs_readdir
 };
 
 static inline size_t oct2int(const char * oct_data, size_t n) {
@@ -49,7 +50,7 @@ static inline char is_path_end(const char * next_slash) {
             );
 }
 
-static struct tar_node * create_new_node(const char * path, const char * next_slash, size_t size, char type, off_t record_offset) {
+static struct tar_node * create_new_node(const char * path, const char * next_slash, size_t size, enum ustar_file_types type, off_t record_offset) {
     kassert(path);
     kassert(next_slash);
 
@@ -73,6 +74,26 @@ static struct tar_node * create_new_node(const char * path, const char * next_sl
 static char tar_add_cached_path(struct tar_node * root, const char * path, size_t size, char type, off_t record_offset) {
     kassert(root);
     kassert(path);
+
+
+    switch (type) {
+        case USTAR_NORMAL_ALT:
+        case USTAR_NORMAL:
+            type = DT_REG;
+            break;
+        case USTAR_DIRECTORY:
+            type = DT_DIR;
+            break;
+        case USTAR_BLOCK_DEV:
+            type = DT_BLK;
+            break;
+        case USTAR_HARD_LINK:
+        case USTAR_SYMBOLIC_LINK:
+        case USTAR_CHAR_DEV:
+        case USTAR_PIPE:
+            kprintf("We don't support links, fifos, pipes, and char devs: %d", type);
+            return -1;
+    }
 
     struct tar_node * checked = root;
 
@@ -102,9 +123,7 @@ static char tar_add_cached_path(struct tar_node * root, const char * path, size_
             return -1;
         }
 
-        if (checked->type == USTAR_SYMBOLIC_LINK || checked->type == USTAR_HARD_LINK) panic("We don't yet support links!\n");
-
-        if (checked->type != USTAR_DIRECTORY) {
+        if (checked->type != DT_DIR) {
             kprintf("Path fragment %s of %s would map to a non-directory entry!\n", off, path);
             return -1;
         }
@@ -153,7 +172,7 @@ static void tar_free_node(struct tar_node * node) {
 
 int tar_load_fs(superblock_t * sb) {
     const char * root_path = "/";
-    sb->data = create_new_node(root_path, root_path+1, 0, USTAR_DIRECTORY, 0);
+    sb->data = create_new_node(root_path, root_path+1, 0, DT_DIR, 0);
     ((struct tar_node*)sb->data)->upper = sb->data;
 
     file_descriptor_t * tar_fd = sb->fd;
@@ -243,15 +262,16 @@ inode_t * tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname)
     size_t pathlen = strlen(pathname);
 
     struct tar_node * prev = last == NULL ? sb->data : last->id;
+
+    if (prev->type != DT_DIR) return VFS_LOOKUP_NOTDIRECTORY;
+
     struct tar_node * root = sb->data;
     struct tar_node * result = NULL;
     if (!is_valid_node(root, prev)) panic("Invalid checked/root TARFS node combo!");
 
     if (pathlen == 0 || (pathlen == 1 && pathname[0] == '.')) {             // current directory
-        if (prev->type != USTAR_DIRECTORY) return VFS_LOOKUP_NOTDIRECTORY;
         result = prev;
     } else if (pathlen == 2 && strncmp("..", pathname, 2) == 0) {  // parent directory
-        if (prev->type != USTAR_DIRECTORY) return VFS_LOOKUP_NOTDIRECTORY;
         if (prev == root) return VFS_LOOKUP_ESCAPE;
         result = prev->upper;
     } else {
@@ -275,15 +295,7 @@ inode_t * tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname)
 
     inode_t * ret = create_inode(sb, result);
 
-    unsigned short mode; // not exactly safe, this could potentially ovewrite existing inode's mode
-    mode = 
-        (result->type == USTAR_DIRECTORY ? __ITMODE_DIR : 0) |
-        (result->type == USTAR_CHAR_DEV ? __ITMODE_CHAR : 0) |
-        (result->type == USTAR_BLOCK_DEV ? __ITMODE_BLK : 0);
-    if (mode == 0) mode = __ITMODE_REG;
-
-    inode_change_mode(ret, mode);
-
+    inode_change_mode(ret, DTTOIF(result->type));
     return ret;
 }
 
@@ -294,12 +306,16 @@ ssize_t tarfs_read(file_descriptor_t * fd, void * buf, size_t n) {
 
     kassert(buf);
     kassert(fd);
+    kassert(fd->inode);
+    kassert(fd->inode->id)
     kassert(fd->inode->backing_superblock);
 
     superblock_t * sb = fd->inode->backing_superblock;
     file_descriptor_t * tar_fd = sb->fd;
     struct tar_node * root = sb->data;
     struct tar_node * this = fd->inode->id;
+
+    if (this->type != DT_REG) return EINVAL;
 
     if (!is_valid_node(root, this)) panic("Invalid this/root TARFS node combo!");
 
@@ -344,4 +360,62 @@ off_t tarfs_seek(file_descriptor_t * fd, off_t off, int whence) {
         default:
             return EINVAL;
     }
+}
+
+ssize_t tarfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_size) {
+    kassert(dent);
+
+    kassert(fd);
+    kassert(fd->inode);
+    kassert(fd->inode->id);
+    kassert(fd->inode->backing_superblock);
+
+    superblock_t * sb = fd->inode->backing_superblock;
+    struct tar_node * root = sb->data;
+    struct tar_node * this = fd->inode->id;
+
+    if (!is_valid_node(root, this)) panic("Invalid this/root TARFS node combo!");
+
+    switch (fd->off) {
+        case 0: // "."
+            if (dent_size < sizeof(struct dirent) + 2)
+                return EINVAL;
+            *dent = (struct dirent) {
+                .d_ino = this->record_offset,
+                .d_off = fd->off,
+                .d_reclen = sizeof(struct dirent) + 2,
+                .d_type = DT_DIR,
+            };
+            dent->d_name[0] = '.';
+            dent->d_name[1] = '\0';
+            break;
+        case 1:
+            if (dent_size < sizeof(struct dirent) + 3)
+                return EINVAL;
+            *dent = (struct dirent) {
+                .d_ino = this->upper->record_offset,
+                .d_off = fd->off,
+                .d_reclen = sizeof(struct dirent) + 3,
+                .d_type = DT_DIR,
+            };
+            memcpy(dent->d_name, "..", 3);
+            break;
+        default:
+            this = this->inner;
+            for (int i = 0; i < fd->off - 2; i++) {
+                this = this->next;
+                if (this == NULL) return 0;
+            }
+            if (dent_size < sizeof(struct dirent) + strlen(this->path_fragment) + 1)
+                return EINVAL;
+            *dent = (struct dirent) {
+                .d_ino = this->record_offset,
+                .d_off = fd->off,
+                .d_reclen = sizeof(struct dirent) + strlen(this->path_fragment) + 1,
+                .d_type = this->type
+            };
+            memcpy(&dent->d_name, this->path_fragment, strlen(this->path_fragment) + 1);
+    }
+    fd->off++;
+    return dent->d_reclen;
 }
