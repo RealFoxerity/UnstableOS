@@ -75,21 +75,59 @@ static inline char * secure_strdup(const char * path, size_t max_len, size_t *le
     return duped;
 }
 
-#define MOUNT_STACK_LEN 128 // 128 mountpoint depth before giving up
-
+int openat_inode(inode_t * base, const char * path, unsigned short flags, unsigned short mode, inode_t ** out);
 int sys_open(const char * path, unsigned short flags, unsigned short mode) {
+    inode_t * new = NULL;
+    int ret = openat_inode(current_process->pwd, path, flags, mode, &new);
+    if (ret < 0) return ret;
+    ret = get_fd_from_inode(new, flags);
+    if (ret < 0)
+        close_inode(new);
+    return ret;
+}
+
+int sys_openat(int fd, const char * path, unsigned short flags, unsigned short mode) {
+    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return EBADF;
+    file_descriptor_t * file = current_process->fds[fd];
+    if (file == NULL) return EBADF;
+
+    kassert(file->instances > 0);
+    kassert(file->inode != NULL);
+    kassert(file->inode->instances > (file->inode->is_mountpoint)? 1 : 0);
+
+    inode_t * new = NULL;
+    int ret = openat_inode(file->inode, path, flags, mode, &new);
+    if (ret < 0) return ret;
+    ret = get_fd_from_inode(new, flags);
+    if (ret < 0)
+        close_inode(new);
+    return ret;
+}
+
+int openat_inode(inode_t * base, const char * path, unsigned short flags, unsigned short mode, inode_t ** out) {
+    if (base == NULL) {
+        kprintf("\e[41mWarning: called openat with NULL base inode!\e[0m\n");
+        return EINVAL;
+    }
+    if (current_process->root == NULL) {
+        kprintf("\e[41mWarning: called openat with NULL root inode!\e[0m\n");
+        return EINVAL;
+    }
+    if (current_process->pwd == NULL) {
+        kprintf("\e[41mWarning: called openat with NULL pwd inode!\e[0m\n");
+        return EINVAL;
+    }
+    if (path == NULL) return EINVAL;
     kassert(root_mountpoint);
-    int ret = -1;
+    int ret = 0;
 
     size_t pathlen;
     char * dup_path = secure_strdup(path, PATH_MAX, &pathlen);
     if (dup_path == NULL) return EFAULT;
 
     // deciding whether normal path (/,///+) or meta directory //
-    if (dup_path[0] != '/') {
-        kprintf("Stub: we don't yet support relative paths!\n");
-        return EINVAL;
-    } else if (
+    if (
+        dup_path[0] == '/' &&
         pathlen >= sizeof(PATH_METADIR) &&
         strcmp(dup_path, PATH_METADIR) == 0 &&
         dup_path[sizeof(PATH_METADIR) - 1] != '/'
@@ -123,18 +161,37 @@ int sys_open(const char * path, unsigned short flags, unsigned short mode) {
     // resolving the mount point
     spinlock_acquire(&mount_tree_lock);
 
-    char * final_path = dup_path+1; // skip the first slash
+    char * final_path = dup_path;
 
-    superblock_t * sb = root_mountpoint->mountpoint->backing_superblock;
+    superblock_t * sb;
+    if (dup_path[0] == '/') {
+        final_path ++; // skip the first slash
+        base = current_process->root;
+    }
+
+    spinlock_acquire(&current_process->lock);
+
+    // raced with close() on the base inode
+    if (base->instances <= (base->is_mountpoint) ? 1 : 0) {
+        ret = EINVAL;
+        goto err;
+    }
+
+    
+    inode_t * prev = base, * new = NULL;
+
+    if (prev->is_mountpoint) {
+        sb = prev->next_superblock;
+        prev = NULL;
+    }
+    else {
+        sb = prev->backing_superblock;
+        // our while loop closes the prev inode, so preincrement
+        __atomic_add_fetch(&prev->instances, 1, __ATOMIC_RELAXED);
+    }
+
     kassert(sb->funcs);
     kassert(sb->funcs->lookup);
-
-    inode_t * prev = NULL, * new = NULL;
-
-    superblock_t * sb_stack[MOUNT_STACK_LEN] = {NULL};
-    inode_t * last_stack[MOUNT_STACK_LEN] = {NULL};
-    size_t sb_stack_tail = 0;
-    sb_stack[0] = sb;
 
     char last_fragment = 0;
     while (!last_fragment) {
@@ -149,13 +206,25 @@ int sys_open(const char * path, unsigned short flags, unsigned short mode) {
                 goto err;
             }
         }
+
+        if (next_slash - final_path == 3 &&
+            strcmp(PATH_PARENT, final_path) == 0 &&
+            prev == current_process->root) {
+                final_path = next_slash + 1;
+                continue;
+            }
         new = sb->funcs->lookup(sb, prev, final_path);
 
         if (new == VFS_LOOKUP_NOTFOUND) {
             if (last_fragment && 
                 sb->funcs->create != NULL && 
-                !(sb->mount_options & O_RDONLY))
+                flags & O_CREAT)
             {
+                if ((sb->mount_options & O_RDONLY)) {
+                    ret = EROFS;
+                    if (prev != NULL) close_inode(prev);
+                    goto err;
+                }
                 new = sb->funcs->create(sb, prev, final_path, mode);
                 if (prev != NULL) close_inode(prev);
                 break;
@@ -167,10 +236,8 @@ int sys_open(const char * path, unsigned short flags, unsigned short mode) {
         if (new == VFS_LOOKUP_ESCAPE) {
             if (prev != NULL) close_inode(prev);
             final_path = next_slash + 1;
-            if (sb_stack_tail == 0) continue; // nowhere to "escape" to
-            sb_stack_tail --;
-            prev = last_stack[sb_stack_tail];
-            sb = sb_stack[sb_stack_tail];
+            prev = sb->mountpoint;
+            sb = prev->backing_superblock;
             continue;
         }
         if (new == VFS_LOOKUP_NOTDIRECTORY) {
@@ -178,21 +245,23 @@ int sys_open(const char * path, unsigned short flags, unsigned short mode) {
             ret = ENOTDIR;
             goto err;
         }
+        if (last_fragment) {
+            if (prev != NULL) close_inode(prev);
+            break;
+        }
         if (new->is_mountpoint) {
-            if (sb_stack_tail + 1 >= MOUNT_STACK_LEN) {
-                kprintf("Reached mountpoint depth of %lu while resolving %s, giving up and returning ENOENT\n", sb_stack_tail, dup_path);
-                if (prev != NULL) close_inode(prev);
-                close_inode(new);
-                ret = ENOENT;
-                goto err;
-            }
-            sb_stack_tail ++;
-            sb_stack[sb_stack_tail] = sb;
-            last_stack[sb_stack_tail] = prev;
             sb = new->next_superblock;
             kassert(sb);
             kassert(sb->funcs);
-            kassert(sb->funcs->lookup);
+            close_inode(new);
+            new = NULL; // to get the root lookup behavior from vfs
+
+            if (sb->funcs->lookup == NULL) {
+                if (prev != NULL) close_inode(prev);
+                ret = EINVAL;
+                goto err;
+            }
+
         }
         if (prev != NULL) close_inode(prev);
         prev = new;
@@ -200,41 +269,45 @@ int sys_open(const char * path, unsigned short flags, unsigned short mode) {
     }
 
     if (flags & O_DIRECTORY && !I_ISDIR(new->mode)) {
+        close_inode(new);
         ret = ENOTDIR;
         goto err;
     }
 
-    spinlock_acquire(&kernel_fd_lock);
-    
-    int fd = -1;
-    for (int i = 0; i < FD_LIMIT_PROCESS; i++) {
-        if (!current_process->fds[i]) {
-            fd = i;
-            break;
-        }
-    }
-
-    if (fd == -1) {
-        spinlock_release(&kernel_fd_lock);
-        ret = EMFILE;
-        goto err;
-    }
-
-    file_descriptor_t * file = get_free_fd();
-    if (!file) {
-        spinlock_release(&kernel_fd_lock);
-        ret = ENFILE;
-        goto err;
-    }
-
-    file->inode = new;
-    file->mode = flags;
-    current_process->fds[fd] = file;
-    ret = fd;
-    spinlock_release(&kernel_fd_lock);
+    *out = new;
 
     err:
+    spinlock_release(&current_process->lock);
     spinlock_release(&mount_tree_lock);
     kfree(dup_path);
     return ret;
+}
+
+int sys_chdir(const char * path) {
+    inode_t * new = NULL;
+    int ret = openat_inode(current_process->pwd, path, O_DIRECTORY | O_RDONLY, 0, &new);
+    if (ret < 0) return ret;
+    if (new == NULL) return EINVAL;
+    
+    spinlock_acquire(&current_process->lock);
+    inode_t * old_pwd = current_process->pwd;
+    current_process->pwd = new;
+    close_inode(old_pwd);
+    spinlock_release(&current_process->lock);
+
+    return 0;
+}
+
+int sys_chroot(const char * path) {
+    inode_t * new = NULL;
+    int ret = openat_inode(current_process->pwd, path, O_DIRECTORY | O_RDONLY, 0, &new);
+    if (ret < 0) return ret;
+    if (new == NULL) return EINVAL;
+    
+    spinlock_acquire(&current_process->lock);
+    inode_t * old_root = current_process->root;
+    current_process->root = new;
+    close_inode(old_root);
+    spinlock_release(&current_process->lock);
+    return 0;
 }

@@ -182,6 +182,8 @@ struct process_t {
     char is_stopped;
     thread_t * threads;
     
+    spinlock_t lock;
+
     struct process_t * prev;
     struct process_t * next;
 } typedef process_t;

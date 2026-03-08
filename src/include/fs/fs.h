@@ -64,6 +64,8 @@ struct superblock_t {
     const struct vfs_ops * funcs;
     void * data; // for internal structures of individual file system drivers
 
+    inode_t * mountpoint; // the mountpoint in the previous fs, extremely useful for traversing paths
+
     char is_mounted; // mark as unused so that we don't have to memset() at every unmount
 } typedef superblock_t;
 
@@ -97,8 +99,13 @@ int open_raw_device(dev_t device, unsigned short mode); // locks file descriptor
 
 void inode_change_mode(inode_t * inode, unsigned short new_mode);
 
+// puts a new fd into the current process
+int get_fd_from_inode(inode_t * inode, unsigned short flags);
+
 int sys_open(const char * path, unsigned short flags, unsigned short mode);
 int sys_openat(int fd, const char * path, unsigned short flags, unsigned short mode);
+int sys_chdir(const char * path);
+int sys_chroot(const char * path);
 
 int sys_close(int fd);
 ssize_t sys_read(int fd, void * buf, size_t count);

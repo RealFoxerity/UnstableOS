@@ -18,15 +18,22 @@ int test_thread(struct uthread_args * self, void* test_val) {
 }
 
 void show_help() {
-    printf("\nr - print a random number\nmalloc [num] - run malloc with size as integer\n"
-                "heap - print heap\nt - run a test thread, get return code\nexit [exitcode] - exits\n"
+    printf("\nr - print a random number\n"
+                "malloc [num] - run malloc with size as integer\n"
+                "heap - print heap\n"
+                "t - run a test thread, get return code\n"
+                "exit [exitcode] - exits\n"
                 "open [path] - opens a file\n"
                 "close [fd] - closes a file descriptor\n"
                 "read [fd] [amount] - reads from file\n"
                 "seek [+/-/ ] [fd] [off] - seeks into a file - ahead, from end, set\n"
-                "ls [path] - lists directory\nexec [path] - runs an ELF file\n"
+                "ls [path] - lists directory\n"
+                "cd [path] - changes current directory\n"
+                "chroot [path] - changes the root directory for this process\n"
+                "exec [path] - runs an ELF file\n"
                 "spawn [path] - test out new process creation\n"
-                "fork - test out fork\n");
+                "fork - test out fork\n"
+                "clear - clears the screen");
 }
 
 
@@ -157,9 +164,14 @@ int main() {
             }
 
             printf("Seek: %ld\n", seek(fd, off, SEEK_SET));
-        } else if (strcmp("ls ", input_buf) == 0) {
-            input_buf[read_bytes - 1] = '\0'; // get rid of new line
-            const char * path = input_buf + 3;
+        } else if (strcmp("ls ", input_buf) == 0 || strcmp("ls\n", input_buf) == 0) {
+            const char * path;
+            if (input_buf[2] == '\n') {
+                path = ".";
+            } else {
+                input_buf[read_bytes - 1] = '\0'; // get rid of new line
+                path = input_buf + 3;
+            }
 
             DIR * root = opendir(path);
             if (root == NULL) {
@@ -185,6 +197,14 @@ int main() {
             input_buf[read_bytes - 1] = '\0';
             char * path = input_buf + 5;
             printf("Uh-oh exec() failed with %d\n", exec(path));
+        } else if (strcmp("cd ", input_buf) == 0) {
+            input_buf[read_bytes - 1] = '\0';
+            char * path = input_buf + 3;
+            printf("chdir: %d\n", chdir(path));
+        } else if (strcmp("chroot ", input_buf) == 0) {
+            input_buf[read_bytes - 1] = '\0';
+            char * path = input_buf + 7;
+            printf("chroot: %d\n", chroot(path));
         } else if (strcmp("spawn ", input_buf) == 0) {
             input_buf[read_bytes - 1] = '\0';
             char * path = input_buf + 6;
@@ -206,6 +226,8 @@ int main() {
                     wait(&wstatus);
                     printf("exitcode: %d\n", WEXITSTATUS(wstatus));
             }
+        } else if (strcmp("clear\n", input_buf) == 0) {
+            printf("\e[3J");
         } else printf("?");
     }
 }
