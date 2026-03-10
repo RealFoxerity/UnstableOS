@@ -186,5 +186,4 @@ void vga_hw_scroll_scanlines(unsigned int scanline);
 // not safe when x and final_x overlap!
 void vga_move_region(unsigned int x, unsigned int y, unsigned int width, unsigned int height, unsigned int final_x, unsigned int final_y);
 
-void console_write(const char * s, size_t len);
 #endif

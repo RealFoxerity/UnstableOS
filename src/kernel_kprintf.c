@@ -4,13 +4,8 @@
 
 #include "../libc/src/include/string.h"
 #include "../libc/src/include/stdio.h"
-#include "../libc/src/include/ctype.h"
-#include "include/devs.h"
-#include "include/fs/fs.h"
 #include "include/kernel.h"
-#include "include/kernel_tty.h"
-#include "include/kernel_sched.h" // for kernel_task fd access
-#include "include/kernel_tty_io.h"
+#include "include/kernel_console.h"
 #include "include/rs232.h"
 
 void kprintf_write(const char * buf, size_t count);

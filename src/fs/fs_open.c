@@ -12,7 +12,7 @@ int open_raw_device(dev_t device, unsigned short mode) {
     if (mode == 0 || mode > O_RDWR) return EINVAL;
 
     spinlock_acquire(&kernel_fd_lock);
-    
+
     int fd = -1;
     for (int i = 0; i < FD_LIMIT_PROCESS; i++) {
         if (!current_process->fds[i]) {
@@ -135,7 +135,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, unsign
         kprintf("Stub: we don't yet support the // meta directory!\n");
         return EINVAL;
     }
-    
+
     // path cleanup
     char seen_slash = 0;
     for (size_t i = 0; i < pathlen; i++) {
@@ -177,12 +177,11 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, unsign
         goto err;
     }
 
-    
+
     inode_t * prev = base, * new = NULL;
 
-    if (prev->is_mountpoint) {
+    if (prev->is_mountpoint && prev != root_mountpoint->mountpoint) {
         sb = prev->next_superblock;
-        prev = NULL;
     }
     else {
         sb = prev->backing_superblock;
@@ -193,77 +192,89 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, unsign
     kassert(sb->funcs);
     kassert(sb->funcs->lookup);
 
+    // so that prev is never null, simplifying chroot checks
+    if (prev->is_mountpoint && prev != root_mountpoint->mountpoint) {
+        prev = sb->funcs->lookup(sb, NULL, ".");
+    }
+
+    kassert(prev->is_mountpoint == 0 || prev == root_mountpoint->mountpoint);
+
     char last_fragment = 0;
     while (!last_fragment) {
         char * next_slash = strchrnul(final_path, '/');
         if (*next_slash == '\0') last_fragment = 1;
         *next_slash = '\0';
-        
+
         if (last_fragment) {
             if (sb->mount_options & MOUNT_RDONLY && mode & O_WRONLY) {
-                if (prev != NULL) close_inode(prev);
+                close_inode(prev);
                 ret = EROFS;
                 goto err;
             }
         }
-
-        if (next_slash - final_path == 3 &&
+        if (next_slash - final_path == 2 &&
             strcmp(PATH_PARENT, final_path) == 0 &&
             prev == current_process->root) {
+                if (last_fragment) {
+                    new = prev;
+                    break;
+                }
                 final_path = next_slash + 1;
                 continue;
             }
         new = sb->funcs->lookup(sb, prev, final_path);
 
         if (new == VFS_LOOKUP_NOTFOUND) {
-            if (last_fragment && 
-                sb->funcs->create != NULL && 
+            if (last_fragment &&
+                sb->funcs->create != NULL &&
                 flags & O_CREAT)
             {
                 if ((sb->mount_options & O_RDONLY)) {
+                    close_inode(prev);
                     ret = EROFS;
-                    if (prev != NULL) close_inode(prev);
                     goto err;
                 }
                 new = sb->funcs->create(sb, prev, final_path, mode);
-                if (prev != NULL) close_inode(prev);
+                close_inode(prev);
                 break;
             }
-            if (prev != NULL) close_inode(prev);
+            close_inode(prev);
             ret = ENOENT;
             goto err;
         }
         if (new == VFS_LOOKUP_ESCAPE) {
-            if (prev != NULL) close_inode(prev);
-            final_path = next_slash + 1;
-            prev = sb->mountpoint;
-            sb = prev->backing_superblock;
-            continue;
+            new = sb->mountpoint;
+            __atomic_add_fetch(&new->instances, 1, __ATOMIC_RELAXED);
+            sb = new->backing_superblock;
+            if (last_fragment) {
+                close_inode(prev);
+                break;
+            }
         }
         if (new == VFS_LOOKUP_NOTDIRECTORY) {
-            if (prev != NULL) close_inode(prev);
+            close_inode(prev);
             ret = ENOTDIR;
             goto err;
-        }
-        if (last_fragment) {
-            if (prev != NULL) close_inode(prev);
-            break;
         }
         if (new->is_mountpoint) {
             sb = new->next_superblock;
             kassert(sb);
             kassert(sb->funcs);
             close_inode(new);
-            new = NULL; // to get the root lookup behavior from vfs
 
             if (sb->funcs->lookup == NULL) {
-                if (prev != NULL) close_inode(prev);
+                close_inode(prev);
                 ret = EINVAL;
                 goto err;
             }
 
+            new = sb->funcs->lookup(sb, NULL, ".");
         }
-        if (prev != NULL) close_inode(prev);
+        if (last_fragment) {
+            close_inode(prev);
+            break;
+        }
+        close_inode(prev);
         prev = new;
         final_path = next_slash + 1;
     }
@@ -288,7 +299,7 @@ int sys_chdir(const char * path) {
     int ret = openat_inode(current_process->pwd, path, O_DIRECTORY | O_RDONLY, 0, &new);
     if (ret < 0) return ret;
     if (new == NULL) return EINVAL;
-    
+
     spinlock_acquire(&current_process->lock);
     inode_t * old_pwd = current_process->pwd;
     current_process->pwd = new;
@@ -303,7 +314,7 @@ int sys_chroot(const char * path) {
     int ret = openat_inode(current_process->pwd, path, O_DIRECTORY | O_RDONLY, 0, &new);
     if (ret < 0) return ret;
     if (new == NULL) return EINVAL;
-    
+
     spinlock_acquire(&current_process->lock);
     inode_t * old_root = current_process->root;
     current_process->root = new;

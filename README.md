@@ -33,8 +33,12 @@ Currently you need:
 - i686-gcc-elf (and associated liker and assembler)
 - tar
 - qemu or similar to test\
-Then either do `make kernel` to build just the kernel\
-or `make all` to create the kernel, utils and memdisk
+For making an ISO, you additionally need:
+- limine
+- cdrtools (or something providing mkisofs)\
+Then either do `make kernel` to build just the kernel,\
+`make all` to create the kernel, utils and memdisk, or\
+`make iso` to create an iso from the kernel, utils and memdisk
 ### Testing in a VM
 ---
 UnstableOS.bin is an ELF image conforming to the Multiboot specification\

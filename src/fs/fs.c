@@ -136,8 +136,7 @@ ssize_t write_file(file_descriptor_t * file, const void * buf, size_t count) {
     if (test != 0) return test;
 
     if (I_ISDIR(file->inode->mode)) return EISDIR;
-    if (!(file->mode & O_WRONLY) || 
-        file->inode->backing_superblock->mount_options & MOUNT_RDONLY)
+    if (!(file->mode & O_WRONLY))
             return EINVAL;
 
     ssize_t ret = 0;
@@ -146,6 +145,12 @@ ssize_t write_file(file_descriptor_t * file, const void * buf, size_t count) {
     if (!file->inode->is_raw_device) {
         kassert(file->inode->backing_superblock);
         kassert(file->inode->backing_superblock->funcs);
+        if (!(file->inode->backing_superblock->mount_options & MOUNT_RDONLY)) {
+            kprintf("Warning: File descriptor marked writable on read-only fs, readjusting...\n");
+            file->mode ^= O_WRONLY;
+            spinlock_release(&file->access_lock);
+            return EINVAL;
+        }
         if (file->inode->backing_superblock->funcs->write == NULL) 
             ret = EINVAL;
         else

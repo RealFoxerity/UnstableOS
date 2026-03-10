@@ -1,4 +1,5 @@
 #include "include/kernel_interrupts.h"
+#include "include/debug/backtrace.h"
 #include "include/kernel_gdt_idt.h"
 #include "include/kernel_sched.h"
 #include "include/ps2_keyboard.h"
@@ -88,7 +89,8 @@ static inline void print_eflags(uint32_t eflags) {
 }
 
 void print_interr_frame(struct interr_frame * interr_frame) {
-    kprintf("EIP:\t%p\n", interr_frame->ip);
+    struct symbol_lookup instruction = resolve_symbol(interr_frame->ip);
+    kprintf("EIP:\t%s+%p [%p]\n", instruction.symbol, instruction.addr_offset, interr_frame->ip);
     kprintf("CS:\t");
     print_segment(interr_frame->cs);
     
@@ -103,9 +105,11 @@ void print_interr_frame(struct interr_frame * interr_frame) {
 
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_divide_error(struct interr_frame * interrupt_frame) {
     kprintf("\n\n\e[41m#### ISR: FPE caught! ####\e[0m\n\n");
+    unwind_stack_vaddr(*(void**)__builtin_frame_address(0));
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_debug_trap(struct interr_frame * interrupt_frame) {
     kprintf("\n\n\e[41m#### ISR: DEBUG caught! ####\e[0m\n\n");
+    unwind_stack_vaddr(*(void**)__builtin_frame_address(0));
     //panic("Debug");
 }
 
@@ -145,7 +149,7 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_invalid
     print_interr_frame(interrupt_frame);
 
     scheduler_print_process(current_process);
-
+    unwind_stack_vaddr(*(void**)__builtin_frame_address(0));
     if (current_process->pid == 0) {
         panic("Kernel task cannot be recovered from invalid instruction exception");
         __builtin_unreachable();
@@ -154,9 +158,8 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_invalid
         __builtin_unreachable();
     } else {
         kprintf("Terminating process id %lu\n", current_process->pid);
-        scheduler_print_process(current_process);
         current_thread->status = SCHED_CLEANUP;
-    }    
+    }
     
     interrupt_frame->ip = kernel_idle;
     interrupt_frame->cs = GDT_KERNEL_CODE << 3;
@@ -171,6 +174,7 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_double_
     kprintf("\e41m#### ISR: CRITICAL - CAUGHT A DOUBLE FAULT! ####\e0m\n");
     print_interr_frame(interrupt_frame);
     scheduler_print_process(current_process);
+    unwind_stack_vaddr(*(void**)__builtin_frame_address(0));
 
     panic("CANNOT RECOVER FROM A DOUBLE FAULT");
     /* // being here means we ran into an exception during an interrupt so most likely trying to switch to a process has/will fail/ed
@@ -197,18 +201,21 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_invalid
     kprintf("\n\n\e41m#### ISR: TASK SWITCH ENCOUTERED INVALID TSS ENTRY! ####\n");
     print_segment_selector_error(error);
     print_interr_frame(interrupt_frame);
+    unwind_stack_vaddr(*(void**)__builtin_frame_address(0));
     kprintf("\e0m");
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_segment_not_present(struct interr_frame * interrupt_frame, unsigned long error) {
     kprintf("\n\n\e41m#### ISR: REFERENCED MEMORY SEGMENT IS NOT PRESENT! ####\n");
     print_segment_selector_error(error);
     print_interr_frame(interrupt_frame);
+    unwind_stack_vaddr(*(void**)__builtin_frame_address(0));
     kprintf("\e0m");
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_stack_segment_fault(struct interr_frame * interrupt_frame, unsigned long error) {
     kprintf("\n\n\e41m#### ISR: REFERENCE STACK ADDRESS OUTSIDE STACK SEGMENT! ####\n");
     print_segment_selector_error(error);
     print_interr_frame(interrupt_frame);
+    unwind_stack_vaddr(*(void**)__builtin_frame_address(0));
     kprintf("\e0m");
 }
 extern struct idt_gate * idt_descriptor_entries;
@@ -219,6 +226,7 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_general
     print_interr_frame(interrupt_frame);
 
     scheduler_print_process(current_process);
+    unwind_stack_vaddr(*(void**)__builtin_frame_address(0));
 
     if (current_process->pid == 0) {
         clear_screen_fatal();
@@ -245,6 +253,7 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_alignme
     kprintf("\n\n\e41m#### ISR: Caught unaligned memory access! ####\n");
     print_segment_selector_error(error);
     print_interr_frame(interrupt_frame);
+    unwind_stack_vaddr(*(void**)__builtin_frame_address(0));
     kprintf("\e0m");
 }
 

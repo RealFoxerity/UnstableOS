@@ -33,7 +33,7 @@ void show_help() {
                 "exec [path] - runs an ELF file\n"
                 "spawn [path] - test out new process creation\n"
                 "fork - test out fork\n"
-                "clear - clears the screen");
+                "clear - clears the screen\n");
 }
 
 

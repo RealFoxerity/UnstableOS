@@ -8,7 +8,7 @@
 #include "include/vga.h"
 #include "../libc/src/include/string.h"
 #include "../libc/src/include/ctype.h"
-#include "include/kernel_tty.h"
+#include "include/kernel_console.h"
 
 // TODO: you can use backspace on chars that aren't there :P
 
@@ -407,7 +407,7 @@ void console_write(const char * s, size_t len) {
 #define TTY_SHIFT_MOD_MASK 0x7F
 #define TTY_OTHERS_START 87
 
-// note: backspace is technically \b, but we do 0x7F in accordance to default VERASE on most POSIX systems, delete is \b
+// note: backspace is technically \b, but we do 0x7F in accordance to default VERASE on most POSIX systems, delete is up to userspace
 static const char scancode_to_char[256] = {
     0, 0, '1', '2', '3', '4', '5', '6',
     '7', '8', '9', '0', '-', '=', 0x7F, '\t',
@@ -419,11 +419,11 @@ static const char scancode_to_char[256] = {
     'M', ' ', 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, '-', 0, 0, 0,'+', 0,
-    0, 0, 0, '\b', 0, 0, 0,
+    0, 0, 0, '\x7f', 0, 0, 0,
 
     0, 0, '\n', '^', 0, 0, 0, 0, // keyboard_scan_code_set_1_others_translated, subtract from KEY_MULTIMEDIA_PREV_TRACK add TTY_OTHERS_START
     0, 0, 0, '/', 'M', '\r', 0, 0,
-    0, 0, 0, 0, 0, 0, '\b', 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0,
 
@@ -444,7 +444,7 @@ static const char scancode_to_char[256] = {
 
     0, 0, '\n', '^', 0, 0, 0, 0, // keyboard_scan_code_set_1_others_translated, subtract KEY_MULTIMEDIA_PREV_TRACK, add TTY_SHIFT_MOD_MASK, add TTY_OTHERS_START
     0, 0, 0, '/', 'M', '\r', 0, 0,
-    0, 0, 0, 0, 0, 0, '\b', 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0,
 }; // currently shift = numlock just to test
@@ -513,7 +513,7 @@ void tty_console_input_terminal_input_seq(uint32_t scancode) { // vt and partial
     tty_write_to_tty(esc_buf, strlen(esc_buf), GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE));
 }
 
-void tty_console_input(uint32_t scancode) { // convert ps2 input into normal ascii for terminal use
+void console_translate_scancode(uint32_t scancode) { // convert ps2/com input into normal ascii for terminal use
     if (scancode & KEY_RELEASED_MASK) return;
     scancode = scancode_translate_numpad(scancode);
 

@@ -3,14 +3,14 @@
 #include <stddef.h>
 
 #include "include/block/memdisk.h"
+#include "include/debug/backtrace.h"
 #include "include/devs.h"
 #include "include/errno.h"
 #include "include/fs/fs.h"
 #include "include/fs/vfs.h"
-#include "include/fs/tarfs.h"
 #include "include/kernel_exec.h"
 #include "include/kernel_interrupts.h"
-#include "include/kernel_tty.h"
+#include "include/kernel_spinlock.h"
 #include "include/lowlevel.h"
 #include "include/multiboot.h"
 #include "../libc/src/include/string.h"
@@ -18,7 +18,6 @@
 #include "include/mm/kernel_memory.h"
 #include "include/kernel_gdt_idt.h"
 #include "include/ps2_keyboard.h"
-#include "include/elf.h"
 #include "include/rs232.h"
 #include "include/kernel_sched.h"
 #include "include/timer.h"
@@ -32,13 +31,16 @@
 
 #define tty_write(buf, count) tty_write(buf, count); com_write(1, buf, count);
 
-void panic(char * reason) { // using console_write and com_write in case we don't have tty at that point and/or it would cause a recursive panic/deadlock
-    char errmsg[128];
-    sprintf(errmsg, "\n\n\e[41m##############################\nKernel Panic: %s", reason);
-    console_write(errmsg, strlen(errmsg));
-    com_write(0, errmsg, strlen(errmsg));
+#define KERNEL_PANIC_MSG "\n\e[41m\n##############################\nKernel Panic:\n"
+void panic(char * reason) {
+    extern spinlock_t vga_spinlock;
+    spinlock_release(&vga_spinlock); // in case panic happened during vga writes
+
+    disable_interrupts();
+    kprintf(KERNEL_PANIC_MSG);
+    unwind_stack();
+    kprintf("Reason: %s", reason);
     asm volatile (
-        "cli\n\t"
         "hlt\n\t"
     );
     __builtin_unreachable();
@@ -238,6 +240,11 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
         panic("Bootloader didn't return valid physical memory map!");
     }
 
+    kernel_section_header_table = &mbd->u.elf_sec;
+
+    if (kernel_section_header_table->addr == 0)
+        kprintf("Warning: No symbol table provided by bootloader\n");
+
     kprintf("Kernel cmdline: %s\n", (char*)mbd->cmdline);
 
     if (mbd->mods_count > 0) {
@@ -315,6 +322,8 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
 
     kernel_print_cpu_info();
 
+    if (initrd_start + initrd_len > (void*)IDENT_MAPPING_MAX_ADDR)
+        panic("initrd too large");
 
     // considering how we do file descriptors, it's guaranteed these will be 0, 1, 2
     kassert(open_raw_device(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), O_RDWR) >= 0);

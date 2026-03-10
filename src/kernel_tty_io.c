@@ -7,6 +7,7 @@
 #include "include/kernel_spinlock.h"
 #include "include/mm/kernel_memory.h"
 #include "include/vga.h"
+#include "include/kernel_console.h"
 #include "../libc/src/include/string.h"
 #include "include/rs232.h"
 
@@ -14,6 +15,9 @@ spinlock_t tty_lock = {0};
 tty_t * terminals[TTY_LIMIT_KERNEL] = {0};
 
 // terminals[0] - terminals[3] = vga framebuffer backed tty devices, lctrl+rctrl+1-4
+
+
+// TODO: seems like i don't do VERASE and VKILL properly
 
 extern size_t tty_com_write(tty_t * tty); // from rs232.c
 
@@ -75,7 +79,7 @@ void tty_alloc_kernel_console() { // for the kernel task, don't call for user pr
     
     tty_t * kernel_console = tty_init_tty(
         TTY_I_CRNL,
-        TTY_L_ECHO | TTY_L_ECHOE | TTY_L_ECHOK | TTY_L_ICANON | TTY_L_ISIG,
+        TTY_L_ECHO | TTY_L_ECHOE | TTY_L_ECHOK | TTY_L_ECHOCTL | TTY_L_ICANON | TTY_L_ISIG,
         TTY_O_POST | TTY_O_NLCR,
         default_control_chars, 
         display_height, display_width, 
@@ -155,10 +159,22 @@ static inline char tty_remove_char(tty_t * tty, char is_vkill) { // cannon mode,
             (tty->params.control_chars[TCC_VEOL] != _POSIX_VDISABLE && tty->iqueue.buffer[tty->iqueue.tail-1] == tty->params.control_chars[TCC_VEOL]) 
         )) {
             if (!is_vkill && tty->params.lmodes & TTY_L_ECHO) {
-                if (tty->params.lmodes & TTY_L_ECHOE)
+                if (tty->params.lmodes & TTY_L_ECHOE) {
                     tty_translate_line_outgoing("\b \b", 3, tty);
-                else
+                    if (tty->params.lmodes & TTY_L_ECHOCTL) {
+                        if (tty->iqueue.buffer[tty->iqueue.tail-1] < ' ' ||
+
+                            (tty->params.control_chars[TCC_VERASE] != _POSIX_VDISABLE &&
+                            tty->iqueue.buffer[tty->iqueue.tail-1] == tty->params.control_chars[TCC_VERASE])) // probably not gonna happen
+                        {
+                            // remove the ^ from ^X escape
+                            tty_translate_line_outgoing("\b \b", 3, tty);
+                        }
+                    }
+                }
+                else {
                     tty_translate_line_outgoing((const char *)&tty->params.control_chars[TCC_VERASE], 1, tty);
+                }
             }
             DEC_LAST(&tty->iqueue);
             spinlock_release(&tty->iqueue.queue_lock);
@@ -178,6 +194,7 @@ static inline void tty_remove_line(tty_t * tty) { // cannon mode, KILL char
     }
 }
 
+// TODO: check ordering of operations
 static inline size_t tty_translate_line_incoming(const char * s, size_t n, tty_t * tty) {
     kassert(s);
     kassert(tty);
@@ -245,13 +262,40 @@ static inline size_t tty_translate_line_incoming(const char * s, size_t n, tty_t
 
         tty_queue_putch(&tty->iqueue, final);
         if (tty->params.lmodes & TTY_L_ECHO) {
-            tty_translate_line_outgoing(&final, 1, tty);
+            if (tty->params.lmodes & TTY_L_ECHOCTL && final < ' ') {
+                if ((tty->params.control_chars[TCC_VSTART] != _POSIX_VDISABLE &&
+                    final == tty->params.control_chars[TCC_VSTART]) ||
+
+                    (tty->params.control_chars[TCC_VSTOP] != _POSIX_VDISABLE &&
+                    final == tty->params.control_chars[TCC_VSTOP]) ||
+
+                    final == '\n' || final == '\t')
+                {
+                    tty_translate_line_outgoing(&final, 1, tty);
+                } else {
+                    tty_translate_line_outgoing("^", 1, tty);
+                    tty_translate_line_outgoing(&(char){final + '@'}, 1, tty);
+                }
+            } else if (tty->params.lmodes & TTY_L_ECHOCTL &&
+                    !(tty->params.lmodes & TTY_L_ICANON) &&
+                    final == 0x7f)
+            {
+                tty_translate_line_outgoing("^?", 2, tty);    
+            } else {
+                tty_translate_line_outgoing(&final, 1, tty);
+            }
         }
 
         if (tty->params.lmodes & TTY_L_ICANON && 
                 (final == '\n' || 
                 (tty->params.control_chars[TCC_VEOF] != _POSIX_VDISABLE && final == tty->params.control_chars[TCC_VEOF]) || 
                 (tty->params.control_chars[TCC_VEOL] != _POSIX_VDISABLE && final == tty->params.control_chars[TCC_VEOL]))) {
+            tty_flush_input(tty);
+        } else if (!(tty->params.lmodes & TTY_L_ICANON) &&
+                    ((tty->params.control_chars[TCC_VMIN] != _POSIX_VDISABLE &&
+                        REMAIN(&tty->iqueue) >= tty->params.control_chars[TCC_VMIN]) ||
+                        tty->params.control_chars[TCC_VMIN] == _POSIX_VDISABLE)
+        ){
             tty_flush_input(tty);
         }
     }

@@ -212,6 +212,54 @@ struct section_header_64 {
     uint64_t entry_size;
 };
 
+#define ELF_GET_BINDING(info) ((info) >> 4)
+#define ELF_GET_TYPE(info) ((info) & 0xF)
+
+enum symbol_table_info_binding {
+    ELF_STB_LOCAL,
+    ELF_STB_GLOBAL,
+    ELF_STB_WEAK,
+    // 10-12 OS
+    // 13-15 PROC
+};
+
+enum symbol_table_info_type {
+    ELF_STT_NOTYPE,
+    ELF_STT_OBJECT,
+    ELF_STT_FUNC,
+    ELF_STT_SECTION,
+    ELF_STT_FILE,
+    ELF_STT_COMMON,
+    ELF_STT_TLS,
+    // 10-12 OS
+    // 13-15 PROC
+};
+
+enum symbol_table_visibility {
+    ELF_STV_DEFAULT,
+    ELF_STV_INTERNAL,
+    ELF_STV_HIDDEN,
+    ELF_STV_PROTECTED,
+};
+
+struct symbol_table_entry {
+    uint32_t string_offset;
+    uint32_t value;
+    uint32_t size;
+    unsigned char info;
+    unsigned char visibility;
+    uint16_t section_index;
+};
+
+struct symbol_table_entry64 {
+    uint32_t string_offset;
+    unsigned char info;
+    unsigned char visibility;
+    uint16_t section_index;
+    uint64_t value;
+    uint64_t size;
+};
+
 void readelf(void * start, size_t size);
 
 
