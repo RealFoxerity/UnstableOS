@@ -23,6 +23,24 @@ libc:
 utils: libc
 	$(MAKE) -C utils
 
+.PHONY: iso
+iso: build/UnstableOS.iso
+build/UnstableOS.iso: all
+	mkdir -p build/iso/boot/limine
+	cp build/UnstableOS.bin build/memdisk.tar build/iso
+	cp limine.conf\
+		/usr/share/limine/limine-bios.sys\
+		/usr/share/limine/limine-bios-cd.bin\
+		build/iso/boot/limine
+	
+	mkisofs -b boot/limine/limine-bios-cd.bin\
+		-no-emul-boot\
+		-r -boot-info-table\
+		-o build/UnstableOS.iso build/iso
+
+	limine bios-install build/UnstableOS.iso
+
+
 .PHONY: clean
 clean:
 	rm -f $(shell find src/ -name "*.o")

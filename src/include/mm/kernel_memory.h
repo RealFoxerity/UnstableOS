@@ -53,7 +53,7 @@ extern spinlock_t address_spaces_lock;
 
 #define LOWEST_PHYS_ADDR_ALLOWABLE 0x00100000 // addresses below this are usually reserved for something, e.g. vga memory
 
-#define IDENT_MAPPING_MAX_ADDR (PAGE_TABLE_ENTRIES*PAGE_SIZE_NO_PAE) // 4MB, sort of hardcoded
+#define IDENT_MAPPING_MAX_ADDR (10*PAGE_TABLE_ENTRIES*PAGE_SIZE_NO_PAE) // 40MB, for initrd
 
 void * page_frame_alloc_init(multiboot_info_t* mbd, unsigned long free_memory, void * free_space_start_page); // returns pointer to end of frame table
 unsigned long pf_get_free_memory();

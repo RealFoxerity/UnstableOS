@@ -325,6 +325,7 @@ ssize_t tarfs_read(file_descriptor_t * fd, void * buf, size_t n) {
     }
 
     spinlock_acquire_interruptible(&sb->lock); // so that we can't race for the file descriptor
+    kassert(sb->is_mounted);
     seek_file(tar_fd, this->record_offset + sizeof(ustar_hdr) + fd->off, SEEK_SET);
     read = read_file(tar_fd, buf, n); // read technically not needed here, but just in case
 
@@ -402,6 +403,7 @@ ssize_t tarfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_
             break;
         default:
             this = this->inner;
+            if (this == NULL) return 0; // empty directory
             for (int i = 0; i < fd->off - 2; i++) {
                 this = this->next;
                 if (this == NULL) return 0;

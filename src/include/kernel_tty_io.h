@@ -25,6 +25,7 @@
 #define TTY_L_TOSTOP 8 // set SIGTTOU if background process group tries to write()
 #define TTY_L_ECHOE 16 // echo VERASE as '\b \b' - the standard backspace behavior
 #define TTY_L_ECHOK 32 // echo \n after VKILL
+#define TTY_L_ECHOCTL 64 // echo escapes as ^X
 
 // as you might have noticed, i pick from the posix standard based on how easy things are to implement
 #define TTY_I_CRNL 1 // carriage return -> new line
@@ -64,7 +65,7 @@ static const unsigned char default_control_chars[11] = { // well imagine wanting
     [TCC_VERASE]   = '\x7f',
     [TCC_VINTR]    = '\x03',
     [TCC_VKILL]    = '\x19',
-    [TCC_VMIN]     = 1, // not an actual char, just a value
+    [TCC_VMIN]     = 1, // minimum amount of data needed to flush the tty
     [TCC_VQUIT]    = '\x1c',
     [TCC_VSUSP]    = '\x1a',
     [TCC_VTIME]    = 0, // not an actual char

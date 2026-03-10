@@ -1,3 +1,4 @@
+#include "include/debug/backtrace.h"
 #include "include/kernel.h"
 #include "include/kernel_interrupts.h"
 #include "include/devs.h"
@@ -43,11 +44,12 @@ __attribute__((interrupt, no_caller_saved_registers)) void interr_page_fault(str
         if (fork_cow_page(fault_address)) return;
     }
 
-    kprintf("\n\n\e41m#### ISR: Segmentation fault - Invalid memory reference! ####\nTried to reference address %p\n", fault_address);
+    kprintf("\n\e[41m\n#### ISR: Segmentation fault - Invalid memory reference! ####\nTried to reference address %p\n", fault_address);
     print_segment_selector_error(error);
     print_interr_frame(interrupt_frame);
 
     scheduler_print_process(current_process);
+    unwind_stack_vaddr(*(void**)__builtin_frame_address(0));
 
     if (current_process->pid == 0) {
         panic("Kernel task cannot be recovered from a segmentation fault");
