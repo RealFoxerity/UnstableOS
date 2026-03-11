@@ -133,6 +133,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, unsign
         dup_path[sizeof(PATH_METADIR) - 1] != '/'
     ) {
         kprintf("Stub: we don't yet support the // meta directory!\n");
+        kfree(dup_path);
         return EINVAL;
     }
 

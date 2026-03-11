@@ -13,12 +13,12 @@
 #define kprintf(fmt, ...) kprintf("MMAS: "fmt, ##__VA_ARGS__)
 #define panic(fmt) panic("MMAS: "fmt)
 
-PAGE_TABLE_TYPE * paging_get_page_table_from_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr, void * virt_addr) { // note: maps new page for the page table, it is the caller's responsibility to unmap
+PAGE_TABLE_TYPE * paging_get_pt_from_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr, void * virt_addr) { // note: maps new page for the page table, it is the caller's responsibility to unmap
     uint32_t page_directory_idx = (uint32_t)virt_addr >> 22;
-    
+
     PAGE_TABLE_TYPE * page_table = NULL;
 
-    if (!(pd_vaddr[page_directory_idx] & PTE_PDE_PAGE_PRESENT)) 
+    if (!(pd_vaddr[page_directory_idx] & PTE_PDE_PAGE_PRESENT))
     {
         PAGE_TABLE_TYPE * new_page = pfalloc();
 
@@ -38,12 +38,12 @@ PAGE_TABLE_TYPE * paging_get_page_table_from_address_space(PAGE_DIRECTORY_TYPE *
 }
 
 void paging_add_page_to_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr, void *target_virt_addr, unsigned int flags) {
-    PAGE_TABLE_TYPE * page_table = paging_get_page_table_from_address_space(pd_vaddr, target_virt_addr);
+    PAGE_TABLE_TYPE * page_table = paging_get_pt_from_address_space(pd_vaddr, target_virt_addr);
 
     uint32_t page_table_idx = (uint32_t)target_virt_addr >> 12 & (PAGE_TABLE_ENTRIES - 1);
-    
+
     if (page_table[page_table_idx] & PTE_PDE_PAGE_PRESENT) {
-        kprintf("Warning: Attempted adding a new page to already used virtual address 0x%p; pdidx: %lx, ptidx: %lx\nContents of page table:\n", 
+        kprintf("Warning: Attempted adding a new page to already used virtual address 0x%p; pdidx: %lx, ptidx: %lx\nContents of page table:\n",
             target_virt_addr, (unsigned long)target_virt_addr >> 22, (unsigned long)page_table_idx);
 
         print_page_table_entry(page_table + page_table_idx);
@@ -61,6 +61,24 @@ void paging_add_page_to_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr, void *targ
     paging_unmap_page(page_table);
 }
 
+void * paging_get_page_from_address_space(PAGE_DIRECTORY_TYPE * pd_paddr, void * target_virt_addr, unsigned int flags) {
+    target_virt_addr = (void*)((unsigned long)target_virt_addr&~(PAGE_SIZE_NO_PAE-1));
+    PAGE_TABLE_TYPE * pt = paging_get_pt_from_address_space(pd_paddr, target_virt_addr);
+
+    uint32_t ptidx = (uint32_t)target_virt_addr >> 12 & (PAGE_TABLE_ENTRIES - 1);
+
+    if (!(pt[ptidx] & PTE_PDE_PAGE_PRESENT)) {
+        kprintf("Warning: Queried a non-present page from an address space!\n");
+        paging_unmap_page(pt);
+        return NULL;
+    }
+    void * new_page = paging_map_phys_addr_unspecified((void*)((unsigned long)pt[ptidx] & ~(PAGE_SIZE_NO_PAE - 1)), flags);
+    if (new_page == NULL) {
+        kprintf("Warning: Not enough memory to allocate a page from an address space!\n");
+    }
+    paging_unmap_page(pt);
+    return new_page;
+}
 
 void paging_map_to_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr, void * target_virt_addr, size_t n, unsigned int flags) {
     // align the address and size to pages
@@ -91,7 +109,7 @@ void paging_unmap_page_to_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr, void * t
 void paging_memcpy_to_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr, void * __restrict data_start_vaddr, void * __restrict data, size_t n) {
     // because the entire kernel space is copied to every process, and this function is always ran from the kernel, we can just switch address spaces
     // TODO: maybe rewrite to individually map in and out the destination pages from the new address space so we don't have to switch? kinda like in paging_add_page_to_address_space
-    
+
     void * current_address_space = paging_get_address_space_paddr();
     paging_apply_address_space(paging_virt_addr_to_phys(pd_vaddr));
     memcpy(data_start_vaddr, data, n);
@@ -135,7 +153,7 @@ PAGE_DIRECTORY_TYPE * paging_create_new_address_space() {
     memcpy(page_directory, KERNEL_ADDRESS_SPACE_VADDR, PAGE_DIRECTORY_ENTRIES*sizeof(PAGE_DIRECTORY_TYPE)); // copying the ENTIRE kernel space, considering there shouldn't be anything extra and we need most of it for interrupts, this should be good enough
 
     page_directory[PAGE_DIRECTORY_ENTRIES-1] = ((unsigned long)page_directory_paddr&~(PAGE_SIZE_NO_PAE-1)) | PTE_PDE_PAGE_PRESENT | PTE_PDE_PAGE_WRITABLE | PTE_PDE_PAGE_USER_ACCESS; // obv different physical address
-    
+
     spinlock_release(&address_spaces_lock);
     return page_directory;
 }
@@ -143,13 +161,18 @@ PAGE_DIRECTORY_TYPE * paging_create_new_address_space() {
 void paging_destroy_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr) {
     if (pd_vaddr == NULL) return;
 
+    if (paging_virt_addr_to_phys(pd_vaddr) == paging_get_address_space_paddr())
+        panic("Tried to destroy current address space");
+    if (paging_virt_addr_to_phys(pd_vaddr) == kernel_address_space_paddr)
+        panic("Tried to destroy the kernel address space");
+
     spinlock_acquire(&address_spaces_lock);
 
     for (int i = 0; i < PAGE_DIRECTORY_ENTRIES - 1; i++) {
         if (!(pd_vaddr[i] & PTE_PDE_PAGE_PRESENT)) continue;
 
         if ((pd_vaddr[i] & ~(PAGE_SIZE_NO_PAE - 1)) != (KERNEL_ADDRESS_SPACE_VADDR[i] & ~(PAGE_SIZE_NO_PAE - 1))) { // we need to be careful around the kernel addresses
-            PAGE_TABLE_TYPE * pte = paging_get_page_table_from_address_space(pd_vaddr, (void*)(i*PAGE_TABLE_ENTRIES*PAGE_SIZE_NO_PAE));
+            PAGE_TABLE_TYPE * pte = paging_get_pt_from_address_space(pd_vaddr, (void*)(i*PAGE_TABLE_ENTRIES*PAGE_SIZE_NO_PAE));
             for (int j = 0; j < PAGE_TABLE_ENTRIES; j++) {
                 if (!(pte[j] & PTE_PDE_PAGE_PRESENT)) continue;
                 pffree((void*)(pte[j] & ~(PAGE_SIZE_NO_PAE - 1)));
@@ -158,10 +181,8 @@ void paging_destroy_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr) {
             pffree((void*)(pd_vaddr[i] & ~(PAGE_SIZE_NO_PAE - 1)));
         }
     }
-    pffree((void*)(pd_vaddr[PAGE_DIRECTORY_ENTRIES-1] & ~(PAGE_SIZE_NO_PAE-1))); 
+    pffree((void*)(pd_vaddr[PAGE_DIRECTORY_ENTRIES-1] & ~(PAGE_SIZE_NO_PAE-1)));
 
-    paging_unmap_page(pd_vaddr);
-    
     spinlock_release(&address_spaces_lock);
 }
 
@@ -175,7 +196,7 @@ void paging_print_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr) {
             for (int j = 0; j < PAGE_TABLE_ENTRIES; j++) {
                 if (pt_vaddr[j] != 0 && get_vaddr(i, j) != (void *)((unsigned long)pt_vaddr & ~(PAGE_SIZE_NO_PAE - 1))) {
                     kprintf("0x%p - 0x%p -> 0x%lx - 0x%lx, flags: %hx\n",
-                        get_vaddr(i, j), 
+                        get_vaddr(i, j),
                         get_vaddr(i, j) + (PAGE_SIZE_NO_PAE-1),
                         (unsigned long)pt_vaddr[j] & ~(PAGE_SIZE_NO_PAE-1),
                         (unsigned long)(pt_vaddr[j] & ~(PAGE_SIZE_NO_PAE-1)) + (PAGE_SIZE_NO_PAE-1),

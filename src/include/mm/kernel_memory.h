@@ -77,6 +77,11 @@ void paging_change_flags(void * target_virt_addr, size_t n, unsigned int flags);
 void * paging_virt_addr_to_phys(void * virt);
 PAGE_TABLE_TYPE * paging_get_pte(const void * virt_addr); // returns the page table entry for a given address, NULL = not present (to check for permissions for example)
 
+// returns a mapped page table (creating one if need be), caller's required to unmap
+// for future endeavors: it doesn't make sense to make a paging_get_pte_from_address_space
+// since pages are at minimum 4 kb and returning an int is useless
+PAGE_TABLE_TYPE * paging_get_pt_from_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr, void * virt_addr);
+
 void print_page_table_entry(const void * pte);
 
 void setup_paging(unsigned long total_free, unsigned long ident_map_end);
@@ -96,6 +101,8 @@ PAGE_DIRECTORY_TYPE * paging_get_address_space_paddr();
 PAGE_DIRECTORY_TYPE * paging_create_new_address_space(); // returns VIRTUAL address of a new address space page directory
 void paging_print_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr);
 void paging_destroy_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr);
+
+void * paging_get_page_from_address_space(PAGE_DIRECTORY_TYPE * pd_paddr, void * target_virt_addr, unsigned int flags);
 
 void paging_map_to_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr, void * target_virt_addr, size_t n, unsigned int flags);
 void paging_unmap_to_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr, void * target_virt_addr, size_t n);
@@ -119,7 +126,7 @@ extern void * kernel_mem_top;
 extern PAGE_DIRECTORY_TYPE * kernel_address_space_paddr;
 
 #define ___KERNEL_ADDRESS_SPACE_VADDR 0x04FFF000
-#define KERNEL_ADDRESS_SPACE_VADDR ((PAGE_DIRECTORY_TYPE*)___KERNEL_ADDRESS_SPACE_VADDR) // virtual address of the kernel address space for kernel task scheduling 
+#define KERNEL_ADDRESS_SPACE_VADDR ((PAGE_DIRECTORY_TYPE*)___KERNEL_ADDRESS_SPACE_VADDR) // virtual address of the kernel address space for kernel task scheduling
 
 #define KERNEL_HEAP_SIZE (1<<22) // 4 MiB
 #define KERNEL_HEAP_START_SIZE (1<<15) // 32KiB

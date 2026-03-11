@@ -42,10 +42,10 @@ static char check_address_range(const void * addr, size_t n, char writable, char
         if (!in_kernel) {
             if (!(*pte & PTE_PDE_PAGE_USER_ACCESS)) return 0;
             if (iteraddr <= kernel_mem_top) return 0;
-            
+
             if (writable && !(*pte & PTE_PDE_PAGE_WRITABLE))
                 if (!fork_cow_page((void*)iteraddr)) return 0;
-            // the intel architecture allows writes into unwritable memory in ring 0 (see bit 16 of cr0), 
+            // the intel architecture allows writes into unwritable memory in ring 0 (see bit 16 of cr0),
             // this would normally be a check inside the kernel too, but due to the way we map the programs in
             // this would disallow the write() into the new address space
         }
@@ -83,7 +83,7 @@ __attribute__((naked, no_caller_saved_registers)) void interr_syscall(struct int
 
 long kernel_syscall_dispatcher(context_t ctx) {
     enum syscalls syscall_number = ctx.eax;
-    long 
+    long
     arg1 = ctx.edi,
     arg2 = ctx.esi,
     arg3 = ctx.edx,
@@ -118,7 +118,7 @@ long kernel_syscall_dispatcher(context_t ctx) {
             reschedule();
             asm volatile ("jmp kernel_idle");
             break;
-        
+
         case SYSCALL_WRITE:
             if (!check_address_range((const void*)arg2, arg3, 0, in_kernel)) {
                 return_value = EFAULT;
@@ -157,8 +157,10 @@ long kernel_syscall_dispatcher(context_t ctx) {
             break;
         case SYSCALL_SEM_INIT:
             for (int i = 0; i < PROGRAM_MAX_SEMAPHORES; i++) {
-                if (current_process->semaphores[i] == NULL)
+                if (current_process->semaphores[i] == NULL) {
                     current_process->semaphores[i] = kalloc(sizeof(sem_t));
+                    memset(current_process->semaphores[i], 0, sizeof(sem_t));
+                }
                 if (!current_process->semaphores[i]->used) {
                     memset(&current_process->semaphores[i]->waiting_queue, 0, sizeof(thread_queue_t));
                     current_process->semaphores[i]->used = 1;
@@ -282,7 +284,7 @@ long kernel_syscall_dispatcher(context_t ctx) {
         case SYSCALL_UNLINK:
         case SYSCALL_STAT:
         case SYSCALL_KILL:
-        default: 
+        default:
             return_value = ENOSYS;
             break;
     }
