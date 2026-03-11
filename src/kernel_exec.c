@@ -33,6 +33,7 @@ int sys_exec(const char * path) {
     // TODO: when adding SMP, ensure no threads are running
     while (current_process->threads != NULL) {
         if (current_process->threads == current_thread) { // we need to move the kernel stack around
+            current_process->threads->next->prev = current_process->threads->prev; // relink
             current_process->threads = current_process->threads->next;
             continue;
         }
@@ -42,35 +43,39 @@ int sys_exec(const char * path) {
     if (current_process->ring != 0)
         current_process->thread_stacks[GET_STACK_IDX_FROM_ADDR(current_thread->stack)] = 0;
 
+    // we will destroy the current address space with this mapping, thus we need the paddr
+    PAGE_DIRECTORY_TYPE * new_pd_paddr = paging_virt_addr_to_phys(new_prog.pd_vaddr);
+    paging_unmap_page(new_prog.pd_vaddr); // we don't want it to get pffree'd
 
     // both of these should be safe because all kernel stacks are inside the kernel AS which is copied
-    paging_apply_address_space(paging_virt_addr_to_phys(new_prog.pd_vaddr));
+    paging_apply_address_space(new_pd_paddr);
 
     PAGE_DIRECTORY_TYPE * mapped_as = paging_map_phys_addr_unspecified(current_process->address_space_paddr, PTE_PDE_PAGE_WRITABLE);
     paging_destroy_address_space(mapped_as);
     paging_unmap_page(mapped_as);
 
+    current_process->address_space_paddr = new_pd_paddr;
+
     //memset(current_process->thread_stacks, 0, sizeof(current_process->thread_stacks)); // shouldn't be needed
-    
+
     for (int i = 0; i < PROGRAM_MAX_SEMAPHORES; i++) {
         if (current_process->semaphores[i] == NULL) continue;
         if (__atomic_sub_fetch(&current_process->semaphores[i]->used, 1, __ATOMIC_RELAXED) == 0)
             kfree(current_process->semaphores[i]);
+        current_process->semaphores[i] = NULL;
     }
-
     current_process->signal = 0;
 
-    current_process->address_space_paddr = paging_virt_addr_to_phys(new_prog.pd_vaddr);
-
     thread_t * new = kernel_create_thread(current_process, new_prog.start, NULL);
+    kassert(new);
     kfree(new->kernel_stack - new->kernel_stack_size); // we need to preserve the current stack
-    
+
     // we don't need to fix new->context, it will be fixed by the scheduler
     new->kernel_stack = current_thread->kernel_stack;
     new->kernel_stack_size = current_thread->kernel_stack_size;
-    
+
     kfree(current_thread);
-    
+
     current_thread = new;
 
     void * target = new->kernel_stack - sizeof(struct interr_frame);
@@ -99,7 +104,7 @@ int sys_exec(const char * path) {
         "xor %%edi, %%edi\n\t"
         "xor %%esi, %%esi\n\t"
         "popl %%esp; iret;"
-        ::  "R"(new->context.iret_frame.ss), 
+        ::  "R"(new->context.iret_frame.ss),
             "R"(target)
     );
     __builtin_unreachable();
@@ -138,7 +143,6 @@ int sys_spawn(const char *path) {
     if (process_list->next == NULL) {
         // kernel spawning /init
         proc->ring = 3;
-        paging_apply_address_space(paging_virt_addr_to_phys(new_prog.pd_vaddr));
     }
 
     proc->signal = proc->exitcode = 0;
@@ -155,7 +159,7 @@ int sys_spawn(const char *path) {
     __atomic_add_fetch(&proc->pwd->instances, 1, __ATOMIC_RELAXED);
     __atomic_add_fetch(&proc->root->instances, 1, __ATOMIC_RELAXED);
 
-    
+
     proc->threads = NULL;
     thread_t * new_thread = kernel_create_thread(proc, new_prog.start, NULL);
     kassert(new_thread);

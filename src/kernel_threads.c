@@ -42,7 +42,7 @@ thread_t * kernel_create_thread(process_t * parent_process, void (* entry_point)
     new->context.iret_frame.ip = entry_point;
     new->cr3_state = parent_process->address_space_paddr;
 
-    new->context.esp = new->kernel_stack - sizeof(struct interr_frame); 
+    new->context.esp = new->kernel_stack - sizeof(struct interr_frame);
     // scheduler has to memcpy the interr_frame struct to switch context
     // without this decrement, it would overwrite next chunk's metadata
     // TODO: maybe rewrite scheduler to do it a different way?
@@ -56,18 +56,26 @@ thread_t * kernel_create_thread(process_t * parent_process, void (* entry_point)
 
         PAGE_DIRECTORY_TYPE * mapped_as = paging_map_phys_addr_unspecified(parent_process->address_space_paddr, PTE_PDE_PAGE_WRITABLE);
         paging_map_to_address_space(mapped_as, new->context.iret_frame.sp - PROGRAM_STACK_SIZE, PROGRAM_STACK_SIZE, PTE_PDE_PAGE_WRITABLE | PTE_PDE_PAGE_USER_ACCESS);
+
+        void * sp = paging_get_page_from_address_space(mapped_as, new->context.iret_frame.sp - sizeof(void*), PTE_PDE_PAGE_WRITABLE);
+        kassert(sp);
+        // now, this works if the stack is a multiple of pages
+        // this is one of the many reasons why it is
+        *(void**)sp = arg;
+
+        paging_unmap_page(sp);
         paging_unmap_page(mapped_as);
     } else {
         new->context.iret_frame.sp = new->context.esp;
         new->context.esp -= 2 * sizeof(void*);
+
+        *(void**)(new->context.iret_frame.sp - sizeof(void*)) = arg;
     }
-    new->context.iret_frame.sp -= sizeof(void*); // without this, = arg is written above 0xF000'0000
-    *(void**)new->context.iret_frame.sp = arg;
-    new->context.iret_frame.sp -= sizeof(void*); 
-    // to be honest, i have no fucking clue why i have to do this
+    new->context.iret_frame.sp -= 2*sizeof(void*);
+    // to be honest, i have no fucking clue why i have to do the second one
     // there probably is some 10000000 iq system v abi reason
 
-    if (parent_process->threads == NULL) 
+    if (parent_process->threads == NULL)
         parent_process->threads = new;
     else {
         parent_process->threads->prev->next = new;
@@ -81,12 +89,12 @@ thread_t * kernel_create_thread(process_t * parent_process, void (* entry_point)
 
 void kernel_destroy_thread(process_t * parent_process, thread_t * thread) {
     kfree(thread->kernel_stack - thread->kernel_stack_size);
-    
+
     if (parent_process->ring != 0) { // ring 0 stack is the kernel_stack
         parent_process->thread_stacks[GET_STACK_IDX_FROM_ADDR(thread->stack)] = 0;
 
         PAGE_DIRECTORY_TYPE * mapped_as = paging_map_phys_addr_unspecified(parent_process->address_space_paddr, PTE_PDE_PAGE_WRITABLE);
-        
+
         for (void * addr = thread->stack - thread->stack_size; addr < thread->stack; ) {
             int pd_idx = (unsigned long)addr >> 22;
             kassert(mapped_as[pd_idx] & PTE_PDE_PAGE_PRESENT);
@@ -103,13 +111,13 @@ void kernel_destroy_thread(process_t * parent_process, thread_t * thread) {
             }
             paging_unmap_page(pt);
         }
-        
-        paging_unmap_to_address_space(mapped_as, 
-            thread->stack - thread->stack_size, 
+
+        paging_unmap_to_address_space(mapped_as,
+            thread->stack - thread->stack_size,
             thread->stack_size);
         paging_unmap_page(mapped_as);
     }
-    
+
     UNLINK_DOUBLE_LINKED_LIST(thread, parent_process->threads);
 
     kfree(thread);
