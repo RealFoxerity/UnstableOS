@@ -2,6 +2,7 @@
 #include "include/stdio.h"
 #include "include/stdlib.h"
 #include "../../src/include/errno.h"
+#include "include/unistd.h"
 #include <stdarg.h>
 
 int __attribute__((format(scanf, 1, 2))) scanf(const char * restrict format, ...) {
@@ -21,7 +22,7 @@ int __attribute__((format(scanf, 2, 3))) sscanf(const char * restrict s, const c
     va_start(args, format);
     return vsscanf(s, format, args);
 }
-int vscanf(const char * restrict format, va_list args) {return vfscanf(STDIN, format, args);}
+int vscanf(const char * restrict format, va_list args) {return vfscanf(STDIN_FILENO, format, args);}
 
 
 #define VFSCANF_MAX_STRING 4096
@@ -41,7 +42,7 @@ int vfscanf(int fd, const char * restrict format, va_list args) {
     }
 
     buf[read_bytes] = '\0';
-    
+
     int ret = vsscanf(buf, format, args);
 
     free(buf);
@@ -73,7 +74,7 @@ int vsscanf(const char * restrict s, const char * restrict format, va_list args)
                 case 'c': // char
                     temp = va_arg(args, char *);
                     if (temp == NULL) return EINVAL;
-                    
+
                     *(char *)temp = s[soff];
                     soff++;
                     matched_args ++;
@@ -90,7 +91,7 @@ int vsscanf(const char * restrict s, const char * restrict format, va_list args)
                     switch (format[i]) {
                         case 'd':
                             if (!isdigit(s[soff]) && s[soff] != '-') return matched_args;
-                            
+
                             temp = va_arg(args, short *);
                             if (temp == NULL) return EINVAL;
 
@@ -162,7 +163,7 @@ int vsscanf(const char * restrict s, const char * restrict format, va_list args)
                 case 'l': // 32+ bit numbers
                     i++;
                     switch (format[i]) {
-                        case 'd': 
+                        case 'd':
                             if (!isdigit(s[soff]) && s[soff] != '-') return matched_args;
 
                             temp = va_arg(args, long *);

@@ -7,7 +7,7 @@
 #include "mm/kernel_memory.h"
 #include "fs/fs.h"
 
-#define PROGRAM_STACK_SIZE (1<<16) // 64KiB please keep a multiple of page size
+#define PROGRAM_STACK_SIZE (1<<20) // 1MiB please keep a multiple of page size
 #if PROGRAM_STACK_SIZE % PAGE_SIZE_NO_PAE != 0
 #error "Program stack size is not a multiple of page size!"
 #endif
@@ -17,8 +17,8 @@
 #define ___PROGRAM_STACK_VADDR (0xF0000000) // top, need this as an integer for the #if to work
 #define PROGRAM_STACK_VADDR ((void*)___PROGRAM_STACK_VADDR) // top
 
-#define PROGRAM_THREADS_MAX 1024 // needed to create a bitmap of all stacks for the given processes' threads for quicker stack allocation
-#define PROGRAM_MAX_SEMAPHORES 256
+#define PROGRAM_THREADS_MAX 256 // needed to create a bitmap of all stacks for the given processes' threads for quicker stack allocation
+#define PROGRAM_MAX_SEMAPHORES 128
 
 #define GET_STACK_IDX_FROM_ADDR(vaddr) ((PROGRAM_STACK_VADDR - vaddr)/PROGRAM_STACK_SIZE) // returns the index to the stack bitmap for process
 #define GET_STACK_ADDR_FROM_IDX(index) (PROGRAM_STACK_VADDR - i*PROGRAM_STACK_SIZE) // gets the top
@@ -68,7 +68,7 @@ enum signals {
 enum pstatus_t {
     SCHED_RUNNING,
     SCHED_RUNNABLE,
-    
+
     SCHED_STOPPED, // SIGTTOU, STGTTIN, SIGSTOP, resumes by SIGCONT
 
     SCHED_INTERR_SLEEP,
@@ -103,7 +103,7 @@ struct context_t {
 
     struct interr_frame iret_frame;
 
-}  __attribute__((packed)) typedef context_t; 
+}  __attribute__((packed)) typedef context_t;
 
 
 
@@ -154,14 +154,14 @@ struct session_t {
 
 struct process_t {
     unsigned char ring; // so that drivers and kernel can have their own processes
-    pid_t pid, ppid, 
+    pid_t pid, ppid,
         pgrp, // used for tty interrupts
         session, ses_leader;
 
     unsigned long uid, gid;
     PAGE_DIRECTORY_TYPE * address_space_paddr;
-    
-    char thread_stacks[PROGRAM_THREADS_MAX]; 
+
+    char thread_stacks[PROGRAM_THREADS_MAX];
     // a way to keep track of available address ranges, 1 = used
     // PROGRAM_STACK_VADDR - i*PROGRAM_STACK_SIZE
 
@@ -181,7 +181,7 @@ struct process_t {
 
     char is_stopped;
     thread_t * threads;
-    
+
     spinlock_t lock;
 
     struct process_t * prev;

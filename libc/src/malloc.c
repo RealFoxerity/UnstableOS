@@ -71,7 +71,13 @@ void * __attribute__((malloc, malloc(free))) malloc(size_t size) {
     mutex_unlock(allocator_mutex);
     return (void*)current_heap_object + sizeof(struct malloc_heap_header);
 }
+void * __attribute__((malloc, malloc(free))) calloc(size_t size) {
+    void * ret = malloc(size);
+    if (ret == NULL) return NULL;
 
+    memset(ret, 0, size);
+    return ret;
+}
 void free(void * p) {
     if (p == NULL) return;
     mutex_lock(allocator_mutex);
@@ -97,11 +103,11 @@ void free(void * p) {
     if (current_heap_object->flags & MALLOC_FIRST_CHUNK) {
         if (current_heap_object->flags & MALLOC_LAST_CHUNK) goto end;
         if (current_heap_object->next_chunk->flags & MALLOC_CHUNK_USED) goto end;
-        
+
 
         current_heap_object->flags |= current_heap_object->next_chunk->flags & MALLOC_LAST_CHUNK;
         current_heap_object->next_chunk = current_heap_object->next_chunk->next_chunk;
-        
+
         if (!(current_heap_object->flags & MALLOC_LAST_CHUNK))
             current_heap_object->next_chunk->prev_chunk = current_heap_object;
 
@@ -150,7 +156,7 @@ void malloc_print_heap_objects() {
         print_chunk_info(current_heap_object);
         current_heap_object = current_heap_object->next_chunk;
     }
-    
+
     print_chunk_info(current_heap_object);
     mutex_unlock(allocator_mutex);
 }

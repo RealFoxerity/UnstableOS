@@ -1,8 +1,7 @@
-#ifndef STRING_H
-#define STRING_H
+#ifndef _STRING_H
+#define _STRING_H
 #include <stddef.h>
 #include <stdint.h>
-int atoi(const char * nptr);
 
 void itoad(uint32_t i, char * out); // signed int
 void itoaud(uint32_t i, char * out); // unsigned int

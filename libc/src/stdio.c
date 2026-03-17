@@ -1,33 +1,7 @@
 #include "include/stdio.h"
 #include "include/stdlib.h"
 #include "../../src/include/kernel.h"
-
-int open(const char * path, unsigned short flags, unsigned short mode) {
-    return syscall(SYSCALL_OPEN, path, flags, mode);
-}
-int openat(int fd, const char * path, unsigned short flags, unsigned short mode) {
-    return syscall(SYSCALL_OPEN, fd, path, flags, mode);
-}
-int close(int fd) {
-    return syscall(SYSCALL_CLOSE, fd);
-}
-ssize_t write(int fd, const void * buf, size_t count) {
-    return syscall(SYSCALL_WRITE, fd, buf, count);
-}
-ssize_t read (int fd, void * buf, size_t count) {
-    return syscall(SYSCALL_READ, fd, buf, count);
-}
-
-off_t seek(int fd, off_t offset, int whence) {
-    return syscall(SYSCALL_SEEK, fd, offset, whence);
-}
-
-int dup(int fd) {
-    return syscall(SYSCALL_DUP, fd);
-}
-int dup2(int oldfd, int newfd) {
-    return syscall(SYSCALL_DUP2, oldfd, newfd);
-}
+#include "include/unistd.h"
 
 
 int getc(int fd) {
@@ -35,14 +9,14 @@ int getc(int fd) {
     read(fd, &ret, 1);
     return ret;
 }
-int getchar() {return getc(STDIN);}
+int getchar() {return getc(STDIN_FILENO);}
 
 int putc(int c, int fd) {
     if (write(fd, &c, 1) <= 0)
         return EOF;
     return c;
 }
-int putchar(int c) {return putc(c, STDOUT);}
+int putchar(int c) {return putc(c, STDOUT_FILENO);}
 
 // really, really, REALLY bad and slow
 // this bs will slow down our scanf, a lot

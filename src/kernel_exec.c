@@ -8,18 +8,26 @@
 #include "include/kernel_spinlock.h"
 #include "include/mm/kernel_memory.h"
 #include "../libc/src/include/string.h"
+#include "../libc/src/include/fcntl.h"
 
-#include "include/kernel_gdt_idt.h"
-#include "include/vga.h"
 
-int sys_exec(const char * path) {
+extern ssize_t exec_safe_argv_dup(char * const* argv, char * const* envp, void * stack_top_addr, char ** stack_out);
+
+int sys_execve(const char * path, char * const* argv, char * const* envp) {
     kassert(current_process);
-    kassert(current_process->pid != 0); // technically we could replace the kernel, but i'd rather not
+    kassert(current_process->pid != 0 && current_process->ring != 0); // technically we could replace the kernel, but i'd rather not
+
+    spinlock_acquire(&scheduler_lock);
+    char * stack_state = NULL;
+    ssize_t stack_state_sz = exec_safe_argv_dup(argv, envp, PROGRAM_STACK_VADDR, &stack_state);
+    spinlock_release(&scheduler_lock);
+    if (stack_state_sz < 0) return stack_state_sz;
 
     int elf_fd = sys_open(path, O_RDONLY, 0);
     if (elf_fd < 0) return elf_fd;
     if (I_ISDIR(current_process->fds[elf_fd]->inode->mode)) {
         sys_close(elf_fd);
+        kfree(stack_state);
         return EISDIR;
     }
     struct program new_prog = load_elf(elf_fd);
@@ -28,17 +36,22 @@ int sys_exec(const char * path) {
         kprintf("Exec format error on attempted exec() by pid %lu tid %lu!\n", current_process->pid, current_thread->tid);
         return ENOEXEC;
     }
-    spinlock_acquire(&scheduler_lock);
 
-    // TODO: when adding SMP, ensure no threads are running
-    while (current_process->threads != NULL) {
-        if (current_process->threads == current_thread) { // we need to move the kernel stack around
-            current_process->threads->next->prev = current_process->threads->prev; // relink
-            current_process->threads = current_process->threads->next;
-            continue;
+    // terminate threads by marking them to be cleaned up in the scheduler
+    // this is basically the only way to accomplish this with SMP
+    // while loop in case we race with the kernel setting eg UNINTERR_SLEEP
+    while (current_process->threads->next != NULL) {
+        spinlock_acquire(&scheduler_lock);
+        for (thread_t * thread = current_process->threads; thread != NULL; thread = thread->next) {
+            if (thread == current_thread) continue;
+            thread->status = SCHED_THREAD_CLEANUP;
         }
-        kernel_destroy_thread(current_process, current_process->threads);
+        spinlock_release(&scheduler_lock);
+        reschedule(); // allow for the termination
     }
+
+    spinlock_acquire(&scheduler_lock);
+    current_process->threads = NULL;
 
     if (current_process->ring != 0)
         current_process->thread_stacks[GET_STACK_IDX_FROM_ADDR(current_thread->stack)] = 0;
@@ -68,7 +81,12 @@ int sys_exec(const char * path) {
 
     thread_t * new = kernel_create_thread(current_process, new_prog.start, NULL);
     kassert(new);
+    kassert(new->stack == PROGRAM_STACK_VADDR);
+
     kfree(new->kernel_stack - new->kernel_stack_size); // we need to preserve the current stack
+    memcpy(new->stack - stack_state_sz, stack_state, stack_state_sz);
+    new->context.iret_frame.sp = PROGRAM_STACK_VADDR - stack_state_sz;
+    kfree(stack_state);
 
     // we don't need to fix new->context, it will be fixed by the scheduler
     new->kernel_stack = current_thread->kernel_stack;
@@ -80,6 +98,7 @@ int sys_exec(const char * path) {
 
     void * target = new->kernel_stack - sizeof(struct interr_frame);
 
+    /*
     if (current_process->ring == 0) {
         target += 2*sizeof(void*);
         new->context.iret_frame.sp = new->kernel_stack;
@@ -87,7 +106,8 @@ int sys_exec(const char * path) {
     }
     else {
         memcpy(target, &new->context.iret_frame, sizeof(struct interr_frame));
-    }
+    }*/
+    memcpy(target, &new->context.iret_frame, sizeof(struct interr_frame));
 
     spinlock_release(&scheduler_lock);
 
@@ -110,12 +130,14 @@ int sys_exec(const char * path) {
     __builtin_unreachable();
 }
 
-int sys_spawn(const char *path) {
-
-    kprintf("spawn free mem %lu\n", kalloc_get_free_memory());
-
-
+int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     kassert(current_process);
+
+    spinlock_acquire(&scheduler_lock);
+    char * stack_state = NULL;
+    ssize_t stack_state_sz = exec_safe_argv_dup(argv, envp, PROGRAM_STACK_VADDR, &stack_state);
+    if (stack_state_sz < 0) return stack_state_sz;
+    spinlock_release(&scheduler_lock);
 
     int elf_fd = sys_open(path, O_RDONLY, 0);
     if (elf_fd < 0) return elf_fd;
@@ -163,10 +185,16 @@ int sys_spawn(const char *path) {
     proc->threads = NULL;
     thread_t * new_thread = kernel_create_thread(proc, new_prog.start, NULL);
     kassert(new_thread);
+    kassert(new_thread->stack == PROGRAM_STACK_VADDR);
 
+    paging_memcpy_to_address_space(new_prog.pd_vaddr, new_thread->stack - stack_state_sz, stack_state, stack_state_sz);
+    new_thread->context.iret_frame.sp = PROGRAM_STACK_VADDR - stack_state_sz;
+    kfree(stack_state);
 
     // relink to process_list
     APPEND_DOUBLE_LINKED_LIST(proc, process_list)
+
+    paging_unmap_page(new_prog.pd_vaddr);
 
     spinlock_release(&scheduler_lock);
     return proc->pid;

@@ -2,6 +2,7 @@
 #include "include/kernel_gdt_idt.h"
 #include "include/kernel.h"
 #include "../libc/src/include/string.h"
+#include "include/kernel_spinlock.h"
 #include "include/lowlevel.h"
 #include "include/mm/kernel_memory.h"
 #include <stddef.h>
@@ -61,7 +62,7 @@ thread_t * kernel_create_thread(process_t * parent_process, void (* entry_point)
         kassert(sp);
         // now, this works if the stack is a multiple of pages
         // this is one of the many reasons why it is
-        *(void**)sp = arg;
+        *(void**)(sp + PAGE_SIZE_NO_PAE - sizeof(void*)) = arg;
 
         paging_unmap_page(sp);
         paging_unmap_page(mapped_as);
@@ -75,13 +76,7 @@ thread_t * kernel_create_thread(process_t * parent_process, void (* entry_point)
     // to be honest, i have no fucking clue why i have to do the second one
     // there probably is some 10000000 iq system v abi reason
 
-    if (parent_process->threads == NULL)
-        parent_process->threads = new;
-    else {
-        parent_process->threads->prev->next = new;
-        new->prev = parent_process->threads->prev;
-    }
-    parent_process->threads->prev = new;
+    APPEND_DOUBLE_LINKED_LIST(new, parent_process->threads);
 
     //reschedule();
     return new;

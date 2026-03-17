@@ -2,6 +2,7 @@
 #include "include/stdlib.h"
 #include "include/string.h"
 #include "include/ctype.h"
+#include "include/unistd.h"
 #include <stdarg.h>
 #include <stdint.h>
 
@@ -75,7 +76,7 @@ size_t fmt_handler_printf(const char * s, va_list * args) { // caller has to cal
                     s++;
                     padding_delta++;
                     switch (*s) {
-                        case 'x': // 64 bit 
+                        case 'x': // 64 bit
                             i64toax(va_arg(*args, uint64_t), fmt_buf);
                             fmt_buf[16] = '\0';
                             break;
@@ -109,7 +110,7 @@ size_t fmt_handler_printf(const char * s, va_list * args) { // caller has to cal
     if (padding < 0 && -padding <= strlen(fmt_buf)) return padding_delta + 1;
 
     if (padding > (long)strlen(fmt_buf)) {
-        if (padding + strlen(fmt_buf) + 1 > PRINTF_MAX_FORMAT_OUT) 
+        if (padding + strlen(fmt_buf) + 1 > PRINTF_MAX_FORMAT_OUT)
             padding = PRINTF_MAX_FORMAT_OUT - strlen(fmt_buf) - 1;
 
         int old_len = strlen(fmt_buf);
@@ -118,9 +119,9 @@ size_t fmt_handler_printf(const char * s, va_list * args) { // caller has to cal
     }
     else if (-padding > (long)strlen(fmt_buf)) {
         padding = -padding;
-        if (padding + strlen(fmt_buf) + 1 > PRINTF_MAX_FORMAT_OUT) 
+        if (padding + strlen(fmt_buf) + 1 > PRINTF_MAX_FORMAT_OUT)
             padding = PRINTF_MAX_FORMAT_OUT - strlen(fmt_buf) - 1;
-        
+
         fmt_buf[padding] = '\0';
         memset(fmt_buf+strlen(fmt_buf), zerofill?'0':' ', padding-strlen(fmt_buf));
     }
@@ -134,7 +135,7 @@ size_t fmt_handler_printf(const char * s, va_list * args) { // caller has to cal
 void __attribute__((format(printf, 1, 2))) printf(const char * format, ...) {
     va_list args;
     va_start(args, format);
-    vfprintf(STDOUT, format, args);
+    vfprintf(STDOUT_FILENO, format, args);
 }
 void __attribute__((format(printf, 2, 3))) fprintf(int fd, const char * format, ...) {
     va_list args;
@@ -150,7 +151,7 @@ void __attribute__((format(printf, 2, 3))) sprintf(char * s, const char * format
 
 void vsprintf(char * s, const char * format, va_list args) {
     const char * next_percent = strchrnul(format, '%');
-    
+
     size_t off = 0;
     memcpy(s+off, format, next_percent-format);
     off += next_percent-format;
@@ -158,7 +159,7 @@ void vsprintf(char * s, const char * format, va_list args) {
     const char * temp_ptr;
     for (const char * i = next_percent; i < format + strlen(format); ) {
         i++; // character immediately following the %
-        
+
         if (*i == 's') {
             temp_ptr = va_arg(args, const char *);
             memcpy(s+off, temp_ptr, strlen(temp_ptr));
@@ -167,7 +168,7 @@ void vsprintf(char * s, const char * format, va_list args) {
         } else {
             size_t inc = fmt_handler_printf(i, &args);
             i += inc;
-            
+
             memcpy(s+off, fmt_buf, strlen(fmt_buf));
             off += strlen(fmt_buf);
         }
@@ -176,7 +177,7 @@ void vsprintf(char * s, const char * format, va_list args) {
         next_percent = strchrnul(i, '%');
         memcpy(s+off, i, next_percent-i);
         off += next_percent-i;
-        
+
         i = next_percent;
     }
     s[off] = '\0';
@@ -187,13 +188,13 @@ void vsprintf(char * s, const char * format, va_list args) {
 
 void vfprintf(int fd, const char * format, va_list args) {
     const char * next_percent = strchrnul(format, '%');
-    
+
     write(fd, format, next_percent-format);
 
     const char * temp_ptr;
     for (const char * i = next_percent; i < format + strlen(format); ) {
         i++; // character immediately following the %
-        
+
         if (*i == 's') {
             temp_ptr = va_arg(args, const char *);
             write(fd, temp_ptr, strlen(temp_ptr));

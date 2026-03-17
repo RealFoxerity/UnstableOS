@@ -11,7 +11,8 @@
 #define FS_LIMIT_KERNEL 0x100 // maximum amount of mounted file systems kernel-wide
 
 
-#include "../../../libc/src/include/stdio.h" // for off_t, modes and I_* macros
+#include "../../../libc/src/include/unistd.h" // for off_t, and seek modes
+#include "../../../libc/src/include/fcntl.h" // for O_* and I_* macros
 
 // note that device fields here (except raw device inodes) are just for bookkeeping
 // the intended solution is for file system drivers to create a file descriptor
@@ -50,7 +51,7 @@ struct {
     spinlock_t access_lock; // so that thread io operations are atomic
 } typedef file_descriptor_t; // userspace will use an int as an index to per-process array of file_descriptor_t pointers
 
-// intended way of accessing superblocks and 
+// intended way of accessing superblocks and
 struct superblock_t {
     dev_t device; // bookkeeping
     file_descriptor_t * fd; // file descriptor belonging to the underlying device
@@ -58,7 +59,7 @@ struct superblock_t {
     unsigned char fs_type; // no way we support >256 file systems, bookkeeping, alternatively, for kasserts in fs drivers
 
     spinlock_t lock;
-    
+
     unsigned short mount_options;
 
     const struct vfs_ops * funcs;
@@ -88,7 +89,7 @@ superblock_t * get_free_superblock(); // locks superblock lock itself, sets is_m
 inode_t * get_inode_raw_device(dev_t device); // get an existing structure for a given raw device, NULL if not open
 inode_t * inode_from_device(dev_t device); // locks inode lock itself, finds an existing structure and increments, or creates one and sets instances to 1
 
-// considering there can't (shouldn't) be 2 inodes with the same id and sb pointer, 
+// considering there can't (shouldn't) be 2 inodes with the same id and sb pointer,
 // this looks up such an inode from the kernel's inode list, returning NULL when it can't
 // locks inode lock itself
 inode_t * get_inode(superblock_t * sb, void * inode_number);

@@ -7,6 +7,7 @@
 #include "../../libc/src/include/string.h"
 #include "../include/kernel_tty_io.h"
 #include "../include/block/memdisk.h"
+#include "../../libc/src/include/fcntl.h"
 
 int open_raw_device(dev_t device, unsigned short mode) {
     if (mode == 0 || mode > O_RDWR) return EINVAL;
@@ -87,16 +88,22 @@ int sys_open(const char * path, unsigned short flags, unsigned short mode) {
 }
 
 int sys_openat(int fd, const char * path, unsigned short flags, unsigned short mode) {
-    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return EBADF;
-    file_descriptor_t * file = current_process->fds[fd];
-    if (file == NULL) return EBADF;
+    if ((fd < 0 || fd >= FD_LIMIT_PROCESS) && fd != AT_FDCWD) return EBADF;
 
-    kassert(file->instances > 0);
-    kassert(file->inode != NULL);
-    kassert(file->inode->instances > (file->inode->is_mountpoint)? 1 : 0);
+    inode_t * ino = NULL;
+    if (fd != AT_FDCWD) {
+        file_descriptor_t * file = current_process->fds[fd];
+        if (file == NULL) return EBADF;
+        kassert(file->instances > 0);
+        ino = file->inode;
+    } else
+        ino = current_process->pwd;
+
+    kassert(ino != NULL);
+    kassert(ino->instances > (ino->is_mountpoint)? 1 : 0);
 
     inode_t * new = NULL;
-    int ret = openat_inode(file->inode, path, flags, mode, &new);
+    int ret = openat_inode(ino, path, flags, mode, &new);
     if (ret < 0) return ret;
     ret = get_fd_from_inode(new, flags);
     if (ret < 0)
