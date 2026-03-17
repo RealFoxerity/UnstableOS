@@ -3,20 +3,11 @@
 
 #include <stddef.h>
 #include <stdarg.h>
-#define ssize_t long // normally in <sys/types.h> which is not available to us
-typedef ssize_t off_t; // TODO: when finally implementing errno, change to size_t instead of ssize_t
+#include "sys/types.h"
 
-#define PRINTF_MAX_FORMAT_OUT 128 
+#define PRINTF_MAX_FORMAT_OUT 128
 
 #define EOF 0
-
-#define STDIN 0
-#define STDOUT 1
-#define STDERR 2
-
-#define SEEK_SET 0
-#define SEEK_CUR 1
-#define SEEK_END 2
 
 #define __ITMODE_MASK       0xF000
 #define __ITMODE_REG        0x1000
@@ -59,13 +50,6 @@ typedef ssize_t off_t; // TODO: when finally implementing errno, change to size_
 #define I_ISBLK(mode) (((mode) & __ITMODE_MASK) == __ITMODE_BLK)
 #define I_ISCHAR(mode) (((mode) & __ITMODE_MASK) == __ITMODE_CHAR)
 
-#define O_RDONLY 1
-#define O_WRONLY 2
-#define O_RDWR 3
-#define O_CREAT 4 // not yet implemented
-#define O_TRUNC 8 // not yet implemented 
-#define O_DIRECTORY 16 // open() fails with ENOTDIR if resolved to a regular file
-
 void vfprintf(int fd, const char * format, va_list args);
 void __attribute__((format(printf, 2, 3))) fprintf(int fd, const char * format, ...);
 
@@ -91,15 +75,5 @@ int putchar(int c);
 
 char * fgets(char * s, int size, int fd);
 
-int open(const char * path, unsigned short flags, unsigned short mode);
-int openat(int fd, const char * path, unsigned short flags, unsigned short mode);
-int close(int fd);
-ssize_t write(int fd, const void * buf, size_t count);
-ssize_t read (int fd, void * buf, size_t count);
-
-off_t seek(int fd, off_t offset, int whence);
-
-int dup(int fd);
-int dup2(int oldfd, int newfd);
 
 #endif

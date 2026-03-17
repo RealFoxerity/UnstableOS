@@ -1,5 +1,5 @@
-#ifndef CTYPE_H
-#define CTYPE_H
+#ifndef _CTYPE_H
+#define _CTYPE_H
 
 char isprint(char c);
 char isalpha(char c);

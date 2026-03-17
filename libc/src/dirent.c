@@ -1,5 +1,6 @@
 #include "include/stdlib.h"
-#include "include/stdio.h"
+#include "include/unistd.h"
+#include "include/fcntl.h"
 #include "include/dirent.h"
 #include "../../src/include/kernel.h"
 #include "../../src/include/errno.h"
@@ -39,13 +40,13 @@ struct dirent * readdir(DIR * dirp) {
 }
 void rewinddir(DIR * dirp) {
     if (dirp == NULL) return;
-    seek(dirp->fd, 0, SEEK_SET);
+    lseek(dirp->fd, 0, SEEK_SET);
 }
 void seekdir(DIR * dirp, off_t loc) {
     if (dirp == NULL) return;
-    seek(dirp->fd, loc, SEEK_SET);
+    lseek(dirp->fd, loc, SEEK_SET);
 }
 off_t telldir(DIR * dirp) {
     if (dirp == NULL) return EBADF;
-    return seek(dirp->fd, 0, SEEK_CUR);
+    return lseek(dirp->fd, 0, SEEK_CUR);
 }

@@ -226,6 +226,9 @@ long kernel_syscall_dispatcher(context_t ctx) {
         case SYSCALL_GETPID:
             return_value = current_process->pid;
             break;
+        case SYSCALL_GETPPID:
+            return_value = current_process->ppid;
+            break;
         case SYSCALL_GETPGID:
             return_value = sys_getpgid((pid_t)arg1);
             break;
@@ -259,11 +262,11 @@ long kernel_syscall_dispatcher(context_t ctx) {
             break;
         case SYSCALL_EXEC:
             asm volatile ("sti;");
-            return_value = sys_exec((const char *)arg1);
+            return_value = sys_execve((const char *)arg1, (char * const*)arg2, (char * const*)arg3);
             break;
         case SYSCALL_SPAWN:
             asm volatile ("sti;");
-            return_value = sys_spawn((const char *)arg1);
+            return_value = sys_spawn((const char *)arg1, (char * const*)arg2, (char * const*)arg3);
             break;
         case SYSCALL_FORK:
             return_value = sys_fork(&ctx);

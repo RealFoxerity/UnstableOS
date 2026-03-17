@@ -3,8 +3,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-int atoi(const char * nptr) {
-    int out = 0;
+long long atoll(const char * nptr) {
+    long long out = 0;
     unsigned long off = 0;
     char negative = 0; // even though -0 should be a thing, somehow it doesn't work
     if (nptr[off] == '-') {
@@ -17,9 +17,17 @@ int atoi(const char * nptr) {
         out += nptr[off] - '0';
         off++;
     }
-    if (negative) out *= -1; 
+    if (negative) out *= -1;
     return out;
 }
+
+long atol(const char * nptr) {
+    return (long)atoll(nptr);
+}
+int atoi(const char * nptr) {
+    return (int)atoll(nptr);
+}
+
 void itoad(uint32_t i, char * out) {
     char temp;
     int ctr = 0;
@@ -37,7 +45,7 @@ void itoad(uint32_t i, char * out) {
     for (int i = 0; i <= ctr/2; i++) {
         temp = out[i];
         out[i] = out[ctr-i];
-        out[ctr-i] = temp; 
+        out[ctr-i] = temp;
     }
     out[ctr+1] = '\0';
 }
@@ -54,7 +62,7 @@ void itoaud(uint32_t i, char * out) {
     for (int i = 0; i <= ctr/2; i++) {
         temp = out[i];
         out[i] = out[ctr-i];
-        out[ctr-i] = temp; 
+        out[ctr-i] = temp;
     }
     out[ctr+1] = '\0';
 }
@@ -91,7 +99,7 @@ void stoax(uint16_t i, char * out) {
 //    for (int i = 0; i <= ctr; i++) {
 //        temp = out[i];
 //        out[i] = out[ctr-i];
-//        out[ctr-i] = temp; 
+//        out[ctr-i] = temp;
 //    }
 //    out[ctr+1] = 0;
 //}

@@ -30,7 +30,7 @@ static inline void check_deadlock(sem_t * sem, process_t * pprocess) { // tested
             }
             return;
         }
-    
+
     size_t thread_count = 0;
     thread_t * thread = pprocess->threads;
     while (thread != NULL) {
@@ -69,6 +69,9 @@ void spinlock_acquire_interruptible(spinlock_t * lock) {
         lock->state = SPINLOCK_LOCKED;
         return;
     }
+
+    if (__atomic_compare_exchange_n(&lock->state, &(unsigned long){SPINLOCK_UNLOCKED}, SPINLOCK_LOCKED, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
+        return; // in case we don't even need the sti
 
     asm volatile("sti");
     do {

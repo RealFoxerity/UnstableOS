@@ -21,7 +21,8 @@
 #include "include/rs232.h"
 #include "include/kernel_sched.h"
 #include "include/timer.h"
-#include "../libc/src/include/stdlib.h"
+#include "../libc/src/include/unistd.h"
+#include "../libc/src/include/fcntl.h"
 #include "include/kernel_tty_io.h"
 #include "include/vga.h"
 
@@ -131,7 +132,7 @@ void kernel_print_cpu_info() {
     );
 
     unsigned long family_id = 0;
-    if (CPUID_1_GET_FAMILY(cpu_signature) != 15) 
+    if (CPUID_1_GET_FAMILY(cpu_signature) != 15)
         family_id = CPUID_1_GET_FAMILY(cpu_signature);
     else
         family_id = CPUID_1_GET_FAMILY(cpu_signature) + CPUID_1_GET_EXT_FAMILY(cpu_signature);
@@ -234,7 +235,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     kprintf("Running " KERNEL_VERSION ", compiled at "__TIMESTAMP__"\n");
 
     kernel_entry_addr_log();
-    
+
     if (magic != MULTIBOOT_BOOTLOADER_MAGIC || !(mbd->flags & MULTIBOOT_INFO_MEM_MAP)) {
         kprintf("%p\n", mbd);
         panic("Bootloader didn't return valid physical memory map!");
@@ -265,7 +266,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
         multiboot_memory_map_t* mmmt = (multiboot_memory_map_t*) (mbd->mmap_addr + i);
 
         kprintf("Mem: 0x%llx - 0x%llx | Type: ", mmmt->addr, mmmt->addr + mmmt->len);
-        
+
         switch (mmmt->type) {
             case MULTIBOOT_MEMORY_AVAILABLE:
                 if ((uint64_t)mmmt->addr >= (uint64_t)1<<32) kprintf("Unusable - Requires PAE support");
@@ -338,7 +339,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
 
     mount_root(GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0), FS_TARFS, 0);
 
-    switch (sys_spawn("/init")) {
+    switch (sys_spawn("/init", (char *[]){"/init", "root=memdisk", NULL}, (char * []){"PATH=/bin:/sbin", "PWD=/", "HOME=/",NULL})) {
         case 1: break; // success, pid 1
         case ENOEXEC: panic("Exec format error on init process!");
         case ENOENT: panic("Failed to locate /init!");

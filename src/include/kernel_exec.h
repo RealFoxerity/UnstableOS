@@ -2,8 +2,17 @@
 #define KERNEL_EXEC_H
 #include "kernel_interrupts.h"
 
-int sys_exec(const char * path);
-int sys_spawn(const char * path);
+#include "mm/kernel_memory.h"
+#include "kernel_sched.h"
+
+#define ARG_MAX (PROGRAM_STACK_SIZE/32) // 16KiB of argv
+
+#if ARG_MAX > PROGRAM_STACK_SIZE
+#error "ARG_MAX larger than stack size"
+#endif
+
+int sys_execve(const char * path, char * const* argv, char * const* envp);
+int sys_spawn(const char * path, char * const* argv, char * const* envp);
 
 #include "kernel_sched.h"
 

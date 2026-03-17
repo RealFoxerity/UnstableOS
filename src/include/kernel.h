@@ -79,6 +79,7 @@ enum syscalls {
     SYSCALL_SPAWN, // spawn a new process (fork() + exec())
 
     SYSCALL_GETPID,
+    SYSCALL_GETPPID,
     //SYSCALL_SETSID,
     SYSCALL_GETPGID, // getpgid(pid_t target_pid)
     SYSCALL_SETPGID, // setpgid(pid_t target_pid, pid_t target_pgid)

@@ -2,6 +2,8 @@
 #include "../../../libc/src/include/dirent.h"
 #include "../../../libc/src/include/string.h"
 #include "../../../libc/src/include/stdlib.h"
+#include "../../../libc/src/include/unistd.h"
+#include "../../../libc/src/include/fcntl.h"
 #include "../../../src/include/kernel.h"
 #include "../../../libc/src/include/uthreads.h"
 #include "../../../libc/src/include/ctype.h"
@@ -36,7 +38,6 @@ void show_help() {
                 "clear - clears the screen\n");
 }
 
-
 void print_hex_buf(const unsigned char * buf, size_t n) {
     if (n > 16)
         for (size_t i = 0; i < n - 16; i += 16) {
@@ -68,8 +69,18 @@ void print_hex_buf(const unsigned char * buf, size_t n) {
 }
 
 #define MAX_INPUT_BUFFER 128
-int main() {
-    printf("Testing shell env, H for help\n");
+extern char ** environ;
+int main(int argc, char ** argv) {
+    printf("Arguments:\n");
+    for (int i = 0; i < argc; i++) {
+        printf("%s ", argv[i]);
+    }
+
+    printf("\nEnvironment:\n");
+    for (int i = 0; environ[i] != NULL; i++) {
+        printf("%s ", environ[i]);
+    }
+    printf("\nTesting shell env, H for help\n");
     char input_buf[MAX_INPUT_BUFFER];
     ssize_t read_bytes = 0;
     pid_t our_pid = getpid();
@@ -119,7 +130,7 @@ int main() {
                 continue;
             }
             printf("Close: %d\n", close(fd));
-        } 
+        }
         else if (strcmp("read ", input_buf) == 0) {
             unsigned long amount = 0;
             int fd = -1;
@@ -145,7 +156,7 @@ int main() {
                 continue;
             }
 
-            printf("Seek: %ld\n", seek(fd, off, SEEK_CUR));
+            printf("Seek: %ld\n", lseek(fd, off, SEEK_CUR));
         } else if (strcmp("seek - ", input_buf) == 0) {
             off_t off = 0;
             int fd = -1;
@@ -154,7 +165,7 @@ int main() {
                 continue;
             }
 
-            printf("Seek: %ld\n", seek(fd, off, SEEK_END));
+            printf("Seek: %ld\n", lseek(fd, off, SEEK_END));
         } else if (strcmp("seek ", input_buf) == 0) {
             off_t off = 0;
             int fd = -1;
@@ -163,7 +174,7 @@ int main() {
                 continue;
             }
 
-            printf("Seek: %ld\n", seek(fd, off, SEEK_SET));
+            printf("Seek: %ld\n", lseek(fd, off, SEEK_SET));
         } else if (strcmp("ls ", input_buf) == 0 || strcmp("ls\n", input_buf) == 0) {
             const char * path;
             if (input_buf[2] == '\n') {
@@ -208,7 +219,8 @@ int main() {
         } else if (strcmp("spawn ", input_buf) == 0) {
             input_buf[read_bytes - 1] = '\0';
             char * path = input_buf + 6;
-            long ret = spawn(path);
+            extern char ** environ;
+            long ret = spawn(path, (char *[]){path, NULL}, environ);
             printf("Spawn: %ld\n", ret);
             if (ret > 0) {
                 printf("Spawn successful\nWaiting on process termination\n");
