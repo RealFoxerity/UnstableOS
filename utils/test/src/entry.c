@@ -20,22 +20,16 @@ int test_thread(struct uthread_args * self, void* test_val) {
 }
 
 void show_help() {
-    printf("\nr - print a random number\n"
-                "malloc [num] - run malloc with size as integer\n"
-                "heap - print heap\n"
-                "t - run a test thread, get return code\n"
-                "exit [exitcode] - exits\n"
-                "open [path] - opens a file\n"
-                "close [fd] - closes a file descriptor\n"
-                "read [fd] [amount] - reads from file\n"
-                "seek [+/-/ ] [fd] [off] - seeks into a file - ahead, from end, set\n"
-                "ls [path] - lists directory\n"
-                "cd [path] - changes current directory\n"
-                "chroot [path] - changes the root directory for this process\n"
-                "exec [path] - runs an ELF file\n"
-                "spawn [path] - test out new process creation\n"
-                "fork - test out fork\n"
-                "clear - clears the screen\n");
+    printf("\n"
+                "shell builtins:\n"
+                "\tcd [path] - changes current directory\n"
+                "\tchroot [path] - changes the root directory for this process\n"
+                "\tr - print a random number\n"
+                "\texit [exitcode] - exits\n"
+                "raw operations:\n"
+                "\tmalloc [num] - run malloc with size as integer\n"
+                "\theap - print heap\n"
+                "\tt - run a test thread, get return code\n");
 }
 
 void print_hex_buf(const unsigned char * buf, size_t n) {
@@ -70,8 +64,47 @@ void print_hex_buf(const unsigned char * buf, size_t n) {
 
 #define MAX_INPUT_BUFFER 128
 extern char ** environ;
+
+char ** extract_args(char * args_start) {
+    size_t arg_counter = 0;
+
+    char seen_space = 1;
+    for (int i = 0; args_start[i] != '\0'; i++) {
+        if (isspace(args_start[i])) {
+            seen_space = 1;
+        } else {
+            if (seen_space) {
+                arg_counter ++;
+                seen_space = 0;
+            }
+        }
+    }
+
+    if (arg_counter == 0) return NULL;
+
+    char ** args = malloc((arg_counter+1) * sizeof(char *));
+    if (args == NULL) return NULL;
+
+    seen_space = 1;
+    arg_counter = 0;
+    for (int i = 0; args_start[i] != '\0'; i++) {
+        if (isspace(args_start[i])) {
+            args_start[i] = '\0';
+            seen_space = 1;
+        } else {
+            if (seen_space) {
+                args[arg_counter] = args_start+i;
+                arg_counter ++;
+                seen_space = 0;
+            }
+        }
+    }
+
+    return args;
+}
+
 int main(int argc, char ** argv) {
-    printf("Arguments:\n");
+    printf("\n\nArguments:\n");
     for (int i = 0; i < argc; i++) {
         printf("%s ", argv[i]);
     }
@@ -80,20 +113,19 @@ int main(int argc, char ** argv) {
     for (int i = 0; environ[i] != NULL; i++) {
         printf("%s ", environ[i]);
     }
-    printf("\nTesting shell env, H for help\n");
+    printf("\nTesting shell env, help for help\n");
     char input_buf[MAX_INPUT_BUFFER];
     ssize_t read_bytes = 0;
-    pid_t our_pid = getpid();
     int wstatus;
 
     while(1) {
         memset(input_buf, 0, MAX_INPUT_BUFFER);
-        printf("%lu > ", our_pid);
+        printf("> ");
         read_bytes = read(0, input_buf, MAX_INPUT_BUFFER - 1);
         assert(read_bytes > 0);
 
         // strcmp here ok since we don't read into the last null byte
-        if (strcmp("H\n", input_buf) == 0) {
+        if (strcmp("help\n", input_buf) == 0) {
             show_help();
         } else if (strcmp("r\n", input_buf) == 0) {
             printf("%d\n", rand());
@@ -119,95 +151,6 @@ int main(int argc, char ** argv) {
                 continue;
             }
             exit(exitcode);
-        } else if (strcmp("open ", input_buf) == 0) {
-            input_buf[read_bytes - 1] = '\0'; // get rid of new line
-            char * path = input_buf + 5;
-            printf("New fd: %d\n", open(path, O_RDWR, 0));
-        } else if (strcmp("close ", input_buf) == 0) {
-            int fd = -1;
-            if (sscanf(input_buf, "close %d", &fd) != 1) {
-                printf("Bad argument!\n");
-                continue;
-            }
-            printf("Close: %d\n", close(fd));
-        }
-        else if (strcmp("read ", input_buf) == 0) {
-            unsigned long amount = 0;
-            int fd = -1;
-            if (sscanf(input_buf, "read %d %lu", &fd, &amount) != 2) {
-                printf("Bad argument!\n");
-                continue;
-            }
-            unsigned char * buf = malloc(amount);
-            assert(buf);
-            ssize_t read_bytes = read(fd, buf, amount);
-            if (read_bytes < 0) {
-                printf("Error while reading: %ld\n", read_bytes);
-                continue;
-            }
-
-            printf("Read %lu bytes:\n", read_bytes);
-            print_hex_buf(buf, read_bytes);
-        } else if (strcmp("seek + ", input_buf) == 0) {
-            off_t off = 0;
-            int fd = -1;
-            if (sscanf(input_buf, "seek + %d %ld", &fd, &off) != 2) {
-                printf("Bad argument!\n");
-                continue;
-            }
-
-            printf("Seek: %ld\n", lseek(fd, off, SEEK_CUR));
-        } else if (strcmp("seek - ", input_buf) == 0) {
-            off_t off = 0;
-            int fd = -1;
-            if (sscanf(input_buf, "seek - %d %ld", &fd, &off) != 2) {
-                printf("Bad argument!\n");
-                continue;
-            }
-
-            printf("Seek: %ld\n", lseek(fd, off, SEEK_END));
-        } else if (strcmp("seek ", input_buf) == 0) {
-            off_t off = 0;
-            int fd = -1;
-            if (sscanf(input_buf, "seek %d %ld", &fd, &off) != 2) {
-                printf("Bad argument!\n");
-                continue;
-            }
-
-            printf("Seek: %ld\n", lseek(fd, off, SEEK_SET));
-        } else if (strcmp("ls ", input_buf) == 0 || strcmp("ls\n", input_buf) == 0) {
-            const char * path;
-            if (input_buf[2] == '\n') {
-                path = ".";
-            } else {
-                input_buf[read_bytes - 1] = '\0'; // get rid of new line
-                path = input_buf + 3;
-            }
-
-            DIR * root = opendir(path);
-            if (root == NULL) {
-                printf("Bad argument, or path does not exist\n");
-                continue;
-            }
-            struct dirent * dent;
-            while ((dent = readdir(root)) != NULL) {
-                switch (dent->d_type) {
-                    case DT_DIR:
-                        printf("\e[44m");
-                        printf("%s", dent->d_name);
-                        printf("\e[0m");
-                        break;
-                    default:
-                        printf("%s", dent->d_name);
-                }
-                printf("  ");
-            }
-            putchar('\n');
-            closedir(root);
-        } else if (strcmp("exec ", input_buf) == 0) {
-            input_buf[read_bytes - 1] = '\0';
-            char * path = input_buf + 5;
-            printf("Uh-oh exec() failed with %d\n", exec(path));
         } else if (strcmp("cd ", input_buf) == 0) {
             input_buf[read_bytes - 1] = '\0';
             char * path = input_buf + 3;
@@ -216,30 +159,34 @@ int main(int argc, char ** argv) {
             input_buf[read_bytes - 1] = '\0';
             char * path = input_buf + 7;
             printf("chroot: %d\n", chroot(path));
-        } else if (strcmp("spawn ", input_buf) == 0) {
-            input_buf[read_bytes - 1] = '\0';
-            char * path = input_buf + 6;
-            extern char ** environ;
-            long ret = spawn(path, (char *[]){path, NULL}, environ);
-            printf("Spawn: %ld\n", ret);
-            if (ret > 0) {
-                printf("Spawn successful\nWaiting on process termination\n");
-                pid_t child = wait(&wstatus);
-                printf("Child pid %lu exited with %d\n", child, WEXITSTATUS(wstatus));
-            }
-        } else if (strcmp("fork\n", input_buf) == 0) {
-            pid_t child = fork();
-            switch (child) {
-                case 0:
-                    our_pid = getpid();
+        }  else {
+            char * filename = NULL;
+            for (int i = 0; input_buf[i] != '\0'; i++) {
+                if (!isspace(input_buf[i])) {
+                    filename = input_buf + i;
                     break;
-                default:
-                    printf("New child pid %lu, waiting\n", child);
-                    wait(&wstatus);
-                    printf("exitcode: %d\n", WEXITSTATUS(wstatus));
+                }
             }
-        } else if (strcmp("clear\n", input_buf) == 0) {
-            printf("\e[3J");
-        } else printf("?");
+
+            if (filename == NULL) {
+                printf("? ");
+                continue;
+            }
+
+            char ** new_argv = extract_args(filename);
+            if (new_argv == NULL) {
+                printf("? ");
+                continue;
+            }
+
+            switch (fork()) {
+                case 0:
+                    execvp(filename, new_argv);
+                    return 127;
+                default:
+                    wait(&wstatus);
+                    printf("%d ", WEXITSTATUS(wstatus));
+            }
+        }
     }
 }

@@ -5,6 +5,9 @@
 #include "../../libc/src/include/string.h"
 #include "../include/mm/kernel_memory.h"
 #include "../include/errno.h"
+#include "../../libc/src/include/sys/types.h"
+#include "../../libc/src/include/time.h"
+#include <stdint.h>
 
 // TODO: among others, do header checksum, supposedly it's a sum of the header as an octal string
 // TODO: this "driver" assumes that folders will have their entries before a file using them
@@ -19,12 +22,13 @@ const struct vfs_ops tar_op = {
     .lookup = tarfs_lookup,
     .seek = tarfs_seek,
     .read = tarfs_read,
-    .readdir = tarfs_readdir
+    .readdir = tarfs_readdir,
+    .stat = tarfs_stat
 };
 
-static inline size_t oct2int(const char * oct_data, size_t n) {
-    size_t out = 0;
-    for (size_t i = 0; i < n; i++) {
+static inline unsigned long long oct2int(const char * oct_data, size_t n) {
+    unsigned long long out = 0;
+    for (unsigned long long i = 0; i < n; i++) {
         if(!isdigit(oct_data[i])) break;
         out *= 8;
         out += oct_data[i] - '0';
@@ -32,10 +36,31 @@ static inline size_t oct2int(const char * oct_data, size_t n) {
     return out;
 }
 
+static inline mode_t tar_mode_parse(const char * oct_data, size_t n) {
+    size_t out = 0;
+    for (size_t i = 0; i < n; i++) {
+        if(!isdigit(oct_data[i])) break;
+        out *= 16;
+        out += oct_data[i] - '0';
+    }
+    out &= 0x7777;
+    if (out & 0x7000) {
+        if (out & 0x1000) out |= S_ISVTX;
+        if (out & 0x2000) out |= S_ISGID;
+        if (out & 0x4000) out |= S_ISUID;
+    }
+    out &= 0xFFF;
+    return out;
+}
+
 struct tar_node {
     char * path_fragment;
-    char type;
+    uid_t uid;
+    gid_t gid;
+    dev_t device;
+    mode_t mode;
     size_t size;        // extracted size
+    time_t mtime;
     off_t record_offset; // offset to the header of this record
     struct tar_node * upper;
     struct tar_node * inner; // one level deeper, applies to directories
@@ -50,7 +75,7 @@ static inline char is_path_end(const char * next_slash) {
             );
 }
 
-static struct tar_node * create_new_node(const char * path, const char * next_slash, size_t size, enum ustar_file_types type, off_t record_offset) {
+static struct tar_node * create_new_node(const char * path, const char * next_slash, size_t size, uid_t uid, gid_t gid, dev_t dev, mode_t mode, time_t mtime, off_t record_offset) {
     kassert(path);
     kassert(next_slash);
 
@@ -61,8 +86,12 @@ static struct tar_node * create_new_node(const char * path, const char * next_sl
 
     *new = (struct tar_node) {
         .size = size,
-        .type = type,
+        .mode = mode,
         .record_offset = record_offset,
+        .uid = uid,
+        .gid = gid,
+        .device = dev,
+        .mtime = mtime
     };
     new->path_fragment = kalloc(next_slash - path+1);
     kassert(new->path_fragment);
@@ -71,30 +100,40 @@ static struct tar_node * create_new_node(const char * path, const char * next_sl
     return new;
 }
 
-static char tar_add_cached_path(struct tar_node * root, const char * path, size_t size, char type, off_t record_offset) {
+static char tar_add_cached_path(struct tar_node * root, const char * path, ustar_hdr * hdr, size_t record_offset) {
     kassert(root);
     kassert(path);
 
+    mode_t mode = 0;
+    size_t size = oct2int(hdr->file_size, sizeof(hdr->file_size));
+    uid_t uid = oct2int(hdr->owner_id, sizeof(hdr->owner_id));
+    gid_t gid = oct2int(hdr->group_id, sizeof(hdr->group_id));
+    dev_t dev = GET_DEV(
+        oct2int(hdr->dev_major, sizeof(hdr->dev_major)),
+        oct2int(hdr->dev_minor, sizeof(hdr->dev_minor))
+    );
+    time_t mtime = oct2int(hdr->last_modified_time, sizeof(hdr->last_modified_time));
 
-    switch (type) {
+    switch (hdr->type) {
         case USTAR_NORMAL_ALT:
         case USTAR_NORMAL:
-            type = DT_REG;
+            mode = S_IFREG;
             break;
         case USTAR_DIRECTORY:
-            type = DT_DIR;
+            mode = S_IFDIR;
             break;
         case USTAR_BLOCK_DEV:
-            type = DT_BLK;
+            mode = S_IFBLK;
             break;
         case USTAR_HARD_LINK:
         case USTAR_SYMBOLIC_LINK:
         case USTAR_CHAR_DEV:
         case USTAR_PIPE:
-            kprintf("We don't support links, fifos, pipes, and char devs: %d", type);
+            kprintf("We don't support links, fifos, pipes, and char devs: %d", mode);
             return -1;
     }
 
+    mode |= tar_mode_parse(hdr->modes, sizeof(hdr->modes));
     struct tar_node * checked = root;
 
     const char * off = path;
@@ -123,7 +162,7 @@ static char tar_add_cached_path(struct tar_node * root, const char * path, size_
             return -1;
         }
 
-        if (checked->type != DT_DIR) {
+        if (!S_ISDIR(checked->mode)) {
             kprintf("Path fragment %s of %s would map to a non-directory entry!\n", off, path);
             return -1;
         }
@@ -137,8 +176,8 @@ static char tar_add_cached_path(struct tar_node * root, const char * path, size_
                 return -1;
             }
             init_folder:
-            kprintf("Registering %s\n", path);
-            checked->inner = create_new_node(off, next_slash, size, type, record_offset);
+            kprintf("Registering mode %hx path %s\n", mode, path);
+            checked->inner = create_new_node(off, next_slash, size, uid, gid, dev, mode, mtime, record_offset);
             checked->inner->upper = checked;
             return 0;
         }
@@ -151,8 +190,8 @@ static char tar_add_cached_path(struct tar_node * root, const char * path, size_
                 kprintf("Path fragment %s of %s specifies non-existent directory!\n", off, path);
                 return -1;
             }
-            kprintf("Registering %s\n", path);
-            checked->next = create_new_node(off, next_slash, size, type, record_offset);
+            kprintf("Registering mode %hx path %s\n", mode, path);
+            checked->next = create_new_node(off, next_slash, size, uid, gid, dev, mode, mtime, record_offset);
             checked->next->upper = checked->upper;
             return 0;
         }
@@ -172,14 +211,14 @@ static void tar_free_node(struct tar_node * node) {
 
 int tar_load_fs(superblock_t * sb) {
     const char * root_path = "/";
-    sb->data = create_new_node(root_path, root_path+1, 0, DT_DIR, 0);
+    sb->data = create_new_node(root_path, root_path+1, 0, 0, 0, 0, S_IFDIR | S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH, 0, 0);
     ((struct tar_node*)sb->data)->upper = sb->data;
 
     file_descriptor_t * tar_fd = sb->fd;
 
     off_t tarfs_size = seek_file(tar_fd, 0, SEEK_END);
     kprintf("tar fs size: %lu\n", tarfs_size);
-    
+
     if (tarfs_size < sizeof(ustar_hdr)) {
         kprintf("Tar archive truncated!\n");
         return -1;
@@ -221,8 +260,8 @@ int tar_load_fs(superblock_t * sb) {
         size_t archive_length = file_length;
         if (file_length % 512 != 0) // all tar records are padded to 512 byte
             archive_length += 512 - (file_length%512);
-        
-        if (tar_add_cached_path(sb->data, path, file_length, hdr.type, curr_offset-512) != 0) {
+
+        if (tar_add_cached_path(sb->data, path, &hdr, curr_offset-512) != 0) {
             kprintf("Failed to build internal tar structures - failed on path %s!\n", path);
             tar_free_node(sb->data);
             return -1;
@@ -241,16 +280,16 @@ int tar_unload_fs(superblock_t * sb) {
 // sanity check that the pointer and fs structure is valid
 static char is_valid_node(const struct tar_node * root, const struct tar_node * curr) {
     if (root->upper != root) panic("Unlinked root TARFS node!");
-    
+
     const struct tar_node * temp = curr;
     while (temp != root) {
         if (temp->upper == NULL) panic("Tried using unlinked TARFS node!");
         if (temp->path_fragment == NULL) panic("Tried using anonymous TARFS node!");
-        
+
         if (temp->upper == temp) return 0; // root is not the correct one for curr
         temp = temp->upper;
     }
-    
+
     return 1;
 }
 
@@ -263,7 +302,7 @@ inode_t * tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname)
 
     struct tar_node * prev = last == NULL ? sb->data : last->id;
 
-    if (prev->type != DT_DIR) return VFS_LOOKUP_NOTDIRECTORY;
+    if (!S_ISDIR(prev->mode)) return VFS_LOOKUP_NOTDIRECTORY;
 
     struct tar_node * root = sb->data;
     struct tar_node * result = NULL;
@@ -280,11 +319,11 @@ inode_t * tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname)
             checked != NULL;
             checked = checked->next
         ) {
-            if (checked->path_fragment == NULL) 
+            if (checked->path_fragment == NULL)
                 panic("Anonymous TARFS node encountered!");
-            if (strlen(checked->path_fragment) != pathlen) 
+            if (strlen(checked->path_fragment) != pathlen)
                 continue;
-            
+
             if (strncmp(checked->path_fragment, pathname, pathlen) == 0) {
                 result = checked;
                 break;
@@ -295,7 +334,7 @@ inode_t * tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname)
 
     inode_t * ret = create_inode(sb, result);
 
-    inode_change_mode(ret, DTTOIF(result->type));
+    inode_change_mode(ret, result->mode);
     return ret;
 }
 
@@ -315,7 +354,7 @@ ssize_t tarfs_read(file_descriptor_t * fd, void * buf, size_t n) {
     struct tar_node * root = sb->data;
     struct tar_node * this = fd->inode->id;
 
-    if (this->type != DT_REG) return EINVAL;
+    if (!S_ISREG(this->mode)) return EINVAL;
 
     if (!is_valid_node(root, this)) panic("Invalid this/root TARFS node combo!");
 
@@ -414,10 +453,39 @@ ssize_t tarfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_
                 .d_ino = this->record_offset,
                 .d_off = fd->off,
                 .d_reclen = sizeof(struct dirent) + strlen(this->path_fragment) + 1,
-                .d_type = this->type
+                .d_type = IFTODT(this->mode)
             };
             memcpy(&dent->d_name, this->path_fragment, strlen(this->path_fragment) + 1);
     }
     fd->off++;
     return dent->d_reclen;
+}
+
+
+int tarfs_stat(inode_t * file, struct stat * buf) {
+    kassert(file->id);
+    kassert(file->backing_superblock);
+    kassert(file->backing_superblock->data);
+
+    superblock_t * sb = file->backing_superblock;
+
+    struct tar_node * root = sb->data;
+    struct tar_node * this = file->id;
+
+    if (!is_valid_node(root, this)) panic("Invalid this/root TARFS node combo!");
+
+    if (this->record_offset > INT32_MAX || this->size > INT32_MAX) return EOVERFLOW;
+
+    *buf = (struct stat) {
+        .st_dev = sb->device,
+        .st_ino = this->record_offset,
+        .st_mode = this->mode,
+        .st_size = this->size,
+        .st_uid = this->uid,
+        .st_gid = this->gid,
+        .st_rdev = this->device,
+        .st_mtime = this->mtime,
+        .st_nlink = 1 // not correct, but whatevs
+    };
+    return 0;
 }

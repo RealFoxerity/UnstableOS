@@ -2,7 +2,7 @@
 #define VFS_H
 #include <stddef.h>
 #include "fs.h"
-
+#include "../../../libc/src/include/sys/stat.h"
 
 #define VFS_LOOKUP_NOTFOUND (NULL)
 #define VFS_LOOKUP_ESCAPE ((inode_t*)-1) // out of scope of current fs
@@ -13,8 +13,8 @@
 
 /*
 posix says // is implementation defined so the idea is to have special functionality there
-nothing is yet implemented but i am thinking of having devices and network sockets there 
-so 
+nothing is yet implemented but i am thinking of having devices and network sockets there
+so
 //disk1
 //net/tcp/1.2.3.4/1111
 ...
@@ -40,6 +40,8 @@ struct vfs_ops {
     inode_t * (*lookup) (superblock_t * sb, inode_t * last, const char * pathname);
     int (*release)   (struct inode_t *); // closing of the very last instance of an inode
 
+    int (*stat)      (inode_t * file, struct stat * buf);
+
     ssize_t (*read)  (file_descriptor_t * fd, void * buf, size_t n);
     ssize_t (*write) (file_descriptor_t * fd, const void * buf, size_t n);
     off_t (*seek)    (file_descriptor_t * fd, off_t off, int whence);
@@ -49,7 +51,7 @@ struct vfs_ops {
     int (*rmdir)     (superblock_t * sb, const char * pathname);
 
     inode_t*(*create)(superblock_t * sb, inode_t * parent, const char * pathname, unsigned short mode);
-    
+
     // note: fd offset 0 is considered the "." folder to simplify userspace rewinddir()
     ssize_t (*readdir) (file_descriptor_t * fd, struct dirent * dent, size_t dent_size);
     //off_t(*telldir)(file_descriptor_t * fd); // handled via normal seek()

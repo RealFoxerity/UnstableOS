@@ -6,6 +6,7 @@ typedef unsigned long size_t;
 
 typedef unsigned short dev_t;
 typedef size_t id_t;
+typedef size_t nlink_t;
 typedef id_t pid_t;
 typedef id_t ino_t;
 typedef id_t gid_t;

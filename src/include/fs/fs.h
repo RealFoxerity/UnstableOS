@@ -105,8 +105,14 @@ int get_fd_from_inode(inode_t * inode, unsigned short flags);
 
 int sys_open(const char * path, unsigned short flags, unsigned short mode);
 int sys_openat(int fd, const char * path, unsigned short flags, unsigned short mode);
+// the kernel function itself
+int openat_inode(inode_t * base, const char * path, unsigned short flags, unsigned short mode, inode_t ** out);
+
 int sys_chdir(const char * path);
 int sys_chroot(const char * path);
+
+int sys_fstat(int fd, struct stat * buf);
+int sys_fstatat(int fd, const char * __restrict path, struct stat * __restrict buf, int flags);
 
 int sys_close(int fd);
 ssize_t sys_read(int fd, void * buf, size_t count);

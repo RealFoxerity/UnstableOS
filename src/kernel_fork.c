@@ -43,20 +43,20 @@ static PAGE_DIRECTORY_TYPE * fork_dup_address_space() {
     PAGE_DIRECTORY_TYPE * page_directory = paging_map_phys_addr_unspecified(page_directory_phys, PTE_PDE_PAGE_WRITABLE);
     kassert(page_directory);
     memset(page_directory, 0, PAGE_SIZE_NO_PAE);
-    
+
     // we don't directly copy stacks and there isn't anything there after them anyway
-    memcpy(page_directory, PDE_ADDR_VIRT, 
+    memcpy(page_directory, PDE_ADDR_VIRT,
         ((unsigned long)(PROGRAM_STACK_VADDR - PROGRAM_THREADS_MAX * PROGRAM_STACK_SIZE) >> 22) * sizeof(PAGE_DIRECTORY_TYPE));
 
-    page_directory[PAGE_DIRECTORY_ENTRIES-1] = 
-        (unsigned long)page_directory_phys | PTE_PDE_PAGE_WRITABLE | PTE_PDE_PAGE_PRESENT; 
+    page_directory[PAGE_DIRECTORY_ENTRIES-1] =
+        (unsigned long)page_directory_phys | PTE_PDE_PAGE_WRITABLE | PTE_PDE_PAGE_PRESENT;
 
     disable_wp();
     for (int i = 0; i < (unsigned long)(PROGRAM_STACK_VADDR - PROGRAM_THREADS_MAX * PROGRAM_STACK_SIZE) >> 22; i++) {
         if (!(PDE_ADDR_VIRT[i] & PTE_PDE_PAGE_PRESENT)) continue;
 
         // we do this & ~ because the page could get PTE_PDE_PAGE_ACCESSED_DURING_TRANSLATE
-        if ((page_directory[i] & ~(PAGE_SIZE_NO_PAE - 1)) == 
+        if ((page_directory[i] & ~(PAGE_SIZE_NO_PAE - 1)) ==
             (KERNEL_ADDRESS_SPACE_VADDR[i] & ~(PAGE_SIZE_NO_PAE - 1))) continue;
 
         PAGE_TABLE_TYPE * ptes = PTE_ADDR_VIRT_BASE + PAGE_TABLE_ENTRIES*i;
@@ -77,7 +77,7 @@ static PAGE_DIRECTORY_TYPE * fork_dup_address_space() {
 
             void * inc_page = pfalloc_ref_inc((void*)(unsigned long)(ptes[j] & ~(PAGE_SIZE_NO_PAE - 1)));
             kassert(inc_page);
-            
+
             if (ptes[j] & PTE_PDE_PAGE_WRITABLE) {
                 ptes[j] &= ~PTE_PDE_PAGE_WRITABLE;
                 ptes[j] |= PTE_FORK_WRITABLE;
@@ -143,7 +143,7 @@ static PAGE_DIRECTORY_TYPE * fork_dup_address_space() {
         pt[pt_idx] |= PTE_PDE_PAGE_PRESENT |
                         PTE_PDE_PAGE_WRITABLE |
                         PTE_PDE_PAGE_USER_ACCESS;
-        
+
     }
 
     paging_unmap_page(pt);
@@ -153,22 +153,7 @@ static PAGE_DIRECTORY_TYPE * fork_dup_address_space() {
     return page_directory_phys;
 }
 
-void free_space() {
-    size_t free_space = 0;
-    for (int i = 0; i < PAGE_DIRECTORY_ENTRIES - 1; i++) {
-        if (!(PDE_ADDR_VIRT[i] & PTE_PDE_PAGE_PRESENT)) {
-            free_space += PAGE_SIZE_NO_PAE * PAGE_TABLE_ENTRIES;
-            continue;
-        }
-
-        for (int j = 0; j < PAGE_TABLE_ENTRIES; j++)
-            if (!(PTE_ADDR_VIRT_BASE[i*PAGE_DIRECTORY_ENTRIES + j] & PTE_PDE_PAGE_PRESENT))
-                free_space += PAGE_SIZE_NO_PAE;
-    }
-}
-
 pid_t sys_fork(context_t * ctx) {
-    free_space();
     kassert(current_process->ring != 0); // i really don't want to deal with the kernel forking
 
     spinlock_acquire(&address_spaces_lock); // we need scheduler to reschedule if lockee
@@ -185,10 +170,15 @@ pid_t sys_fork(context_t * ctx) {
     new_proc->pid = __atomic_add_fetch(&last_pid, 1, __ATOMIC_RELAXED);
     new_proc->ppid = current_process->pid;
 
-    // "duplicate" all file descriptors
+    // "duplicate" all file descriptors and semaphores, TODO: fix the UINT32_MAX :3
     for (int i = 0; i < FD_LIMIT_PROCESS; i++) {
         if (current_process->fds[i])
             kassert(__atomic_add_fetch(&current_process->fds[i]->instances, 1, __ATOMIC_RELAXED) != UINT32_MAX);
+    }
+
+    for (int i = 0; i < PROGRAM_MAX_SEMAPHORES; i++) {
+        if (current_process->semaphores[i])
+            kassert(__atomic_add_fetch(&current_process->semaphores[i]->used, 1, __ATOMIC_RELAXED) != UINT32_MAX);
     }
 
     __atomic_add_fetch(&current_process->pwd->instances, 1, __ATOMIC_RELAXED);
@@ -202,10 +192,10 @@ pid_t sys_fork(context_t * ctx) {
     new_thread->tid = __atomic_add_fetch(&last_tid, 1, __ATOMIC_RELAXED);
     new_thread->next = NULL;
     new_thread->prev = new_thread;
-    new_thread->kernel_stack = kalloc(current_thread->kernel_stack_size) + 
+    new_thread->kernel_stack = kalloc(current_thread->kernel_stack_size) +
                                 current_thread->kernel_stack_size;
     kassert(new_thread->kernel_stack);
-    
+
     memcpy(&new_thread->context, ctx, sizeof(context_t));
     new_thread->context.eax = 0; // returning 0 from the fork
 

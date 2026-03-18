@@ -35,7 +35,7 @@ char console_reversed_colors = 0;
 #define FONT_MULTIPLIER 1
 
 void console_move_cursor(uint8_t x, uint8_t y) {
-    
+
 }
 
 static void handle_ansi_escapes(const char * ansi_sequence) {
@@ -58,13 +58,13 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
             return;
         case 'J':
             erase_cursor_screen_end:
-            vga_fill(0, display_width - 1, 
-                (console_y+1)*console_font_width*FONT_MULTIPLIER, display_height, 
+            vga_fill(0, display_width - 1,
+                (console_y+1)*console_font_width*FONT_MULTIPLIER, display_height,
                 console_color_bg, 1);
         case 'K':
             erase_cursor_line_end:
-            vga_fill(console_x*console_font_width*FONT_MULTIPLIER, display_width - 1, 
-                    console_y*console_font_height*FONT_MULTIPLIER, (console_y+1)*console_font_height*FONT_MULTIPLIER - 1, 
+            vga_fill(console_x*console_font_width*FONT_MULTIPLIER, display_width - 1,
+                    console_y*console_font_height*FONT_MULTIPLIER, (console_y+1)*console_font_height*FONT_MULTIPLIER - 1,
                     console_color_bg, 1);
             return;
         case 's':
@@ -207,7 +207,7 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
                     return;
             }
             return;
-        
+
         // clear screen
         case 'J':
             switch (id) {
@@ -215,7 +215,7 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
                 case 1:
                     // erase from beginning to cursor, TODO: maybe use vga_fill?
                     for (int y = 0; y <= console_y * console_font_height*FONT_MULTIPLIER; y++) {
-                        for (int x = 0; 
+                        for (int x = 0;
                             x <= (
                                     (y == console_y*console_font_height*FONT_MULTIPLIER) ?
                                     console_x*console_font_width*FONT_MULTIPLIER :
@@ -227,9 +227,8 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
                     vga_swap_buffers();
                     return;
                 case 3:
-                    // entire screen including scrollback (in our case jump up)
-                    console_move_cursor(0, 0);
-                    console_x = console_y = 0;
+                    // erase scrollback (in our case do nothing)
+                    break;
                 case 2:
                     // entire screen
                     vga_fill(0, display_width - 1,
@@ -245,13 +244,13 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
                 case 1:
                     // erase from cursor to beginning of line
                     vga_fill(0, console_x * console_font_width * FONT_MULTIPLIER,
-                        console_y*console_font_height*FONT_MULTIPLIER, (console_y+1)*console_font_height*FONT_MULTIPLIER - 1, 
+                        console_y*console_font_height*FONT_MULTIPLIER, (console_y+1)*console_font_height*FONT_MULTIPLIER - 1,
                         console_color_bg, 1);
                     return;
                 case 2:
                     // erase entire line
-                    vga_fill(0, display_width - 1, 
-                        console_y*console_font_height*FONT_MULTIPLIER, (console_y+1)*console_font_height*FONT_MULTIPLIER - 1, 
+                    vga_fill(0, display_width - 1,
+                        console_y*console_font_height*FONT_MULTIPLIER, (console_y+1)*console_font_height*FONT_MULTIPLIER - 1,
                         console_color_bg, 1);
                     return;
             }
@@ -333,7 +332,7 @@ static char ansi_escape_state_machine(char c) {
             waiting = 0;
             return 0;
         }
-        
+
         switch (c) {
             case 'A'...'Z':
             case 'a'...'z':
@@ -372,15 +371,15 @@ void console_write(const char * s, size_t len) {
             ///*if (s[i] == 0x7F)*/ vga_put_char(0, vga_color, vga_x, vga_y); // assuming cursor is in front of text
             continue;
         }
-        if (s[i] == '\n') {
+        if (s[i] == '\n' || s[i] == '\v') { // see the vt102 user guide for \v behavior
             new_line:
             console_x = 0;
             console_y ++;
             if (console_y >= display_height_chars / FONT_MULTIPLIER) {
                 console_y = display_height_chars / FONT_MULTIPLIER - 1;
                 vga_hw_scroll_scanlines(console_font_height*FONT_MULTIPLIER);
-                vga_fill(0, display_width - 1, 
-                    display_height - console_font_height*FONT_MULTIPLIER, display_height - 1, 
+                vga_fill(0, display_width - 1,
+                    display_height - console_font_height*FONT_MULTIPLIER, display_height - 1,
                     console_default_color_bg, 1);
             }
             continue;
@@ -393,8 +392,8 @@ void console_write(const char * s, size_t len) {
             continue;
         }
         //vga_put_char(s[i], vga_color, vga_x, vga_y);
-        vga_blit_char(s[i], console_x*console_font_width*FONT_MULTIPLIER, 
-                            console_y*console_font_height*FONT_MULTIPLIER, 
+        vga_blit_char(s[i], console_x*console_font_width*FONT_MULTIPLIER,
+                            console_y*console_font_height*FONT_MULTIPLIER,
                     console_color_fg, console_color_bg, 1, FONT_MULTIPLIER);
         console_x ++;
         if (console_x >= display_width_chars / FONT_MULTIPLIER) goto new_line;
@@ -429,11 +428,11 @@ static const char scancode_to_char[256] = {
 
 
     //shift
-    
+
     0, 0, '!', '@', '#', '$', '%', '^',
     '&', '*', '(', ')', '_', '+', 0x7f, '\t',
     'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I',
-    'O', 'P', '{', '}', '\n', '^', 'A', 'S', 
+    'O', 'P', '{', '}', '\n', '^', 'A', 'S',
     'D', 'F', 'G', 'H', 'J', 'K', 'L', ':',
     '"', '~', 0, '|', 'Z', 'X', 'C', 'V',
     'B', 'N', 'M', '<', '>', '?', 0, '*',
@@ -530,7 +529,7 @@ void console_translate_scancode(uint32_t scancode) { // convert ps2/com input in
     char explicit_nullbyte = 0; // if we really do want to output a null byte
 
     if (isalpha(scancode_to_char[(scancode & 0xFF)])) is_shift ^= (scancode & KEY_MOD_CAPSLOCK_MASK) != 0;  // capslock works only on alphabet characters
-    
+
     translated_scancode = scancode_to_char[(scancode & 0xFF) + TTY_SHIFT_MOD_MASK*is_shift];
 
     if ((scancode & ~KEY_BASE_SCANCODE_MASK) == KEY_MOD_LCONTROL_MASK) { // if only holding ctrl (and or shift)
