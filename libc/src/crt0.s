@@ -18,7 +18,6 @@ _start:
     call _init
 
     call main
-    movl %eax, %edi
-    movl $0, %eax # exit syscall number
-    int $0xF0 # syscall interrupt
+    pushl %eax
+    call _exit
 .size _start, . - _start

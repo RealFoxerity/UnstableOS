@@ -6,6 +6,7 @@
 #include "../include/kernel_tty_io.h"
 #include "../include/block/memdisk.h"
 
+#include <fcntl.h>
 #include <stddef.h>
 spinlock_t kernel_fd_lock = {0};
 
@@ -100,8 +101,9 @@ int close_file(file_descriptor_t * file) {
 ssize_t read_file(file_descriptor_t * file, void * buf, size_t count) {
     int test = check_file(file);
     if (test != 0) return test;
-    
-    if (I_ISDIR(file->inode->mode)) return EISDIR;
+    if (file->mode & O_SEARCH) return EBADF;
+
+    if (S_ISDIR(file->inode->mode)) return EISDIR;
     if (!(file->mode & O_RDONLY)) return EINVAL;
 
     ssize_t ret = 0;
@@ -110,7 +112,7 @@ ssize_t read_file(file_descriptor_t * file, void * buf, size_t count) {
     if (!file->inode->is_raw_device) {
         kassert(file->inode->backing_superblock);
         kassert(file->inode->backing_superblock->funcs);
-        if (file->inode->backing_superblock->funcs->read == NULL) 
+        if (file->inode->backing_superblock->funcs->read == NULL)
             ret = EINVAL;
         else
             ret = file->inode->backing_superblock->funcs->read(file, buf, count);
@@ -134,8 +136,9 @@ ssize_t read_file(file_descriptor_t * file, void * buf, size_t count) {
 ssize_t write_file(file_descriptor_t * file, const void * buf, size_t count) {
     int test = check_file(file);
     if (test != 0) return test;
+    if (file->mode & O_SEARCH) return EBADF;
 
-    if (I_ISDIR(file->inode->mode)) return EISDIR;
+    if (S_ISDIR(file->inode->mode)) return EISDIR;
     if (!(file->mode & O_WRONLY))
             return EINVAL;
 
@@ -151,7 +154,7 @@ ssize_t write_file(file_descriptor_t * file, const void * buf, size_t count) {
             spinlock_release(&file->access_lock);
             return EINVAL;
         }
-        if (file->inode->backing_superblock->funcs->write == NULL) 
+        if (file->inode->backing_superblock->funcs->write == NULL)
             ret = EINVAL;
         else
             ret = file->inode->backing_superblock->funcs->write(file, buf, count);
@@ -192,7 +195,7 @@ off_t seek_file(file_descriptor_t * file, off_t offset, int whence) {
     if (!file->inode->is_raw_device) {
         kassert(file->inode->backing_superblock);
         kassert(file->inode->backing_superblock->funcs);
-        if (file->inode->backing_superblock->funcs->seek == NULL) 
+        if (file->inode->backing_superblock->funcs->seek == NULL)
             ret = EINVAL;
         else
             ret = file->inode->backing_superblock->funcs->seek(file, offset, whence);
@@ -231,7 +234,7 @@ off_t sys_seek(int fd, off_t offset, int whence) {
     if (fd < 0 || fd >= FD_LIMIT_PROCESS) return EBADF;
 
     file_descriptor_t * file = current_process->fds[fd];
-    
+
     return seek_file(file, offset, whence);
 }
 
@@ -284,13 +287,12 @@ int sys_dup2(int oldfd, int newfd) {
 
 ssize_t sys_readdir(int fd, struct dirent * dent, size_t dent_size) {
     if (fd < 0 || fd >= FD_LIMIT_PROCESS) return EBADF;
-    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return EBADF;
 
     file_descriptor_t * file = current_process->fds[fd];
     int test = check_file(file);
     if (test != 0) return test;
 
-    if (!I_ISDIR(file->inode->mode)) return ENOTDIR;
+    if (!S_ISDIR(file->inode->mode)) return ENOTDIR;
 
     if (!file->inode->backing_superblock->funcs->readdir) return EINVAL;
 
@@ -298,5 +300,45 @@ ssize_t sys_readdir(int fd, struct dirent * dent, size_t dent_size) {
     ssize_t ret = file->inode->backing_superblock->funcs->readdir(file, dent, dent_size);
     spinlock_release(&file->access_lock);
 
+    return ret;
+}
+
+int stat_inode(inode_t * inode, struct stat * buf) {
+    kassert(buf)
+    kassert(inode);
+    kassert(inode->backing_superblock);
+    kassert(inode->backing_superblock->funcs);
+    if(inode->backing_superblock->funcs->stat == NULL)
+        return EINVAL;
+
+    return inode->backing_superblock->funcs->stat(inode, buf);
+}
+
+int sys_fstat(int fd, struct stat * buf) {
+    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return EBADF;
+    file_descriptor_t * file = current_process->fds[fd];
+    int test = check_file(file);
+    if (test != 0) return test;
+
+    return stat_inode(file->inode, buf);
+}
+
+int sys_fstatat(int fd, const char * __restrict path, struct stat * __restrict buf, int flags) {
+    inode_t * base = NULL;
+    inode_t * new = NULL;
+
+    if (fd == AT_FDCWD)
+        base = current_process->pwd;
+    else {
+        if (fd < 0 || fd >= FD_LIMIT_PROCESS) return EBADF;
+        int test = check_file(current_process->fds[fd]);
+        if (test < 0) return test;
+        base = current_process->fds[fd]->inode;
+    }
+
+    int ret = openat_inode(base, path, O_SEARCH, 0, &new);
+    if (ret < 0) return ret;
+    ret = stat_inode(new, buf);
+    close_inode(new);
     return ret;
 }

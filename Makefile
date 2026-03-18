@@ -1,7 +1,7 @@
 CC		:=i686-elf-gcc
 AS		:=i686-elf-as
 LD		:=i686-elf-ld
- 
+
 # gnu has asm volatile instead of __asm
 CFLAGS	:=\
 -ffreestanding -T src/linker.ld -nostdlib -lgcc -nodefaultlibs -nostartfiles -Og -g -std=gnu99 \
@@ -32,7 +32,7 @@ build/UnstableOS.iso: all
 		/usr/share/limine/limine-bios.sys\
 		/usr/share/limine/limine-bios-cd.bin\
 		build/iso/boot/limine
-	
+
 	mkisofs -b boot/limine/limine-bios-cd.bin\
 		-no-emul-boot\
 		-r -boot-info-table\
@@ -47,7 +47,7 @@ clean:
 	rm -rf build/*
 	$(MAKE) -C libc clean
 	$(MAKE) -C utils clean
-	
+
 src/kernel_interrupts.o: src/kernel_interrupts.c
 	$(CC) $(CFLAGS) -mgeneral-regs-only -mno-red-zone -c src/kernel_interrupts.c -o src/kernel_interrupts.o
 
@@ -58,7 +58,8 @@ src/kernel_syscall.o: src/kernel_syscall.c
 	$(CC) $(CFLAGS) -mgeneral-regs-only -mno-red-zone -c src/kernel_syscall.c -o src/kernel_syscall.o
 
 build/memdisk.tar: utils
-	mkdir -p build/initmd
-	cp utils/test/build/test build/initmd/init
+	mkdir -p build/initmd/bin
+	cp utils/*/build/* build/initmd/bin/
+	cp build/initmd/bin/test build/initmd/init
 	cp -r utils build/initmd
-	tar -C build/initmd -cf build/memdisk.tar init utils
+	tar -C build/initmd -cf build/memdisk.tar init utils bin

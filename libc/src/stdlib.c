@@ -20,6 +20,14 @@ void exit(long exit_code) {
     __builtin_unreachable();
 }
 
+void _exit(long exit_code) {
+    exit(exit_code);
+}
+
+void _Exit(long exit_code) {
+    exit(exit_code);
+}
+
 void abort() {
     syscall(SYSCALL_ABORT);
     __builtin_unreachable();
@@ -37,8 +45,11 @@ pid_t wait(int * wstatus) {
 extern char ** environ;
 char * getenv(const char * name) {
     for (int i = 0; environ[i] != NULL; i++) {
-        if (strlen(name) == strlen(environ[i]) && strcmp(name, environ[i]) == 0)
-            return environ[i];
+        if (strlen(name) == strlen(environ[i]) && strcmp(name, environ[i]) == 0) {
+            for (int j = 0; environ[i][j] != '\0'; j++) {
+                if (environ[i][j] == '=') return &environ[i][j + 1];
+            }
+        }
     }
     return NULL;
 }

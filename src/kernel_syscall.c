@@ -280,12 +280,28 @@ long kernel_syscall_dispatcher(context_t ctx) {
             }
             return_value = sys_wait((int*)arg1);
             break;
+        case SYSCALL_FSTAT:
+            if (!check_address_range((void*)arg2, sizeof(struct stat), 1, in_kernel)) {
+                return_value = EFAULT;
+                break;
+            }
+            asm volatile ("sti");
+            return_value = sys_fstat(arg1, (struct stat *)arg2);
+            break;
+
+        case SYSCALL_FSTATAT:
+            if (!check_address_range((void*)arg2, sizeof(struct stat), 1, in_kernel)) {
+                return_value = EFAULT;
+                break;
+            }
+            asm volatile ("sti");
+            return_value = sys_fstatat(arg1, (const char*) arg2, (struct stat *)arg3, arg4);
+            break;
         case SYSCALL_SETPGID:
         case SYSCALL_TCGETPGRP:
         case SYSCALL_TCSETPGRP:
         case SYSCALL_MKDIR:
         case SYSCALL_UNLINK:
-        case SYSCALL_STAT:
         case SYSCALL_KILL:
         default:
             return_value = ENOSYS;

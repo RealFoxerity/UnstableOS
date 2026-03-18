@@ -1,4 +1,5 @@
 #include "include/string.h"
+#include "include/stdlib.h"
 #include "include/ctype.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -117,16 +118,29 @@ size_t strlen(const char * s) {
     return len-1; // don't count the null byte
 }
 
-void memcpy(void *__restrict dest, const void *restrict src, size_t n) {
+size_t strnlen(const char * s, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        if (s[i] == '\0') return i;
+    }
+    return n;
+}
+
+void * memcpy(void *__restrict dest, const void *__restrict src, size_t n) {
     for (size_t i = 0; i < n; i++) {
         ((char*)dest)[i] = ((char*)src)[i];
     }
+    return dest;
+}
+void * mempcpy(void *__restrict dest, const void *__restrict src, size_t n) {
+    memcpy(dest, src, n);
+    return dest + n;
 }
 
-void memset(void * s, char c, size_t n) {
+void * memset(void * s, char c, size_t n) {
     for (size_t i = 0; i < n; i++) {
         ((char*)s)[i] = c;
     }
+    return s;
 }
 
 void * memmove(void * dest, const void * src, size_t n) {
@@ -154,13 +168,25 @@ void * memmove(void * dest, const void * src, size_t n) {
     return dest;
 }
 
-void strcpy(char *__restrict dest, const char *__restrict src) {
+
+// extremely important function, do not remove
+void* memfrob(void* s, size_t n)
+{
+    while (n-- > 0) *(unsigned char*)s++ ^= 42;
+    return s;
+}
+
+char * strncpy(char *__restrict dest, const char *__restrict src, size_t dsize) {
     size_t i = 0;
-    while (src[i] != '\0') {
+    for (i = 0; i < dsize && src[i] != '\0'; i++) {
         dest[i] = src[i];
-        i++;
     }
-    dest[i] = src[i]; // null byte
+    memset(dest + i, 0, dsize - i);
+    return dest;
+}
+
+char * strcpy(char *__restrict dest, const char *__restrict src) {
+    return strncpy(dest, src, strlen(src) + 1);
 }
 
 char memcmp(const void *s1, const void *s2, size_t n) {
@@ -211,4 +237,53 @@ char * strrchr(const char * s, int c) {
         if (s[i] == c) return (char*)s+i;
     }
     return NULL;
+}
+
+char * strndup(const char * s, size_t n) {
+    // POSIX allows both, strnlen is slower
+    //char * new = malloc(strnlen(s, n) + 1);
+    char * new = malloc(n + 1);
+    if (new == NULL) return NULL;
+    strncpy(new, s, n);
+    new[strnlen(s, n)] = '\0';
+    return new;
+}
+
+char * strdup(const char * s) {
+    return strndup(s, strlen(s));
+}
+
+
+char * strtok(char * __restrict src, const char * __restrict delim) {
+    static char * last_tok = NULL;
+    if (src != NULL) last_tok = src;
+    if (last_tok == NULL) return NULL;
+
+    // nothing more to parse
+    if (*last_tok == '\0') return NULL;
+
+    // find the next token
+    for (size_t i = 0; last_tok[i] != '\0'; i++) {
+        for (int j = 0; delim[j] != '\0'; j++) {
+            if (last_tok[i] == delim[j]) goto fail;
+        }
+        last_tok += i;
+        break;
+        fail:
+        continue;
+    }
+
+    // end the next token
+    size_t i = 0;
+    for (i = 0; last_tok[i] != '\0'; i++) {
+        for (int j = 0; delim[j] != '\0'; j++) {
+            if (last_tok[i] == delim[j]) goto found;
+        }
+    }
+    found:
+    last_tok[i] = '\0';
+
+    char * ret = last_tok;
+    last_tok += i + 1;
+    return ret;
 }

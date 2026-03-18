@@ -1,9 +1,7 @@
-all: test
-
-.PHONY: test
-test:
-	$(MAKE) -C test
+.PHONY: all
+all:
+	for i in */Makefile; do $(MAKE) -C $$(dirname $$i); done
 
 .PHONY: clean
 clean:
-	$(MAKE) -C test clean
+	for i in */Makefile; do $(MAKE) -C $$(dirname $$i) clean; done

@@ -33,17 +33,6 @@ int chroot(const char * path) {
     return syscall(SYSCALL_CHROOT, path);
 }
 
-extern char ** environ;
-int exec(const char * path) {
-    return syscall(SYSCALL_EXEC, path, (const char *[]){path, NULL}, environ);
-}
-int execv(const char * path, char * const* argv) {
-    return syscall(SYSCALL_EXEC, path, argv, environ);
-}
-int execve(const char * path, char * const* argv, char * const* envp) {
-    return syscall(SYSCALL_EXEC, path, argv, envp);
-}
-
 pid_t fork() {
     return syscall(SYSCALL_FORK);
 }
