@@ -169,6 +169,8 @@ pid_t sys_fork(context_t * ctx) {
 
     new_proc->pid = __atomic_add_fetch(&last_pid, 1, __ATOMIC_RELAXED);
     new_proc->ppid = current_process->pid;
+    new_proc->user_clicks = new_proc->system_clicks = new_proc->dead_user_clicks = new_proc->dead_system_clicks = 0;
+
 
     // "duplicate" all file descriptors and semaphores, TODO: fix the UINT32_MAX :3
     for (int i = 0; i < FD_LIMIT_PROCESS; i++) {

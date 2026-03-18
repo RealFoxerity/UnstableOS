@@ -10,7 +10,7 @@ It is not meant as a production OS, there is no testing, there is no fuzzing. I 
 ---
 - 32-bit paging (without PAE)
 - Round-robin scheduler supporting threads
-- `open()`, `close()`, `read()`, `write()`, `seek()`, `readdir()`, `dup()`, `dup2()`
+- Standard VFS functions you'd expect
 - ELF loading & userspace processes
 - Ramdisks & Tar as initial ramdisk
 - `exec()`, CoW `fork()`, `spawn()`, `wait()`
@@ -58,9 +58,13 @@ see [caveats.md](./caveats.md) for info
 ### TODO in Near Future
 ---
 - [ ] `mmap()`, `munmap()`, `msync()` (only with `MAP_FIXED`)
-- [ ] `mkdir()`, `rmdir()`, `stat()`
+- [x] `stat()`
+- [ ] `mkdir()`, `rmdir()`
 - [ ] `unlink()`
-- [ ] any form of sleep()
+- [x] monotonic clock `sleep()`/`nanosleep()` using the RTC clock
+- [ ] the rest of clock types and waiting functions
+- [ ] some missing `time.h` functions
+- [ ] HPET timer
 - [ ] shared memory (basic IPC)
 - [ ] ATA PIO
 - [ ] VFAT
@@ -69,6 +73,7 @@ see [caveats.md](./caveats.md) for info
 - [ ] sockets/pipes
 - [ ] symlinks
 - [ ] signals
+- [ ] `alarm()`
 - [ ] finish implementing sessions and foreground groups for TTY
 - [ ] errno in userspace instead of returning negative numbers
 - [ ] scheduler priorities?

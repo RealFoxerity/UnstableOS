@@ -76,7 +76,7 @@ void spinlock_acquire_interruptible(spinlock_t * lock) {
     asm volatile("sti");
     do {
         asm volatile ("pause");
-    } while (!__atomic_compare_exchange_n(&lock->state, &(unsigned long){SPINLOCK_UNLOCKED}, SPINLOCK_LOCKED, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST));
+    } while (lock->state != SPINLOCK_UNLOCKED || !__atomic_compare_exchange_n(&lock->state, &(unsigned long){SPINLOCK_UNLOCKED}, SPINLOCK_LOCKED, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST));
 }
 
 // WARNING NO WAY TO DETECT DEADLOCKS FOR SPINLOCKING

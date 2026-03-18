@@ -93,7 +93,7 @@ void print_interr_frame(struct interr_frame * interr_frame) {
     kprintf("EIP:\t%s+%p [%p]\n", instruction.symbol, instruction.addr_offset, interr_frame->ip);
     kprintf("CS:\t");
     print_segment(interr_frame->cs);
-    
+
     if ((interr_frame->cs & 3) != 0) { // interrupts don't push SS and SP when not changing ring level (0[kernel] -> 0[interrupt])
         kprintf("ESP:\t%p\nSS:\t", interr_frame->sp);
         print_segment(interr_frame->ss);
@@ -160,7 +160,7 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_invalid
         kprintf("Terminating process id %lu\n", current_process->pid);
         current_thread->status = SCHED_CLEANUP;
     }
-    
+
     interrupt_frame->ip = kernel_idle;
     interrupt_frame->cs = GDT_KERNEL_CODE << 3;
     interrupt_frame->ss = GDT_KERNEL_DATA << 3;
@@ -188,7 +188,7 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_double_
         current_process->status = SCHED_CLEANUP;
     }
     vga_set_color(old_tty_color&0x0F, (old_tty_color&0xF0) >> 4);
-    
+
     interrupt_frame->ip = kernel_idle;
     interrupt_frame->cs = GDT_KERNEL_CODE << 3;
     interrupt_frame->ss = GDT_KERNEL_DATA << 3;
@@ -240,7 +240,7 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_general
         kprintf("Terminating process id %lu\n\e0m", current_process->pid);
         current_thread->status = SCHED_CLEANUP;
     }
-    
+
     interrupt_frame->ip = kernel_idle;
     interrupt_frame->cs = GDT_KERNEL_CODE << 3;
     interrupt_frame->ss = GDT_KERNEL_DATA << 3;
@@ -262,7 +262,7 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_machine
     clear_screen_fatal();
     kprintf("\e[%d;0f", display_height_chars/2);
     panic(CHECK_MACHINE_ERROR);
-    __builtin_unreachable();    
+    __builtin_unreachable();
 }
 //__attribute__((interrupt, no_caller_saved_registers)) void interr_simd_fpe(struct interr_frame * interrupt_frame);
 //__attribute__((interrupt, no_caller_saved_registers)) void interr_virtualization_exception(struct interr_frame * interrupt_frame);
@@ -355,7 +355,7 @@ enum pic_ocw2 {
     PIC_OCW2_ROTATE = 0x80, // rotate, as in shift register, the irq numbers; i think
 };
 enum pic_ocw3 {
-    PIC_OCW3_READ_ISR = 1, // otherwise return IRR; READ_REG has to be set 
+    PIC_OCW3_READ_ISR = 1, // otherwise return IRR; READ_REG has to be set
     PIC_OCW3_READ_REG = 2,
     PIC_OCW3_POLL = 4, // basically, you do this and then use the following byte as a custom irq number from 0 to 64
     PIC_OCW3_ALWAYS_1 = 0x8,
@@ -434,11 +434,11 @@ __attribute__((naked, no_caller_saved_registers)) void interr_pic_pit(struct int
 
         "popa\n\t" // popa DISCARDS ESP so we need to manually load it
 
-        "movl -0x14(%esp), %esp\n\t" 
+        "movl -0x14(%esp), %esp\n\t"
         // see pusha register order, we have to set the ESP from the return value when returning to a ring 0 process
-        // also return to outer CPL requires pushing ESP and SS onto the stack, which would overwrite data if a 
+        // also return to outer CPL requires pushing ESP and SS onto the stack, which would overwrite data if a
         // ring 0 process was running, so we load the iret frame into the ring 3's stack
-        
+
         "iret\n\t"
     );
 }
@@ -481,17 +481,29 @@ __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_lpt1(struc
 
 __attribute__((interrupt, no_caller_saved_registers)) void interr_cmos_rtc(struct interr_frame * interrupt_frame) {
     enum rtc_interrupt_bitmasks called_ints = rtc_get_last_interrupt_type();
-    pic_send_eoi(PIC_INTERR_CMOS_RTC);
 
     if (called_ints & RTC_INT_PERIODIC) {
+        // this is bad, not atomic; i386 unfortunately doesn't really have atomic 64 bit increments
+        // should be fine considering we're only doing this in this interrupt
+        if (interrupt_frame->cs & 3) {
+            current_process->user_clicks ++;
+        } else {
+            current_process->system_clicks ++;
+        }
         uptime_clicks ++;
+        sleep_sched_tick();
     }
     if (called_ints & RTC_INT_ALARM) {
         kprintf("Recieved RTC alarm interrupt\n");
     }
     if (called_ints & RTC_INT_UPDATE_ENDED) {
         system_time_sec ++;
+        if (system_time_sec % 120 == 0) { // to account for potencial interrupt/syscall/whatever drift manually sync time every 2 minutes
+            extern time_t rtc_get_time();
+            system_time_sec = rtc_get_time();
+        }
     }
+    pic_send_eoi(PIC_INTERR_CMOS_RTC);
 }
 
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_sec_ata(struct interr_frame * interrupt_frame) {
@@ -503,27 +515,27 @@ __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_sec_ata(st
 const void * pic_interr_handlers[PIC_INTERR_COUNT] = {
     [PIC_INTERR_PIT] = interr_pic_pit,
     [PIC_INTERR_KEYBOARD] = interr_pic_keyboard,
-    //[PIC_INTERR_CASCADE] = 
+    //[PIC_INTERR_CASCADE] =
     [PIC_INTERR_COM2] = interr_pic_com2,
     [PIC_INTERR_COM1] = interr_pic_com1,
     //[PIC_INTERR_LPT2] = interr_pic_lpt2,
     //[PIC_INTERR_FLOPPY] = interr_pic_floppy,
     [PIC_INTERR_LPT1] = interr_pic_lpt1, // spurious, dont know if I can mask spurious interrupts...
     [PIC_INTERR_CMOS_RTC] = interr_cmos_rtc,
-    //[PIC_INTERR_USER_1] = 
-    //[PIC_INTERR_USER_2] = 
-    //[PIC_INTERR_USER_3] = 
+    //[PIC_INTERR_USER_1] =
+    //[PIC_INTERR_USER_2] =
+    //[PIC_INTERR_USER_3] =
     [PIC_INTERR_PS2_MOUSE] = interr_pic_mouse,
-    //[PIC_INTERR_COPROCESSOR] = 
-    //[PIC_INTERR_PRIMARY_ATA] = 
+    //[PIC_INTERR_COPROCESSOR] =
+    //[PIC_INTERR_PRIMARY_ATA] =
     [PIC_INTERR_SECONDARY_ATA] = interr_pic_sec_ata, // spurious
 };
 
 void pic_setup(uint8_t lower_idt_off, uint8_t higher_idt_off) {
-     
+
     outb(PIC_M_DATA_ADDR, 0xFF); // masks all interrupts
     outb(PIC_S_DATA_ADDR, 0xFF);
-    
+
     outb(PIC_M_COMM_ADDR, PIC_ICW1_ICW4_NEEDED | PIC_ICW1_ALWAYS_1);
     io_wait(); // pic can take some time to take in the data
     outb(PIC_S_COMM_ADDR, PIC_ICW1_ICW4_NEEDED | PIC_ICW1_ALWAYS_1);
@@ -531,7 +543,7 @@ void pic_setup(uint8_t lower_idt_off, uint8_t higher_idt_off) {
 
     outb(PIC_M_DATA_ADDR, lower_idt_off  & 0xF8); // will never realistically be unaligned to this, but to be safe
     io_wait();
-    outb(PIC_S_DATA_ADDR, higher_idt_off & 0xF8); 
+    outb(PIC_S_DATA_ADDR, higher_idt_off & 0xF8);
     io_wait();
 
     outb(PIC_M_DATA_ADDR, 1 << PIC_INTERR_CASCADE); // Master needs a mask

@@ -33,7 +33,7 @@ pid_t sys_wait(int * wstatus) {
             checked = checked->next;
         }
         if (child != NULL) break;
-        
+
         current_thread->status = SCHED_WAITING;
         spinlock_release(&scheduler_lock);
         reschedule();
@@ -44,6 +44,10 @@ pid_t sys_wait(int * wstatus) {
     // unlink the child
     UNLINK_DOUBLE_LINKED_LIST(child, zombie_list)
     pid_t child_pid = child->pid;
+
+    __atomic_add_fetch(&current_process->dead_user_clicks, child->user_clicks, __ATOMIC_RELAXED);
+    __atomic_add_fetch(&current_process->dead_system_clicks, child->system_clicks, __ATOMIC_RELAXED);
+
     kfree(child);
     spinlock_release(&scheduler_lock);
     return child_pid;

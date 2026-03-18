@@ -26,6 +26,7 @@ thread_t * kernel_create_thread(process_t * parent_process, void (* entry_point)
     if (new == NULL) panic("Not enough memory to allocate a new thread");
 
     memset(new, 0, sizeof(thread_t));
+    new->instances = 1;
     new->tid = __atomic_add_fetch(&last_tid, 1, __ATOMIC_RELAXED);
     new->status = SCHED_RUNNABLE;
 
@@ -85,6 +86,11 @@ thread_t * kernel_create_thread(process_t * parent_process, void (* entry_point)
 void kernel_destroy_thread(process_t * parent_process, thread_t * thread) {
     kfree(thread->kernel_stack - thread->kernel_stack_size);
 
+    /*
+    // this isn't safe when multiple threads use each other's stacks, or specify addresses in them to syscalls
+    // I don't think this is solvable...
+    // leaving this here in case anyone decides to change the behavior
+
     if (parent_process->ring != 0) { // ring 0 stack is the kernel_stack
         parent_process->thread_stacks[GET_STACK_IDX_FROM_ADDR(thread->stack)] = 0;
 
@@ -112,9 +118,9 @@ void kernel_destroy_thread(process_t * parent_process, thread_t * thread) {
             thread->stack_size);
         paging_unmap_page(mapped_as);
     }
-
+    */
     UNLINK_DOUBLE_LINKED_LIST(thread, parent_process->threads);
 
-    kfree(thread);
+    if (__atomic_sub_fetch(&thread->instances, 1, __ATOMIC_RELAXED) == 0) kfree(thread);
     //reschedule(); // kernel_destroy_thread is meant to be ran from within schedule(), calling reschedule() would deadlock the scheduler for a given running core
 }

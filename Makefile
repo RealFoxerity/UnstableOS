@@ -4,13 +4,13 @@ LD		:=i686-elf-ld
 
 # gnu has asm volatile instead of __asm
 CFLAGS	:=\
--ffreestanding -T src/linker.ld -nostdlib -lgcc -nodefaultlibs -nostartfiles -Og -g -std=gnu99 \
+-ffreestanding -T src/linker.ld -nostdlib -nodefaultlibs -nostartfiles -Og -g -std=gnu99 \
 -isystem src/include -isystem libc/src/include -isysroot . \
 -DTARGET_I486  -Wall -Wno-unknown-pragmas \
 -fstack-protector
-LDFLAGS	:=-T src/linker.ld
+LDFLAGS	:=-T src/linker.ld -lgcc
 
-OBJS=$(shell find src/ -name "*.[cs]" | sed 's/[cs]$$/o/g')
+OBJS=$(shell find src/ -name "*.[cs]" | sed 's/[cs]$$/o/g') $(shell $(CC) --print-libgcc-file-name)
 
 .PHONY: all kernel
 all: kernel utils build/memdisk.tar

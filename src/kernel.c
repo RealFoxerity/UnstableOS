@@ -210,18 +210,8 @@ extern struct idt_gate * idt_descriptor_entries;
 unsigned long boot_mem_top = 0; // the top of taken memory (either &_kernel_top, or the highest multiboot module)
 void * kernel_mem_top = NULL; // the top of all kernel memory (identity map, heap, page frame table)
 
-void kernel_thread_test(void* _) {
-    syscall(SYSCALL_SEM_WAIT, 0);
-
-    kernel_print_cpu_info();
-
-    syscall(SYSCALL_SEM_POST, 0);
-
-    syscall(SYSCALL_EXIT_THREAD, 0);
-}
-
-size_t system_time_sec = 0;
-size_t uptime_clicks = 0; // incremented by the RTC
+time_t system_time_sec = 0;
+time_t uptime_clicks = 0; // incremented by the RTC
 
 void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     disable_interrupts();

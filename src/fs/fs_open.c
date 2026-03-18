@@ -76,6 +76,10 @@ static inline char * secure_strdup(const char * path, size_t max_len, size_t *le
     return duped;
 }
 
+
+// TODO: check permissions
+// note: if file is open for searching only, check the directory permissions
+
 int openat_inode(inode_t * base, const char * path, unsigned short flags, unsigned short mode, inode_t ** out);
 int sys_open(const char * path, unsigned short flags, unsigned short mode) {
     inode_t * new = NULL;
@@ -287,7 +291,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, unsign
         final_path = next_slash + 1;
     }
 
-    if (flags & O_DIRECTORY && !I_ISDIR(new->mode)) {
+    if (flags & O_DIRECTORY && !S_ISDIR(new->mode)) {
         close_inode(new);
         ret = ENOTDIR;
         goto err;

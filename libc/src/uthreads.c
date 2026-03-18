@@ -1,5 +1,6 @@
 #include "include/uthreads.h"
 #include "include/stdlib.h"
+#include "include/unistd.h"
 #include "../../src/include/kernel.h"
 #include <stdio.h>
 #include <string.h>
@@ -27,8 +28,8 @@ uthread_t uthread_create(int (* entry_point)(struct uthread_args *, void*), void
     wrapped_arguments->thread_lock = thread_mutex;
     wrapped_arguments->args = arg;
 
-    mutex_lock(wrapped_arguments->thread_lock); 
-    // we don't reschedule threads so in cases where uthread_join() is immediately 
+    mutex_lock(wrapped_arguments->thread_lock);
+    // we don't reschedule threads so in cases where uthread_join() is immediately
     // after uthread_create() it would instantly join - not enough time for the wrapper to lock
 
     syscall(SYSCALL_CREATE_THREAD, thread_wrapper, wrapped_arguments);

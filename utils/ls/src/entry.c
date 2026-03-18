@@ -4,6 +4,7 @@
 #include "../../../libc/src/include/fcntl.h"
 #include "../../../libc/src/include/stdlib.h"
 #include "../../../libc/src/include/string.h"
+#include "../../../libc/src/include/time.h"
 #include <stddef.h>
 
 #define COLOR_DIR "\e[36m"
@@ -88,7 +89,9 @@ void print_file_info(const struct stat * info, const char * name) {
                 printf("-");
         }
 
-        printf("\t%lu\t%lu\t%lu\t%lu\t%llu\t", info->st_nlink, info->st_uid, info->st_gid, info->st_size, info->st_mtime);
+        char * datestr = ctime(&info->st_mtime);
+        datestr[strlen(datestr)-1] = '\0';
+        printf("\t%lu\t%lu\t%lu\t%lu\t%s ", info->st_nlink, info->st_uid, info->st_gid, info->st_size, datestr);
 
         switch (info->st_mode & S_IFMT) {
             case S_IFREG:
