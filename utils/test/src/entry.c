@@ -7,6 +7,7 @@
 #include "../../../src/include/kernel.h"
 #include "../../../libc/src/include/uthreads.h"
 #include "../../../libc/src/include/ctype.h"
+#include "../../../libc/src/include/time.h"
 #include <stdint.h>
 
 extern void malloc_print_heap_objects();

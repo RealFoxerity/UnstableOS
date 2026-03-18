@@ -4,6 +4,8 @@
 #include "include/kernel_interrupts.h"
 #include "include/kernel.h"
 #include "../libc/src/include/string.h"
+#include "../libc/src/include/time.h"
+#include "../libc/src/include/sys/times.h"
 #include "include/mm/kernel_memory.h"
 #include "include/vga.h"
 #include "include/errno.h"
@@ -296,6 +298,42 @@ long kernel_syscall_dispatcher(context_t ctx) {
             }
             asm volatile ("sti");
             return_value = sys_fstatat(arg1, (const char*) arg2, (struct stat *)arg3, arg4);
+            break;
+        case SYSCALL_NANOSLEEP:
+            if (!check_address_range((void*)arg1, sizeof(struct timespec), 1, in_kernel)) {
+                return_value = EFAULT;
+                break;
+            }
+            if ((struct timespec *)arg2 != NULL && !check_address_range((void*)arg1, sizeof(struct timespec), 1, in_kernel)) {
+                return_value = EFAULT;
+                break;
+            }
+            asm volatile ("sti");
+            return_value = sys_nanosleep(current_process, current_thread, *(struct timespec*)arg1, (struct timespec*)arg2);
+            break;
+        case SYSCALL_TIME:
+            if (!check_address_range((void*)arg1, sizeof(time_t), 1, in_kernel)) {
+                return_value = EFAULT;
+                break;
+            }
+            *(time_t*)arg1 = system_time_sec;
+            break;
+        case SYSCALL_TIMES:
+            if (!check_address_range((void*)arg1, sizeof(struct tms), 1, in_kernel)) {
+                return_value = EFAULT;
+                break;
+            }
+            if (!check_address_range((void*)arg2, sizeof(clock_t), 1, in_kernel)) {
+                return_value = EFAULT;
+                break;
+            }
+            *(struct tms*)arg1 = (struct tms) {
+                .tms_utime = current_process->user_clicks,
+                .tms_stime = current_process->system_clicks,
+                .tms_cutime = current_process->dead_user_clicks,
+                .tms_cstime = current_process->dead_system_clicks
+            };
+            *(clock_t *)arg2 = uptime_clicks;
             break;
         case SYSCALL_SETPGID:
         case SYSCALL_TCGETPGRP:

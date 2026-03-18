@@ -4,6 +4,8 @@
 #include "include/lowlevel.h"
 #include "include/timer.h"
 #include <stdint.h>
+#include "../libc/src/include/sys/types.h"
+
 // TODO: probably not thread safe, redo?
 // TODO: test if 12 hour format actually works, i have a feeling it doesn't :P
 #define kprintf(fmt, ...) kprintf("CMOS: "fmt, ##__VA_ARGS__)
@@ -137,7 +139,7 @@ void rtc_set_daylight_savings(char enabled) {
 
 static inline void rtc_set_options(char binary, char longhours, char square_wave) {
     disable_interrupts();
-    uint8_t reg_b = 
+    uint8_t reg_b =
         binary ? RTC_REG_B_BINARY_MODE : 0 |
         longhours ? RTC_REG_B_24_HR_MODE : 0 |
         square_wave ? RTC_REG_B_SQUARE_WAVE : 0;
@@ -178,7 +180,8 @@ static inline int days_to_month(int month, int year) {
     return days;
 }
 
-size_t rtc_get_time() {
+time_t rtc_get_time() {
+    static char shown_info = 0;
     disable_interrupts();
     while (cmos_get_register(CMOS_RTC_REG_A) & RTC_REG_A_UPDATE_IN_PROGRESS);
 
@@ -208,14 +211,17 @@ size_t rtc_get_time() {
 
     if (actual_year < 30 + 26) kprintf("Warning: Invalid RTC year (%d)!\n", 1970+actual_year); // 2026
 
-    size_t timestamp = 
+    time_t timestamp =
         actual_year * 365.25 * 24 * 60 * 60 +
-        days_to_month(month, 1970+actual_year) * 24 * 60 * 60 + 
+        days_to_month(month, 1970+actual_year) * 24 * 60 * 60 +
         (monthday - 1) * 24 * 60 * 60 +
         hours * 60 * 60 +
         minutes * 60 +
         seconds;
-    kprintf("RTC date %d %02d/%02d %02d:%02d:%02d - epoch %lu\n", 1970+actual_year, monthday, month, hours, minutes, seconds, timestamp);
+    if (!shown_info) {
+        kprintf("RTC date %d %02d/%02d %02d:%02d:%02d - epoch %llu\n", 1970+actual_year, monthday, month, hours, minutes, seconds, timestamp);
+        shown_info = 1;
+    }
     return timestamp;
 }
 
@@ -224,6 +230,6 @@ void rtc_init() {
     rtc_set_daylight_savings(DEFAULT_DAYLIGHT_SAVINGS_STATE);
     rtc_set_divider(RTC_DEFAULT_RATE_SELECTION_DIVIDER, RTC_DEFAULT_TIME_BASE_DIVIDER);
     rtc_enable_interrupt(RTC_INT_PERIODIC);
-    rtc_get_time();
+    system_time_sec = rtc_get_time();
     rtc_get_last_interrupt_type(); // eoi for potential missed interrupts
 }

@@ -15,6 +15,7 @@ char fmt_buf[PRINTF_MAX_FORMAT_OUT];
 
 size_t fmt_handler_printf(const char * s, va_list * args) { // caller has to call va_arg themselves!
     int padding = 0;
+    int precision = 0; // currently zeroes integers
     const char * temp_ptr;
 
     unsigned long padding_delta = (unsigned long)s;
@@ -28,6 +29,15 @@ size_t fmt_handler_printf(const char * s, va_list * args) { // caller has to cal
         if (*s == '-') s++;
         while (isdigit(*s)) s++;
     }
+    if (*s == '.') {
+        s++;
+        precision = atoi(s);
+        if (*s == '-') s++;
+        while (isdigit(*s)) s++;
+    }
+
+    if (precision > PRINTF_MAX_FORMAT_OUT) precision = PRINTF_MAX_FORMAT_OUT;
+
     padding_delta = (unsigned long)s - padding_delta;
 
     switch (*s) {
@@ -40,6 +50,12 @@ size_t fmt_handler_printf(const char * s, va_list * args) { // caller has to cal
             dec:
             if (*s == 'u') itoaud(va_arg(*args, uint32_t), fmt_buf);
             else itoad(va_arg(*args, uint32_t), fmt_buf);
+            size_t curr_fmt_len = strlen(fmt_buf);
+            if (curr_fmt_len < precision) {
+                precision -= curr_fmt_len;
+                memmove(fmt_buf+precision, fmt_buf, curr_fmt_len+1);
+                memset(fmt_buf, '0', precision);
+            }
             break;
         case 'h':
             if (!(*(s+1) == 'x' || (*(s+1) == 'h' && *(s+2) == 'x'))) goto inv_spec;

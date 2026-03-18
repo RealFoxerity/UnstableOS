@@ -73,7 +73,7 @@ void scheduler_print_processes() {
     while (printed != NULL) {
         printed_thread = printed->threads;
         while (printed_thread != NULL) {
-            kprintf("pid %8lu, tid %lu, cr3 %p, eip %p, kernel esp %p, process esp %p, state %d, command %s\n", 
+            kprintf("pid %8lu, tid %lu, cr3 %p, eip %p, kernel esp %p, process esp %p, state %d, command %s\n",
             printed->pid, printed_thread->tid, printed->address_space_paddr, printed_thread->context.iret_frame.ip, printed_thread->context.esp, printed_thread->context.iret_frame.sp, printed_thread->status,
             printed->argc > 0?(printed->argv != NULL ? (printed->argv[0] != NULL ? printed->argv[0]:"(nil)"):"(nil)"):"(nil)");
 
@@ -132,6 +132,8 @@ static inline void register_kernel_task(context_t * context) {
     kernel_task->threads = kalloc(sizeof(thread_t));
     if (!kernel_task) panic("Not enough memory for kernel task!");
     memset(kernel_task->threads, 0, sizeof(thread_t));
+    kernel_task->threads->instances = 1;
+
     kernel_task->threads->prev = kernel_task->threads;
 
     memcpy(&kernel_task->threads->context, context, sizeof(context_t) - 2*sizeof(void*)); // kernel is ring 0 and when switching from ring 0 (interrupt) to ring 0, SS and SP are not pushed
@@ -160,7 +162,7 @@ static inline void register_kernel_task(context_t * context) {
         //kernel_task->prev = process_list->prev;
         //process_list->prev = kernel_task;
     }
-    
+
     current_process = kernel_task;
     current_thread = kernel_task->threads;
 }
@@ -197,7 +199,7 @@ static inline void scheduler_remove_process(process_t * process) {
 
 static void inline switch_context(process_t * pprocess, thread_t * thread, context_t * context) {
     tss_set_stack(thread->kernel_stack);
-    
+
     if (paging_get_address_space_paddr() != thread->cr3_state)  // to prevent TLB flush performance hit
         paging_apply_address_space(thread->cr3_state);
 
@@ -285,7 +287,7 @@ void schedule(context_t * context) {
         current_thread->status = SCHED_RUNNABLE;
         push_thread_to_end(current_process, current_thread);
     } // status could've been set (eg by a syscall) to uninterruptable
-    
+
     //scheduler_print_processes();
 
     scheduler_start:
@@ -295,6 +297,7 @@ void schedule(context_t * context) {
         current_thread = current_process->threads;
 
         while (current_thread != NULL) {
+            if (current_thread->instances == 0) panic("Encountered thread with instances 0, UAF?");
             switch (current_thread->status) {
                 case SCHED_RUNNING:
                     break;
@@ -302,7 +305,7 @@ void schedule(context_t * context) {
                     current_thread->status = SCHED_RUNNING;
                     push_process_to_end(current_process);
                     push_thread_to_end(current_process, current_thread);
-                                    
+
                     switch_context(current_process, current_thread, context);
                     spinlock_release(&scheduler_lock);
                     return;
@@ -324,7 +327,7 @@ void schedule(context_t * context) {
                         panic("Tried to kill init");
                     }
                     scheduler_remove_process(current_process); // aka any thread can terminate the whole process
-                    
+
                     // reparent all child processes if any
                     process_t * checked = process_list;
                     process_t * parent = NULL;

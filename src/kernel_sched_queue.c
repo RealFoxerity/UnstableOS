@@ -2,6 +2,7 @@
 #include "include/kernel_sched.h"
 #include "../libc/src/include/string.h"
 #include "include/kernel_spinlock.h"
+#include <stdint.h>
 
 void thread_queue_unblock(thread_queue_t * thread_queue) {
     spinlock_acquire(&thread_queue->queue_lock);
@@ -12,8 +13,10 @@ void thread_queue_unblock(thread_queue_t * thread_queue) {
 
 
     struct __thread_queue_inner * next = thread_queue->queue.next;
-    
+
+    kassert(thread_queue->queue.thread->instances > 0);
     thread_queue->queue.thread->status = SCHED_RUNNABLE;
+    if (__atomic_sub_fetch(&thread_queue->queue.thread->instances, 1, __ATOMIC_RELAXED) == 0) kfree(thread_queue->queue.thread);
 
     if (next != NULL) {
         memcpy(&thread_queue->queue, thread_queue->queue.next, sizeof(struct __thread_queue_inner));
@@ -31,6 +34,7 @@ void thread_queue_unblock(thread_queue_t * thread_queue) {
 // pprocess and thread here to allow adding other threads than current
 void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, enum pstatus_t new_status) {
     spinlock_acquire(&thread_queue->queue_lock);
+    if (__atomic_add_fetch(&thread->instances, 1, __ATOMIC_RELAXED) == UINT32_MAX) panic("Overflown thread instance count!");
 
     if (thread_queue->queue.parent_process == NULL) {
         thread_queue->queue.parent_process = pprocess;

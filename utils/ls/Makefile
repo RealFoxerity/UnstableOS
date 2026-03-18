@@ -7,7 +7,7 @@ CRTN	:=../../libc/src/crtn.o
 CRT0	:=../../libc/src/crt0.o
 CRTBEGIN:=$(shell $(CC) $(CFLAGS) -print-file-name=crtbegin.o)
 CRTEND	:=$(shell $(CC) $(CFLAGS) -print-file-name=crtend.o)
-LDFLAGS	:=
+LDFLAGS	:=-lgcc
 LIBC	:= ../../libc/build/libc.a
 
 OBJS	:= $(CRT0) $(CRTI) $(CRTBEGIN) src/entry.o $(CRTEND) $(CRTN)

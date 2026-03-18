@@ -5,6 +5,8 @@
 #include "devs.h"
 
 #define KERNEL_TIMER_RESOLUTION_MSEC 40
+#define RTC_TIMER_RESOLUTION_HZ 1024
+#define RTC_TIME_RESOLUTION_USEC (1000000 / RTC_TIMER_RESOLUTION_HZ)
 
 #define KERNEL_VERSION "UnstableOS v0.01"
 
@@ -93,6 +95,13 @@ enum syscalls {
 
     SYSCALL_YIELD,
 
+    SYSCALL_NANOSLEEP,
+    SYSCALL_TIME,
+
+    // different than the function since we can't easily return 64 bits: struct tms * buffer, clock_t * elapsed
+    // we could do 32 bits, but then the 2038 problem comes to bite us
+    SYSCALL_TIMES,
+
     //SYSCALL_IOCTL,
     SYSCALL_TCGETPGRP,
     SYSCALL_TCSETPGRP,
@@ -104,7 +113,7 @@ enum syscalls {
 };
 
 extern unsigned long _kernel_base, _kernel_top, _kernel_stack_top, boot_mem_top;
-extern size_t system_time_sec, uptime_clicks;
+extern time_t system_time_sec, uptime_clicks;
 
 void __attribute__((format(printf, 1, 2))) kprintf(const char *format, ...);
 

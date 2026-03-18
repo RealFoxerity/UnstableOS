@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include <stdarg.h>
 #include "include/unistd.h"
+#include "include/time.h"
 #include "../../src/include/kernel.h"
 
 
@@ -46,6 +47,16 @@ pid_t getpid() {
 
 pid_t getppid() {
     return syscall(SYSCALL_GETPPID);
+}
+
+unsigned sleep(unsigned seconds) {
+    struct timespec actual = {0};
+    struct timespec waited = {.tv_sec = seconds, .tv_nsec = 0};
+
+    long ret = syscall(SYSCALL_NANOSLEEP, &waited, &actual);
+    if (ret < 0) return ret;
+
+    return actual.tv_sec;
 }
 
 long syscall(unsigned long syscall_number, ...) { // interrupt handler in kernel_syscall.c

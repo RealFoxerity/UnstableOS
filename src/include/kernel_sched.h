@@ -2,6 +2,7 @@
 #define KERNEL_SCHED_H
 
 #include <stddef.h>
+#include "../../libc/src/include/time.h"
 #include "kernel_interrupts.h"
 #include "kernel_spinlock.h"
 #include "mm/kernel_memory.h"
@@ -130,6 +131,7 @@ struct sem_t {
 
 
 struct thread_t {
+    size_t instances; // so that queues don't do UAF when a thread terminates
     size_t tid;
     PAGE_DIRECTORY_TYPE * cr3_state; // if a kernel routine switched address spaces and was then preempted
     context_t context;
@@ -178,6 +180,8 @@ struct process_t {
 
     file_descriptor_t * fds[FD_LIMIT_PROCESS];
 
+    clock_t user_clicks, system_clicks;
+    clock_t dead_user_clicks, dead_system_clicks;
 
     char is_stopped;
     thread_t * threads;
@@ -201,6 +205,10 @@ void schedule(context_t * context);
 void scheduler_print_process(const process_t * process);
 void scheduler_print_processes();
 
+
+// kernel_sched_sleep_queue.c
+void sleep_sched_tick();
+ssize_t sys_nanosleep(process_t * pprocess, thread_t * thread, struct timespec requested, struct timespec * elapsed);
 
 void kill();
 

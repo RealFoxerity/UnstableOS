@@ -26,4 +26,5 @@
 #define ENOEXEC -23
 #define ECHILD -24
 #define EOVERFLOW -25
+#define EINTR -26
 #endif

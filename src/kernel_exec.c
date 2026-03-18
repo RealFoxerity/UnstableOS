@@ -25,7 +25,7 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
 
     int elf_fd = sys_open(path, O_RDONLY, 0);
     if (elf_fd < 0) return elf_fd;
-    if (I_ISDIR(current_process->fds[elf_fd]->inode->mode)) {
+    if (S_ISDIR(current_process->fds[elf_fd]->inode->mode)) {
         sys_close(elf_fd);
         kfree(stack_state);
         return EISDIR;
@@ -52,9 +52,13 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
 
     spinlock_acquire(&scheduler_lock);
     current_process->threads = NULL;
+    current_process->signal = 0;
 
+    memset(current_process->thread_stacks, 0, sizeof(current_process->thread_stacks)); // needed with the kernel_destroy_thread change
+    /*
     if (current_process->ring != 0)
         current_process->thread_stacks[GET_STACK_IDX_FROM_ADDR(current_thread->stack)] = 0;
+    */
 
     // we will destroy the current address space with this mapping, thus we need the paddr
     PAGE_DIRECTORY_TYPE * new_pd_paddr = paging_virt_addr_to_phys(new_prog.pd_vaddr);
@@ -69,15 +73,12 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
 
     current_process->address_space_paddr = new_pd_paddr;
 
-    //memset(current_process->thread_stacks, 0, sizeof(current_process->thread_stacks)); // shouldn't be needed
-
     for (int i = 0; i < PROGRAM_MAX_SEMAPHORES; i++) {
         if (current_process->semaphores[i] == NULL) continue;
         if (__atomic_sub_fetch(&current_process->semaphores[i]->used, 1, __ATOMIC_RELAXED) == 0)
             kfree(current_process->semaphores[i]);
         current_process->semaphores[i] = NULL;
     }
-    current_process->signal = 0;
 
     thread_t * new = kernel_create_thread(current_process, new_prog.start, NULL);
     kassert(new);
@@ -92,7 +93,8 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
     new->kernel_stack = current_thread->kernel_stack;
     new->kernel_stack_size = current_thread->kernel_stack_size;
 
-    kfree(current_thread);
+    if (__atomic_sub_fetch(&current_thread->instances, 1, __ATOMIC_RELAXED) == 0)
+        kfree(current_thread);
 
     current_thread = new;
 
@@ -141,7 +143,7 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
 
     int elf_fd = sys_open(path, O_RDONLY, 0);
     if (elf_fd < 0) return elf_fd;
-    if (I_ISDIR(current_process->fds[elf_fd]->inode->mode)) {
+    if (S_ISDIR(current_process->fds[elf_fd]->inode->mode)) {
         sys_close(elf_fd);
         return EISDIR;
     }
@@ -158,16 +160,18 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
 
     // we need to copy multiple fields, so might as well copy everything
     memcpy(proc, current_process, sizeof(process_t));
+    proc->user_clicks = proc->system_clicks = proc->dead_user_clicks = proc->dead_system_clicks = 0;
     proc->ppid = current_process->pid;
     proc->pid = __atomic_add_fetch(&last_pid, 1, __ATOMIC_RELAXED);
     proc->address_space_paddr = paging_virt_addr_to_phys(new_prog.pd_vaddr);
+    proc->signal = proc->exitcode = 0;
+    proc->threads = NULL;
 
     if (process_list->next == NULL) {
         // kernel spawning /init
         proc->ring = 3;
     }
 
-    proc->signal = proc->exitcode = 0;
     memset(proc->semaphores, 0, sizeof(proc->semaphores));
     memset(proc->thread_stacks, 0, sizeof(proc->thread_stacks));
     memset(proc->fds, 0, sizeof(proc->fds));
@@ -182,7 +186,6 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     __atomic_add_fetch(&proc->root->instances, 1, __ATOMIC_RELAXED);
 
 
-    proc->threads = NULL;
     thread_t * new_thread = kernel_create_thread(proc, new_prog.start, NULL);
     kassert(new_thread);
     kassert(new_thread->stack == PROGRAM_STACK_VADDR);
