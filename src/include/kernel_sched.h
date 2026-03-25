@@ -3,10 +3,16 @@
 
 #include <stddef.h>
 #include "../../libc/src/include/time.h"
+#include "../../libc/src/include/signal.h"
+#include "../../libc/src/include/sys/limits.h"
 #include "kernel_interrupts.h"
 #include "kernel_spinlock.h"
 #include "mm/kernel_memory.h"
 #include "fs/fs.h"
+
+#if SIGRTMAX - SIGRTMIN > RTSIG_MAX
+#error "Realtime signal ranges larger than realtime signal count!"
+#endif
 
 #define PROGRAM_STACK_SIZE (1<<20) // 1MiB please keep a multiple of page size
 #if PROGRAM_STACK_SIZE % PAGE_SIZE_NO_PAE != 0
@@ -18,9 +24,6 @@
 #define ___PROGRAM_STACK_VADDR (0xF0000000) // top, need this as an integer for the #if to work
 #define PROGRAM_STACK_VADDR ((void*)___PROGRAM_STACK_VADDR) // top
 
-#define PROGRAM_THREADS_MAX 256 // needed to create a bitmap of all stacks for the given processes' threads for quicker stack allocation
-#define PROGRAM_MAX_SEMAPHORES 128
-
 #define GET_STACK_IDX_FROM_ADDR(vaddr) ((PROGRAM_STACK_VADDR - vaddr)/PROGRAM_STACK_SIZE) // returns the index to the stack bitmap for process
 #define GET_STACK_ADDR_FROM_IDX(index) (PROGRAM_STACK_VADDR - i*PROGRAM_STACK_SIZE) // gets the top
 
@@ -31,82 +34,24 @@
 
 #define PROGRAM_MINIMUM_AVAIL_MEMORY (PROGRAM_HEAP_START_SIZE+PROGRAM_STACK_SIZE+PROGRAM_KERNEL_STACK_SIZE)
 
-#if (___PROGRAM_HEAP_VADDR + PROGRAM_HEAP_SIZE > ___PROGRAM_STACK_VADDR - PROGRAM_THREADS_MAX*PROGRAM_STACK_SIZE)
+#if (___PROGRAM_HEAP_VADDR + PROGRAM_HEAP_SIZE > ___PROGRAM_STACK_VADDR - PTHREAD_THREADS_MAX*PROGRAM_STACK_SIZE)
 #error "\
 Processes' memory map would have thread stacks and heap overlap!\n\
 Consider lowering thread count, increasing stack base address, lowering heap address, and/or decreasing stack and heap sizes"
 #endif
-enum signals {
-    SIGINT = 1,
-    SIGQUIT,
-    SIGTERM,
-    SIGALRM,
-    SIGSTOP,
-    SIGCONT,
-    SIGKILL,
-    SIGCHLD,
-    SIGTTOU, // background process group tried to write to a controlling terminal (with the option TOSTOP), default action is to pause the process
-    SIGTTIN, // background process group tried to read from a controlling terminal
-    SIGHUP, // controlling terminal was closed by the other side
-
-    __sig_last
-};
-
-#define GET_SIG_MASK(signal) (1<<signal)
-
-#define MASK_SIGINT GET_SIG_MASK(SIGINT)
-#define MASK_SIGQUIT GET_SIG_MASK(SIGQUIT)
-#define MASK_SIGTERM GET_SIG_MASK(SIGTERM)
-#define MASK_SIGALRM GET_SIG_MASK(SIGALRM)
-#define MASK_SIGSTOP GET_SIG_MASK(SIGSTOP)
-#define MASK_SIGCONT GET_SIG_MASK(SIGCONT)
-#define MASK_SIGKILL GET_SIG_MASK(SIGKILL)
-#define MASK_SIGCHLD GET_SIG_MASK(SIGCHLD)
-#define MASK_SIGTTOU GET_SIG_MASK(SIGTTOU)
-#define MASK_SIGTTIN GET_SIG_MASK(SIGTTIN)
-#define MASK_SIGHUP GET_SIG_MASK(SIGHUP)
 
 enum pstatus_t {
     SCHED_RUNNING,
     SCHED_RUNNABLE,
-
-    SCHED_STOPPED, // SIGTTOU, STGTTIN, SIGSTOP, resumes by SIGCONT
 
     SCHED_INTERR_SLEEP,
     SCHED_UNINTERR_SLEEP,
     SCHED_WAITING, // process called wait()
 
     SCHED_THREAD_CLEANUP, // thread called thread_exit()
-    SCHED_CLEANUP, // process called exit() or otherwise crashed
 } typedef pstatus_t;
 
-#pragma clang diagnostic ignored "-Wc99-designator"
-static const char after_signal_states[__sig_last] = {
-    [SIGINT] = SCHED_RUNNABLE,
-    [SIGQUIT] = SCHED_CLEANUP,
-    [SIGTERM] = SCHED_CLEANUP,
-    [SIGALRM] = SCHED_RUNNABLE,
-    [SIGSTOP] = SCHED_STOPPED,
-    [SIGCONT] = SCHED_RUNNABLE,
-    [SIGKILL] = SCHED_CLEANUP,
-    [SIGCHLD] = SCHED_RUNNABLE,
-    [SIGTTOU] = SCHED_STOPPED,
-    [SIGTTIN] = SCHED_STOPPED,
-    [SIGHUP] = SCHED_CLEANUP
-};
-
-#define FD_LIMIT_PROCESS 128
-
-struct context_t {
-    unsigned long edi, esi;
-    void * ebp, *esp;
-    unsigned long ebx, edx, ecx, eax;
-
-    struct interr_frame iret_frame;
-
-}  __attribute__((packed)) typedef context_t;
-
-
+#define FD_LIMIT_PROCESS OPEN_MAX
 
 struct process_t;
 struct thread_t;
@@ -115,6 +60,7 @@ struct thread_t;
 struct __thread_queue_inner {
     struct process_t * parent_process;
     struct thread_t * thread;
+    unsigned int magic_queue_value;
     struct __thread_queue_inner * prev;
     struct __thread_queue_inner * next;
 };
@@ -130,11 +76,12 @@ struct sem_t {
 } typedef sem_t;
 
 
+#define sa_to_be_handled sa_info_to_be_handled.si_signo
 struct thread_t {
     size_t instances; // so that queues don't do UAF when a thread terminates
     size_t tid;
     PAGE_DIRECTORY_TYPE * cr3_state; // if a kernel routine switched address spaces and was then preempted
-    context_t context;
+    mcontext_t context;
     pstatus_t status;
 
     void * kernel_stack;
@@ -143,27 +90,47 @@ struct thread_t {
     void * stack;
     size_t stack_size;
 
+    // bitmask of signals that the thread ignores
+    sigset_t sa_mask;
+    // these values are here to make pthread_kill easier to implement in the future
+
+    // thread was chosen to handle a signal; scheduler "calls" signals
+    // needed because we can't launch signals inside syscalls
+
+    siginfo_t sa_info_to_be_handled;
+
+    // so that if a queue would've unblocked a thread that was no longer blocked
+    // by that queue, it doesn't
+    unsigned int magic_queue_value;
+
+    // to avoid deadlocks in syscalls with signals present
+    // see CRIT_SEC_START and CRIT_SEC_END
+    unsigned long in_critical_section;
+
     struct thread_t * prev;
     struct thread_t * next;
 } typedef thread_t;
-
-typedef size_t pid_t;
 
 struct tty_t; // kernel_tty_io.h
 struct session_t {
     struct tty_t * controlling_terminal;
 } typedef session_t;
 
+struct rt_siginfo_ll {
+    siginfo_t info;
+    struct rt_siginfo_ll * next;
+};
 struct process_t {
     unsigned char ring; // so that drivers and kernel can have their own processes
-    pid_t pid, ppid,
+    struct process_t * parent;
+    pid_t pid,
         pgrp, // used for tty interrupts
-        session, ses_leader;
+        session;
 
     unsigned long uid, gid;
     PAGE_DIRECTORY_TYPE * address_space_paddr;
 
-    char thread_stacks[PROGRAM_THREADS_MAX];
+    char thread_stacks[PTHREAD_THREADS_MAX];
     // a way to keep track of available address ranges, 1 = used
     // PROGRAM_STACK_VADDR - i*PROGRAM_STACK_SIZE
 
@@ -171,10 +138,17 @@ struct process_t {
     const char ** argv;
     //const char * envp;
 
-    long exitcode;
+    sem_t * semaphores[SEM_NSEMS_MAX];
 
-    sem_t * semaphores[PROGRAM_MAX_SEMAPHORES];
-    unsigned short signal;
+    struct sigaction sa_handlers[NSIG_MAX - 1];
+
+    // this structure only applies for <SIGRTMIN signals
+    sigset_t sa_pending;
+    siginfo_t sa_pending_info[SIGRTMIN-1];
+
+    int                    sa_rt_queue_count;
+    struct rt_siginfo_ll * sa_rt_queue;
+    struct rt_siginfo_ll * sa_rt_queue_last;
 
     inode_t * pwd, * root; // chdir(), chroot()
 
@@ -184,6 +158,11 @@ struct process_t {
     clock_t dead_user_clicks, dead_system_clicks;
 
     char is_stopped;
+    char do_cleanup;
+
+    long exitcode;
+    int postmortem_wstatus;
+
     thread_t * threads;
 
     spinlock_t lock;
@@ -201,7 +180,7 @@ struct program {
 
 void kernel_idle();
 void scheduler_init();
-void schedule(context_t * context);
+void schedule(mcontext_t * context);
 void scheduler_print_process(const process_t * process);
 void scheduler_print_processes();
 
@@ -210,12 +189,13 @@ void scheduler_print_processes();
 void sleep_sched_tick();
 ssize_t sys_nanosleep(process_t * pprocess, thread_t * thread, struct timespec requested, struct timespec * elapsed);
 
-void kill();
-
 void reschedule();
 
-void kernel_destroy_thread(process_t * parent_process, thread_t * current_thread);
+// 0 = couldn't destroy - not safe to destroy a kernel thread
+// both assume a locked scheduler (and by extension a critical section)
+char kernel_destroy_thread(process_t * parent_process, thread_t * current_thread);
 thread_t *  kernel_create_thread(process_t * parent_process, void (* entry_point)(void*), void * arg);
+
 extern process_t * process_list;
 extern process_t * zombie_list;
 
@@ -230,5 +210,38 @@ extern pid_t last_tid;
 
 void thread_queue_unblock(thread_queue_t * thread_queue);
 void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, enum pstatus_t new_status);
-void signal_process_group(pid_t process_group, unsigned short signal);
+
+
+// kernel_signals.c
+int sys_kill(pid_t pid, int sig);
+int sys_tgkill(pid_t tgid, pid_t tid, int sig);
+int sys_sigaction(int sig, struct sigaction * __restrict act, struct sigaction * __restrict oact);
+void sys_sigreturn(mcontext_t * ctx);
+int sys_sigprocmask(int how, const sigset_t * __restrict set, sigset_t * oset);
+int sys_sigsuspend(const sigset_t * set);
+int sys_sigqueue(pid_t pid, int signo, union sigval value);
+
+// lock scheduler beforehand or have interrupts disabled
+void signal_process(process_t * signaled, siginfo_t * sig);
+void signal_thread(process_t * group, thread_t * thread, siginfo_t * sig);
+// retries all pending signals
+void signal_retry_process(process_t * signaled);
+
+// meant to be called from the syscall, expections, scheduler - dispatches a thread's pending signal
+// make sure that the thread is not running, or that it's context replacement
+// doesn't break it
+// currently assumes the current address space to be the target one, TODO: fix when finally implementing correct memcpy
+void signal_dispatch_sa(process_t * group, thread_t * thread);
+
+int signal_process_group(pid_t process_group, siginfo_t * info);
+
+// if defined, allows threads in syscalls not currently in critical sections to be killed
+// if not defined, entering syscalls automatically enables a critical section, thus disallowing killing
+#define EXIT_AFFECTS_SYSCALLS
+
+// macros to call when the thread cannot be cleaned up safely at that point
+// automatically called when doing spinlock_acquire and spinlock_release
+// is valid for the duration of a syscall (as the end of a syscall forces counter to 0)
+#define CRIT_SEC_START {__atomic_add_fetch(&current_thread->in_critical_section, 1, __ATOMIC_RELAXED);}
+#define CRIT_SEC_END {__atomic_sub_fetch(&current_thread->in_critical_section, 1, __ATOMIC_RELAXED);}
 #endif

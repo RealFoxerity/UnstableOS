@@ -1,11 +1,12 @@
 #include "include/kernel_exec.h"
-#include "include/errno.h"
+#include "../libc/src/include/errno.h"
 #include "include/fs/fs.h"
 #include "include/elf.h"
 #include "include/kernel.h"
 #include "include/kernel_interrupts.h"
 #include "include/kernel_sched.h"
 #include "include/kernel_spinlock.h"
+#include "include/kernel_tty_io.h"
 #include "include/mm/kernel_memory.h"
 #include "../libc/src/include/string.h"
 #include "../libc/src/include/fcntl.h"
@@ -28,31 +29,38 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
     if (S_ISDIR(current_process->fds[elf_fd]->inode->mode)) {
         sys_close(elf_fd);
         kfree(stack_state);
-        return EISDIR;
+        return -EISDIR;
     }
     struct program new_prog = load_elf(elf_fd);
     sys_close(elf_fd);
     if (new_prog.pd_vaddr == NULL) {
         kprintf("Exec format error on attempted exec() by pid %lu tid %lu!\n", current_process->pid, current_thread->tid);
-        return ENOEXEC;
+        return -ENOEXEC;
     }
 
-    // terminate threads by marking them to be cleaned up in the scheduler
-    // this is basically the only way to accomplish this with SMP
-    // while loop in case we race with the kernel setting eg UNINTERR_SLEEP
+    CRIT_SEC_START
+
+    // terminate threads by marking the process to be cleaned up in the scheduler
     while (current_process->threads->next != NULL) {
-        spinlock_acquire(&scheduler_lock);
-        for (thread_t * thread = current_process->threads; thread != NULL; thread = thread->next) {
-            if (thread == current_thread) continue;
-            thread->status = SCHED_THREAD_CLEANUP;
-        }
-        spinlock_release(&scheduler_lock);
+        current_process->do_cleanup = 1; // just in case
         reschedule(); // allow for the termination
     }
 
     spinlock_acquire(&scheduler_lock);
-    current_process->threads = NULL;
-    current_process->signal = 0;
+
+    current_process->do_cleanup = 0;
+
+    current_process->threads = NULL; // effectively doubles as CRIT_SEC_END
+    for (struct rt_siginfo_ll * freed = current_process->sa_rt_queue; freed != NULL; ) {
+        struct rt_siginfo_ll * next = freed->next;
+        kfree(freed);
+        freed = next;
+    }
+    current_process->sa_rt_queue_last  = NULL;
+    current_process->sa_rt_queue_count = 0;
+    current_process->sa_pending = 0;
+    memset(current_process->sa_pending_info, 0, sizeof(current_process->sa_pending_info));
+    memset(current_process->sa_handlers, 0, sizeof(current_process->sa_handlers));
 
     memset(current_process->thread_stacks, 0, sizeof(current_process->thread_stacks)); // needed with the kernel_destroy_thread change
     /*
@@ -73,7 +81,7 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
 
     current_process->address_space_paddr = new_pd_paddr;
 
-    for (int i = 0; i < PROGRAM_MAX_SEMAPHORES; i++) {
+    for (int i = 0; i < SEM_NSEMS_MAX; i++) {
         if (current_process->semaphores[i] == NULL) continue;
         if (__atomic_sub_fetch(&current_process->semaphores[i]->used, 1, __ATOMIC_RELAXED) == 0)
             kfree(current_process->semaphores[i]);
@@ -92,6 +100,7 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
     // we don't need to fix new->context, it will be fixed by the scheduler
     new->kernel_stack = current_thread->kernel_stack;
     new->kernel_stack_size = current_thread->kernel_stack_size;
+    new->sa_mask = current_thread->sa_mask;
 
     if (__atomic_sub_fetch(&current_thread->instances, 1, __ATOMIC_RELAXED) == 0)
         kfree(current_thread);
@@ -112,6 +121,8 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
     memcpy(target, &new->context.iret_frame, sizeof(struct interr_frame));
 
     spinlock_release(&scheduler_lock);
+
+    current_thread->in_critical_section = 0;
 
     asm volatile ( // check the note in kernel_syscall.c
         "mov %0, %%ds;"
@@ -145,13 +156,13 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     if (elf_fd < 0) return elf_fd;
     if (S_ISDIR(current_process->fds[elf_fd]->inode->mode)) {
         sys_close(elf_fd);
-        return EISDIR;
+        return -EISDIR;
     }
     struct program new_prog = load_elf(elf_fd);
     sys_close(elf_fd);
     if (new_prog.pd_vaddr == NULL) {
         kprintf("Exec format error on attempted spawn() by pid %lu tid %lu!\n", current_process->pid, current_thread->tid);
-        return ENOEXEC;
+        return -ENOEXEC;
     }
 
     spinlock_acquire(&scheduler_lock);
@@ -161,15 +172,29 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     // we need to copy multiple fields, so might as well copy everything
     memcpy(proc, current_process, sizeof(process_t));
     proc->user_clicks = proc->system_clicks = proc->dead_user_clicks = proc->dead_system_clicks = 0;
-    proc->ppid = current_process->pid;
+    proc->parent = current_process;
     proc->pid = __atomic_add_fetch(&last_pid, 1, __ATOMIC_RELAXED);
     proc->address_space_paddr = paging_virt_addr_to_phys(new_prog.pd_vaddr);
-    proc->signal = proc->exitcode = 0;
     proc->threads = NULL;
+
+    proc->sa_pending = 0;
+    for (struct rt_siginfo_ll * freed = proc->sa_rt_queue; freed != NULL; ) {
+        struct rt_siginfo_ll * next = freed->next;
+        kfree(freed);
+        freed = next;
+    }
+    proc->sa_rt_queue_last  = NULL;
+    proc->sa_rt_queue_count = 0;
+    memset(proc->sa_pending_info, 0, sizeof(proc->sa_pending_info));
+    memset(proc->sa_handlers, 0, sizeof(proc->sa_handlers));
 
     if (process_list->next == NULL) {
         // kernel spawning /init
         proc->ring = 3;
+        proc->pgrp = proc->pid; // 1, note that you can't signal to pgrp 1 either
+        proc->session = proc->pid;
+        terminals[DEV_TTY_0]->foreground_pgrp = proc->pgrp;
+        terminals[DEV_TTY_0]->session = proc->session;
     }
 
     memset(proc->semaphores, 0, sizeof(proc->semaphores));
@@ -189,6 +214,9 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     thread_t * new_thread = kernel_create_thread(proc, new_prog.start, NULL);
     kassert(new_thread);
     kassert(new_thread->stack == PROGRAM_STACK_VADDR);
+
+    new_thread->sa_mask = current_thread->sa_mask;
+    new_thread->in_critical_section = 0;
 
     paging_memcpy_to_address_space(new_prog.pd_vaddr, new_thread->stack - stack_state_sz, stack_state, stack_state_sz);
     new_thread->context.iret_frame.sp = PROGRAM_STACK_VADDR - stack_state_sz;

@@ -1,0 +1,30 @@
+#include "include/errno.h"
+
+static const char * __errno_msgs[] = {
+    [0]         = "OK",
+    [ENOSYS]    = "Functionality not supported",
+    [EINVAL]    = "Invalid argument",
+    [ERANGE]    = "Result too large",
+    [ENOLCK]    = "No locks available",
+    [ESRCH]     = "No such process",
+    [EFAULT]    = "Bad address",
+    [EBADF]     = "Bad file descriptor",
+    [ENOENT]    = "No such file or directory",
+    [EBUSY]     = "Device or resource busy",
+    [EPIPE]     = "Broken pipe",
+    [EIO]       = "I/O error",
+    [EAGAIN]    = "Resource unavailable, try again",
+    [E2BIG]     = "Argument list too long",
+    [ESPIPE]    = "Invalid seek",
+    [EMFILE]    = "File descriptor value too large",
+    [ENFILE]    = "Too many files open in system",
+    [EFBIG]     = "File too large",
+    [ENOTDIR]   = "Not a directory or a symbolic link to a directory",
+    [EISDIR]    = "Is a directory",
+    [ENOMEM]    = "Not enough space",
+    [EROFS]     = "Read-only file system",
+    [ENOEXEC]   = "Executable file format error",
+    [ECHILD]    = "No child processes",
+    [EOVERFLOW] = "Value too large to be stored in data type",
+    [EINTR]     = "Interrupted function"
+};

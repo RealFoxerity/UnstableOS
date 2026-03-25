@@ -385,9 +385,9 @@ void console_write(const char * s, size_t len) {
             continue;
         }
         if (s[i] == '\t') {
-            console_x += console_tab_width - (console_x % console_tab_width);
-            if (console_x >= display_width_chars / FONT_MULTIPLIER) {
-                goto new_line;
+            int old_delta = console_tab_width - (console_x % console_tab_width);
+            for (int i = 0; i < old_delta; i++) {
+                console_write(" ", 1);
             }
             continue;
         }

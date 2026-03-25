@@ -10,7 +10,6 @@
 #include "include/lowlevel.h"
 #include "include/kernel_gdt_idt.h"
 #include "include/vga.h"
-#include <stdalign.h>
 #include <stddef.h>
 
 // all static functions assume locked scheduler
@@ -31,17 +30,14 @@ spinlock_t scheduler_lock = {0};
 
 //#define kprintf(fmt, ...) kprintf("Scheduler: "fmt, ##__VA_ARGS__)
 
-void reschedule() {
-    unsigned long prev_eflags;
-    asm volatile ("pushf; pop %0;" : "=R"(prev_eflags));
-    asm volatile("sti");
-
-    asm volatile(
-        "int %0;"
-        ::"i"(PIC_INTERR_PIT + IDT_PIC_INTERR_START)
+__attribute__((naked)) void reschedule() {
+    asm volatile (
+        "pushf;"
+        "sti;"
+        "int $0x20;"
+        "popf;"
+        "ret;"
     );
-
-    asm volatile ("push %0; popf;" :: "R"(prev_eflags));
 }
 
 __attribute__((naked)) void kernel_idle() { // loop to jump to when a thread is supposed to end
@@ -61,7 +57,7 @@ thread_t * current_thread = NULL;
 
 pid_t last_pid = 0;
 
-void print_registers(const context_t * context) {
+void print_registers(const mcontext_t * context) {
     kprintf("eax %lx\nebx %lx\necx %lx\nedx %lx\nedi %lx\nesi %lx\n", context->eax, context->ebx, context->ecx, context->edx, context->edi, context->esi);
     kprintf("esp (gregs) %p\nesp (iret) %p\nebp %p\neip %p\nefl %lx\n", context->esp, context->iret_frame.sp, context->ebp, context->iret_frame.ip, context->iret_frame.flags);
     kprintf("ss %lx\ncs %lx\n", context->iret_frame.ss, context->iret_frame.cs);
@@ -86,16 +82,16 @@ void scheduler_print_processes() {
 void scheduler_print_process(const process_t * process) {
     kprintf("\
 Prog:\t%s\n\
-PID:\t%lu\n\
+PID :\t%lu\n\
 PPID:\t%lu\n\
-CPL:\t%d\n\
-UID:\t%lu\n\
-GID:\t%lu\n\
-Sigs:\t%x\n\
-TID:\t%lu\n",
+CPL :\t%d\n\
+UID :\t%lu\n\
+GID :\t%lu\n\
+PSig:\t%llx\n\
+TID :\t%lu\n",
 //Saved Context:\n",
-    (process->argv!=NULL?(process->argv[0] != NULL?process->argv[0]:"(nil)"):"(nil)"), process->pid, process->ppid, process->ring, process->uid,
-    process->gid, process->signal, current_thread->tid);
+    (process->argv!=NULL?(process->argv[0] != NULL?process->argv[0]:"(nil)"):"(nil)"), process->pid, process->parent->pid, process->ring, process->uid,
+    process->gid, (unsigned long long)process->sa_pending, current_thread->tid);
     //print_registers(&process->context);
 }
 
@@ -124,10 +120,12 @@ static inline void push_thread_to_end(process_t * pprocess, thread_t * thread) {
 }
 
 #define KERNEL_ARGV0 "kernel/core"
-static inline void register_kernel_task(context_t * context) {
+static inline void register_kernel_task(mcontext_t * context) {
     kernel_task = kalloc(sizeof(process_t));
     if (!kernel_task) panic("Not enough memory for kernel task!");
     memset(kernel_task, 0, sizeof(process_t));
+
+    kernel_task->parent = kernel_task;
 
     kernel_task->threads = kalloc(sizeof(thread_t));
     if (!kernel_task) panic("Not enough memory for kernel task!");
@@ -136,7 +134,7 @@ static inline void register_kernel_task(context_t * context) {
 
     kernel_task->threads->prev = kernel_task->threads;
 
-    memcpy(&kernel_task->threads->context, context, sizeof(context_t) - 2*sizeof(void*)); // kernel is ring 0 and when switching from ring 0 (interrupt) to ring 0, SS and SP are not pushed
+    memcpy(&kernel_task->threads->context, context, sizeof(mcontext_t) - 2*sizeof(void*)); // kernel is ring 0 and when switching from ring 0 (interrupt) to ring 0, SS and SP are not pushed
 
     kernel_task->threads->context.iret_frame.ss = GDT_KERNEL_DATA << 3; // just so we have correct information here
     kernel_task->threads->context.iret_frame.sp = (void*)kernel_task->threads->context.esp;
@@ -168,14 +166,19 @@ static inline void register_kernel_task(context_t * context) {
 }
 
 
-static inline void scheduler_remove_process(process_t * process) {
-    while (process->threads != NULL) {
-        kernel_destroy_thread(process, process->threads);
+static inline char scheduler_remove_process(process_t * process) {
+    for (thread_t * thread = process->threads; thread != NULL; ) {
+        if (!kernel_destroy_thread(process, thread)) {
+            thread = thread->next;
+        } else {
+            thread = process->threads;
+        }
     }
+    if (process->threads != NULL) return 0;
 
     paging_apply_address_space(paging_virt_addr_to_phys(KERNEL_ADDRESS_SPACE_VADDR));
 
-    PAGE_DIRECTORY_TYPE * mapped_as = paging_map_phys_addr_unspecified(current_process->address_space_paddr, PTE_PDE_PAGE_WRITABLE);
+    PAGE_DIRECTORY_TYPE * mapped_as = paging_map_phys_addr_unspecified(process->address_space_paddr, PTE_PDE_PAGE_WRITABLE);
     paging_destroy_address_space(mapped_as);
     paging_unmap_page(mapped_as);
 
@@ -185,7 +188,7 @@ static inline void scheduler_remove_process(process_t * process) {
         }
     }
 
-    for (int i = 0; i < PROGRAM_MAX_SEMAPHORES; i++) {
+    for (int i = 0; i < SEM_NSEMS_MAX; i++) {
         if (process->semaphores[i] == NULL) continue;
         if (__atomic_sub_fetch(&process->semaphores[i]->used, 1, __ATOMIC_RELAXED) == 0)
             kfree(process->semaphores[i]);
@@ -195,9 +198,10 @@ static inline void scheduler_remove_process(process_t * process) {
 
     //kfree(process);
     // not freed because we want to form a zombie queue for wait()
+    return 1;
 }
 
-static void inline switch_context(process_t * pprocess, thread_t * thread, context_t * context) {
+static void inline switch_context(process_t * pprocess, thread_t * thread, mcontext_t * context) {
     tss_set_stack(thread->kernel_stack);
 
     if (paging_get_address_space_paddr() != thread->cr3_state)  // to prevent TLB flush performance hit
@@ -212,7 +216,7 @@ static void inline switch_context(process_t * pprocess, thread_t * thread, conte
         memcpy(thread->context.esp, &thread->context.iret_frame, sizeof(struct interr_frame));
     }
 
-    memcpy(context, &thread->context, sizeof(context_t)-sizeof(struct interr_frame));
+    memcpy(context, &thread->context, sizeof(mcontext_t)-sizeof(struct interr_frame));
 
     //unsigned int data_segment = (thread->context.iret_frame.cs & ~3) == (GDT_KERNEL_CODE << 3) ? (GDT_KERNEL_DATA << 3) : (thread->context.iret_frame.ss);
     // this top one is the correct approach, but when testing KVM and real hardware, i always had issues with
@@ -232,37 +236,7 @@ static void inline switch_context(process_t * pprocess, thread_t * thread, conte
     );
 }
 
-void signal_process_group(pid_t process_group, unsigned short signal) {
-    if (signal >= __sig_last) return; // not a valid signal
-    spinlock_acquire(&scheduler_lock);
-    process_t * signaled = process_list;
-    thread_t * signaled_thread = NULL;
-    while (signaled != NULL) {
-        if (signaled->pgrp == process_group) {
-            signaled->signal |= GET_SIG_MASK(signal);
-            if (after_signal_states[signal] == SCHED_STOPPED) {
-                signaled->is_stopped = 1;
-                continue;
-            }
-            else if (after_signal_states[signal] == SCHED_RUNNABLE) {
-                signaled->is_stopped = 0;
-                continue;
-            }
-
-            signaled_thread = signaled->threads;
-            while (signaled_thread != NULL) {
-                signaled_thread->status = after_signal_states[signal];
-                signaled_thread = signaled_thread->next;
-            }
-        }
-        signaled = signaled->next;
-    }
-
-    spinlock_release(&scheduler_lock);
-    reschedule();
-}
-
-void schedule(context_t * context) {
+void schedule(mcontext_t * context) {
     if (scheduler_lock.state == SPINLOCK_LOCKED) return;
     spinlock_acquire_nonreentrant(&scheduler_lock);
     if (__builtin_expect(registering_kernel_task, 0)) {
@@ -276,7 +250,7 @@ void schedule(context_t * context) {
     };
 
 
-    if (current_thread != NULL) memcpy(&current_thread->context, context, sizeof(struct context_t) - (((context->iret_frame.cs & ~3) == GDT_KERNEL_CODE << 3) ? 2*sizeof(void *) : 0)); // ring 3 -> ring 0 causes SS and SP to be pushed
+    if (current_thread != NULL) memcpy(&current_thread->context, context, sizeof(mcontext_t) - (((context->iret_frame.cs & ~3) == GDT_KERNEL_CODE << 3) ? 2*sizeof(void *) : 0)); // ring 3 -> ring 0 causes SS and SP to be pushed
     if (current_thread != NULL) current_thread->cr3_state = paging_get_address_space_paddr();
     //tss_set_stack(kernel_ts_stack_top); shouldn't be needed
 
@@ -291,82 +265,96 @@ void schedule(context_t * context) {
     //scheduler_print_processes();
 
     scheduler_start:
-    current_process = process_list;
+    for (process_t * checked_process = process_list; checked_process != NULL; checked_process = checked_process->next) {
+        if (checked_process->do_cleanup || checked_process->threads == NULL) {
+            cleanup_process:
+            if (checked_process->pid == 0) {
+                panic("Tried to kill kernel");
+            } else if (checked_process->pid == 1) {
+                panic("Tried to kill init");
+            }
+            if (!scheduler_remove_process(checked_process))
+                goto partial_cleanup;
 
-    while (current_process != NULL) {
-        current_thread = current_process->threads;
+            // reparent all child processes if any
+            process_t * checked = process_list;
+            process_t * parent = checked_process->parent;
+            if (parent == NULL) panic("Corrupt process structure (parent is NULL)!");
 
-        while (current_thread != NULL) {
-            if (current_thread->instances == 0) panic("Encountered thread with instances 0, UAF?");
-            switch (current_thread->status) {
+            while (checked != NULL) {
+                if (checked->parent == checked_process)
+                    checked->parent = checked_process->parent;
+                checked = checked->next;
+            }
+            // cleanup zombie list
+            checked = zombie_list;
+            while (checked != NULL) {
+                if (checked->parent == checked_process) {
+                    UNLINK_DOUBLE_LINKED_LIST(checked, zombie_list)
+
+                    checked = checked->next;
+                    kfree(checked->prev); // avoid uaf
+                    continue;
+                }
+                checked = checked->next;
+            }
+
+            if (checked_process->sa_handlers[SIGCHLD - 1].sa_handler == SIG_IGN ||
+                checked_process->sa_handlers[SIGCHLD - 1].sa_flags & SA_NOCLDWAIT) {
+                    kfree(checked_process);
+                    goto scheduler_start;
+                }
+
+            APPEND_DOUBLE_LINKED_LIST(checked_process, zombie_list)
+
+            // wake up parent process
+            thread_t * checked_thread = parent->threads;
+            while (checked_thread != NULL) {
+                if (checked_thread->status == SCHED_WAITING) {
+                    checked_thread->status =  SCHED_RUNNABLE;
+                    break;
+                }
+                checked_thread = checked_thread->next;
+            }
+            goto scheduler_start; // internal reschedule()
+        }
+        signal_retry_process(checked_process);
+
+        partial_cleanup:
+        for (thread_t * checked_thread = checked_process->threads; checked_thread != NULL; checked_thread = checked_thread->next) {
+            if (checked_thread->instances == 0) panic("Encountered thread with instances 0, UAF?");
+            switch (checked_thread->status) {
                 case SCHED_RUNNING:
                     break;
                 case SCHED_RUNNABLE:
-                    current_thread->status = SCHED_RUNNING;
-                    push_process_to_end(current_process);
-                    push_thread_to_end(current_process, current_thread);
+                    if (checked_process->is_stopped &&
+                        !checked_thread->in_critical_section)
+                            continue;
+                    checked_thread->status = SCHED_RUNNING;
+                    push_process_to_end(checked_process);
+                    push_thread_to_end(checked_process, checked_thread);
 
-                    switch_context(current_process, current_thread, context);
+                    switch_context(checked_process, checked_thread, context);
+                    // we need the correct address space
+                    if (checked_thread->context.iret_frame.cs & 3) {
+                        signal_dispatch_sa(checked_process, checked_thread);
+                    }
                     spinlock_release(&scheduler_lock);
+                    current_process = checked_process;
+                    current_thread  = checked_thread;
                     return;
-                case SCHED_STOPPED:
                 case SCHED_INTERR_SLEEP:
                 case SCHED_UNINTERR_SLEEP:
                 case SCHED_WAITING:
                     break;
                 case SCHED_THREAD_CLEANUP:
-                    kernel_destroy_thread(current_process, current_thread);
-                    if (current_process->threads != NULL) {
-                        goto scheduler_start;
-                        break;
-                    }
-                case SCHED_CLEANUP: // this means that threads can still run a while before the one calling exit() gets scheduled
-                    if (current_process->pid == 0) {
-                        panic("Tried to kill kernel");
-                    } else if (current_process->pid == 1) {
-                        panic("Tried to kill init");
-                    }
-                    scheduler_remove_process(current_process); // aka any thread can terminate the whole process
-
-                    // reparent all child processes if any
-                    process_t * checked = process_list;
-                    process_t * parent = NULL;
-                    while (checked != NULL) {
-                        if (checked->pid == current_process->ppid)
-                            parent = checked;
-                        if (checked->ppid == current_process->pid)
-                            checked->ppid = current_process->ppid;
-                        checked = checked->next;
-                    }
-                    // cleanup zombie list
-                    checked = zombie_list;
-                    while (checked != NULL) {
-                        if (checked->ppid == current_process->pid) {
-                            UNLINK_DOUBLE_LINKED_LIST(checked, zombie_list)
-
-                            checked = checked->next;
-                            kfree(checked->prev); // avoid uaf
-                            continue;
-                        }
-                        checked = checked->next;
-                    }
-
-                    APPEND_DOUBLE_LINKED_LIST(current_process, zombie_list)
-
-                    // wake up parent process
-                    thread_t * checked_thread = parent->threads;
-                    while (checked_thread != NULL) {
-                        if (checked_thread->status == SCHED_WAITING) {
-                            checked_thread->status = SCHED_RUNNABLE;
-                            break;
-                        }
-                        checked_thread = checked_thread->next;
-                    }
-                    goto scheduler_start; // internal reschedule()
+                    if (checked_thread->in_critical_section)
+                        panic("Thread marked for cleanup in critical section, corrupted process list?");
+                    kernel_destroy_thread(checked_process, checked_thread);
+                    if (checked_process->threads == NULL) goto cleanup_process;
+                    goto scheduler_start;
             }
-            current_thread = current_thread->next;
         }
-        current_process = current_process->next;
     }
     panic("No viable task exists, corrupted process list?");
     __builtin_unreachable();

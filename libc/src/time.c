@@ -2,15 +2,24 @@
 #include "include/sys/times.h"
 #include "include/unistd.h"
 #include "../../src/include/kernel.h"
+#include "include/errno.h"
 
 int nanosleep(const struct timespec * rqtp, struct timespec * rmtp) {
-    return syscall(SYSCALL_NANOSLEEP, rqtp, rmtp);
+    int ret = syscall(SYSCALL_NANOSLEEP, rqtp, rmtp);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return ret;
 }
 
 time_t time(time_t * tloc) {
     if (tloc == NULL) tloc = &(time_t){0};
-    long ret = syscall(SYSCALL_TIME, tloc);
-    if (ret < 0) return ret;
+    int ret = syscall(SYSCALL_TIME, tloc);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
     return *tloc;
 }
 
@@ -18,7 +27,11 @@ clock_t clock() {
     struct tms info = {0};
     clock_t uptime = times(&info);
 
-    if (uptime >= 0xFFFFFFFFFFFFFF00ULL) return uptime; // assuming at most 255 errnos
+
+    if (uptime >= 0xFFFFFFFFFFFFFF00ULL) {
+        errno = (int)(unsigned long long)uptime;
+        return -1;
+    } // assuming at most 255 errnos
 
     return (info.tms_utime + info.tms_stime) / CLOCKS_PER_SEC;
 }

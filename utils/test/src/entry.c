@@ -1,6 +1,8 @@
 #include "../../../libc/src/include/stdio.h"
+#include "../../../libc/src/include/errno.h"
 #include "../../../libc/src/include/dirent.h"
 #include "../../../libc/src/include/string.h"
+#include "../../../libc/src/include/signal.h"
 #include "../../../libc/src/include/stdlib.h"
 #include "../../../libc/src/include/unistd.h"
 #include "../../../libc/src/include/fcntl.h"
@@ -8,6 +10,7 @@
 #include "../../../libc/src/include/uthreads.h"
 #include "../../../libc/src/include/ctype.h"
 #include "../../../libc/src/include/time.h"
+#include "../../../libc/src/include/signal.h"
 #include <stdint.h>
 
 extern void malloc_print_heap_objects();
@@ -31,36 +34,6 @@ void show_help() {
                 "\tmalloc [num] - run malloc with size as integer\n"
                 "\theap - print heap\n"
                 "\tt - run a test thread, get return code\n");
-}
-
-void print_hex_buf(const unsigned char * buf, size_t n) {
-    if (n > 16)
-        for (size_t i = 0; i < n - 16; i += 16) {
-            if (n > UINT16_MAX) printf("%lx  ", i);
-            else printf("%hx  ", (unsigned short)i);
-
-            for (int j = 0; j < 16; j++) {
-                printf("%hhx ", buf[i + j]);
-            }
-            for (int j = 0; j < 16; j++) {
-                printf("%c", isprint(buf[i + j]) ? buf[i + j] : '.');
-            }
-            printf("\n");
-        }
-    if (n % 16 != 0) {
-        if (n > UINT16_MAX) printf("%lx  ", n - (n%16));
-        else printf("%hx  ", (unsigned short)(n - (n%16)));
-        for (int i = 0; i < n%16; i++) {
-            printf("%hhx ", buf[n - (n%16) + i]);
-        }
-        for (int i = 0; i < 16 - (n%16); i++) {
-            printf("   ");
-        }
-        for (int i = 0; i < 16 - (n%16); i++) {
-            printf("%c", isprint(buf[n - (n%16) + i]) ? buf[n - (n%16) + i] : '.');
-        }
-        printf("\n");
-    }
 }
 
 #define MAX_INPUT_BUFFER 128
@@ -119,10 +92,14 @@ int main(int argc, char ** argv) {
     ssize_t read_bytes = 0;
     int wstatus;
 
+    signal(SIGINT, SIG_IGN);
+
     while(1) {
         memset(input_buf, 0, MAX_INPUT_BUFFER);
         printf("> ");
         read_bytes = read(0, input_buf, MAX_INPUT_BUFFER - 1);
+        if (read_bytes == -1 && errno == EINTR) continue; // ctrl+c input cancel
+        if (read_bytes < 0) perror("read()");
         assert(read_bytes > 0);
 
         // strcmp here ok since we don't read into the last null byte
@@ -185,7 +162,14 @@ int main(int argc, char ** argv) {
                     execvp(filename, new_argv);
                     return 127;
                 default:
-                    wait(&wstatus);
+                    if (wait(&wstatus) == -1 && errno == EINTR) {
+                        printf("WINTR ");
+                        break;
+                    }
+                    if (WIFSIGNALED(wstatus)) {
+                        printf("WSIG: %d ", WTERMSIG(wstatus));
+                        break;
+                    }
                     printf("%d ", WEXITSTATUS(wstatus));
             }
         }

@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "include/string.h"
+#include "include/errno.h"
 
 static uint32_t ___internal_rand_state = 1;
 
@@ -39,7 +40,12 @@ void yield() {
 }
 
 pid_t wait(int * wstatus) {
-    return syscall(SYSCALL_WAIT, wstatus);
+    pid_t ret = syscall(SYSCALL_WAIT, wstatus);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return ret;
 }
 
 extern char ** environ;

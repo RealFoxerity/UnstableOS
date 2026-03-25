@@ -1,6 +1,7 @@
 #include "include/uthreads.h"
 #include "include/stdlib.h"
 #include "include/unistd.h"
+#include "include/errno.h"
 #include "../../src/include/kernel.h"
 #include <stdio.h>
 #include <string.h>
@@ -57,7 +58,12 @@ void uthread_exit(struct uthread_args * self, int exitcode) {
 }
 
 semaphore_t semaphore_init(int initial_value) {
-    return syscall(SYSCALL_SEM_INIT, initial_value);
+    semaphore_t ret = syscall(SYSCALL_SEM_INIT, initial_value);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return ret;
 }
 
 void semaphore_post(semaphore_t semaphore_id) {

@@ -1,50 +1,104 @@
 #include <stddef.h>
 #include <stdarg.h>
 #include "include/unistd.h"
+#include "include/signal.h"
 #include "include/time.h"
+#include "include/errno.h"
 #include "../../src/include/kernel.h"
 
 
 int close(int fd) {
-    return syscall(SYSCALL_CLOSE, fd);
+    int ret = syscall(SYSCALL_CLOSE, fd);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return ret;
 }
 ssize_t write(int fd, const void * buf, size_t count) {
-    return syscall(SYSCALL_WRITE, fd, buf, count);
+    ssize_t ret = syscall(SYSCALL_WRITE, fd, buf, count);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return ret;
 }
 ssize_t read (int fd, void * buf, size_t count) {
-    return syscall(SYSCALL_READ, fd, buf, count);
+    ssize_t ret = syscall(SYSCALL_READ, fd, buf, count);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return ret;
 }
 
 off_t lseek(int fd, off_t offset, int whence) {
-    return syscall(SYSCALL_SEEK, fd, offset, whence);
+    off_t ret = syscall(SYSCALL_SEEK, fd, offset, whence);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return ret;
 }
 
 int dup(int fd) {
-    return syscall(SYSCALL_DUP, fd);
+    int ret = syscall(SYSCALL_DUP, fd);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return ret;
 }
 int dup2(int oldfd, int newfd) {
-    return syscall(SYSCALL_DUP2, oldfd, newfd);
+    int ret = syscall(SYSCALL_DUP2, oldfd, newfd);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return ret;
 }
 
 
 int chdir(const char * path) {
-    return syscall(SYSCALL_CHDIR, path);
+    int ret = syscall(SYSCALL_CHDIR, path);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return ret;
 }
 int chroot(const char * path) {
-    return syscall(SYSCALL_CHROOT, path);
+    int ret = syscall(SYSCALL_CHROOT, path);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return ret;
 }
 
 pid_t fork() {
-    return syscall(SYSCALL_FORK);
+    pid_t ret = syscall(SYSCALL_FORK);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return ret;
 }
 pid_t spawn(const char * path, char * const* argv, char * const* envp) {
-    return syscall(SYSCALL_SPAWN, path, argv, envp);
+    pid_t ret = syscall(SYSCALL_SPAWN, path, argv, envp);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return ret;
 }
 
 pid_t getpid() {
     return syscall(SYSCALL_GETPID);
 }
-
+pid_t gettid() {
+    return syscall(SYSCALL_GETTID);
+}
 pid_t getppid() {
     return syscall(SYSCALL_GETPPID);
 }
@@ -57,6 +111,10 @@ unsigned sleep(unsigned seconds) {
     if (ret < 0) return ret;
 
     return actual.tv_sec;
+}
+
+int pause() {
+    return sigpause(0);
 }
 
 long syscall(unsigned long syscall_number, ...) { // interrupt handler in kernel_syscall.c

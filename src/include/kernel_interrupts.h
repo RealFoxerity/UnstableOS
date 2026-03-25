@@ -25,7 +25,7 @@ enum pic_interrupt_requests {
     PIC_INTERR_FLOPPY,
     PIC_INTERR_LPT1, // can be spurious
 
-    
+
     // slave
     PIC_INTERR_CMOS_RTC,
     PIC_INTERR_USER_1,
@@ -95,13 +95,7 @@ enum reserved_idt_interrupts {
 extern const char reserved_idt_interr_has_error[RES_INTERR_EXCEPTION_COUNT];
 extern const void * cpu_interr_handlers[RES_INTERR_EXCEPTION_COUNT];
 extern const void * pic_interr_handlers[PIC_INTERR_COUNT];
-struct interr_frame {
-    void * ip; // instruction pointer
-    unsigned long cs; // code segment
-    unsigned long flags; // check flags, e.g. LT IZ ...
-    void * sp; // stack pointer
-    unsigned long ss; // stack segment
-} __attribute__((packed));
+#include "../../libc/src/include/signal.h" // for the interr_frame struct
 
 void print_segment_selector_error(unsigned long error);
 void print_interr_frame(struct interr_frame * interr_frame);
@@ -109,7 +103,8 @@ void print_interr_frame(struct interr_frame * interr_frame);
 __attribute__((interrupt, no_caller_saved_registers)) void general_fault_handler_error(struct interr_frame * interrupt_frame, unsigned long error);
 __attribute__((interrupt, no_caller_saved_registers)) void general_fault_handler_no_error(struct interr_frame * interrupt_frame);
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_default(struct interr_frame * interrupt_frame);
-__attribute__((interrupt, no_caller_saved_registers)) void interr_page_fault(struct interr_frame * interrupt_frame, unsigned long error);
+
+__attribute__((naked, no_caller_saved_registers)) void interr_page_fault(struct interr_frame * interrupt_frame, unsigned long error);
 
 __attribute__((naked, no_caller_saved_registers)) void interr_syscall(struct interr_frame * interrupt_frame);
 

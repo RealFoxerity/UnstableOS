@@ -24,19 +24,19 @@ static int get_free_memdisk() { // call with locked memdisk_lock
     return selected;
 }
 
-long memdisk_deinit(dev_t dev) { // TODO: rewrite with some better locking, this could theoretically race to mem->busy 
-    if (MAJOR(dev) != DEV_MAJ_MEM) return EINVAL;
-    if (MINOR(dev) > DEV_MEM_MEMDISK3) return EINVAL;
+long memdisk_deinit(dev_t dev) { // TODO: rewrite with some better locking, this could theoretically race to mem->busy
+    if (MAJOR(dev) != DEV_MAJ_MEM) return -EINVAL;
+    if (MINOR(dev) > DEV_MEM_MEMDISK3) return -EINVAL;
 
     spinlock_acquire(&memdisk_lock);
     memdisk_t * mem = &memdisks[MINOR(dev)];
     if (!mem->used) {
         spinlock_release(&memdisk_lock);
-        return EINVAL;
+        return -EINVAL;
     }
     if (mem->busy) {
         spinlock_release(&memdisk_lock);
-        return EBUSY;
+        return -EBUSY;
     } else {
         mem->used = 0;
     }
@@ -80,11 +80,11 @@ dev_t memdisk_from_range(void * vaddr, size_t n) {
 }
 
 ssize_t memdisk_read_internal(dev_t dev, size_t seek, void * s, size_t n) {
-    if (MAJOR(dev) != DEV_MAJ_MEM) return EINVAL;
-    if (MINOR(dev) > DEV_MEM_MEMDISK3) return EINVAL;
+    if (MAJOR(dev) != DEV_MAJ_MEM) return -EINVAL;
+    if (MINOR(dev) > DEV_MEM_MEMDISK3) return -EINVAL;
 
-    if (!memdisks[MINOR(dev)].used) return EINVAL;
-    if (seek > INT32_MAX) return E2BIG;
+    if (!memdisks[MINOR(dev)].used) return -EINVAL;
+    if (seek > INT32_MAX) return -E2BIG;
     if (seek >= memdisks[MINOR(dev)].size) return 0;
 
     __atomic_add_fetch(&memdisks[MINOR(dev)].busy, 1, __ATOMIC_RELAXED);
@@ -100,12 +100,12 @@ ssize_t memdisk_read_internal(dev_t dev, size_t seek, void * s, size_t n) {
 }
 
 ssize_t memdisk_write_internal(dev_t dev, size_t seek, const void * s, size_t n) {
-    if (MAJOR(dev) != DEV_MAJ_MEM) return EINVAL;
-    if (MINOR(dev) > DEV_MEM_MEMDISK3) return EINVAL;
+    if (MAJOR(dev) != DEV_MAJ_MEM) return -EINVAL;
+    if (MINOR(dev) > DEV_MEM_MEMDISK3) return -EINVAL;
 
-    if (!memdisks[MINOR(dev)].used) return EINVAL;
-    if (seek > INT32_MAX) return E2BIG;
-    if (seek > memdisks[MINOR(dev)].size) return EFBIG;
+    if (!memdisks[MINOR(dev)].used) return -EINVAL;
+    if (seek > INT32_MAX) return -E2BIG;
+    if (seek > memdisks[MINOR(dev)].size) return -EFBIG;
     if (seek == memdisks[MINOR(dev)].size) return 0;
 
     __atomic_add_fetch(&memdisks[MINOR(dev)].busy, 1, __ATOMIC_RELAXED);
@@ -138,7 +138,7 @@ ssize_t memdisk_write(file_descriptor_t * fd, const void * s, size_t n) {
     kassert(s);
     if (n == 0) return 0;
     if (n > INT32_MAX) n = INT32_MAX;
-    
+
     ssize_t write =  memdisk_write_internal(fd->inode->device, fd->off, s, n);
     if (write > 0) fd->off += write;
     return write;
@@ -149,30 +149,30 @@ off_t memdisk_seek(file_descriptor_t * fd, off_t off, int whence) { // offsets o
 
     dev_t dev = fd->inode->device;
 
-    if (MAJOR(dev) != DEV_MAJ_MEM) return EINVAL;
-    if (MINOR(dev) > DEV_MEM_MEMDISK3) return EINVAL;
+    if (MAJOR(dev) != DEV_MAJ_MEM) return -EINVAL;
+    if (MINOR(dev) > DEV_MEM_MEMDISK3) return -EINVAL;
 
     memdisk_t * memdisk = &memdisks[MINOR(dev)];
-    if (!memdisk->used) return EINVAL;
+    if (!memdisk->used) return -EINVAL;
 
     switch (whence) {
         case SEEK_SET:
-            if (off < 0) return EINVAL;
+            if (off < 0) return -EINVAL;
             return fd->off = off;
         case SEEK_CUR:
-            if (fd->off + off > fd->off && off < 0) return EINVAL; // underflow - negative offset
-            if (fd->off + off < fd->off && off > 0) return E2BIG; // overflow
+            if (fd->off + off > fd->off && off < 0) return -EINVAL; // underflow - negative offset
+            if (fd->off + off < fd->off && off > 0) return -E2BIG; // overflow
 
             return fd->off = fd->off + off;
         case SEEK_END:
             if (off >= 0) {
-                if (fd->off + off > fd->off && off < 0) return EINVAL; // underflow - negative offset
-                if (fd->off + off < fd->off && off > 0) return E2BIG; // overflow
+                if (fd->off + off > fd->off && off < 0) return -EINVAL; // underflow - negative offset
+                if (fd->off + off < fd->off && off > 0) return -E2BIG; // overflow
                 return fd->off = memdisk->size + off;
             }
             else if (off < 0 && -off <= fd->off) return fd->off = fd->off - off;
-            return EINVAL; // negative offset
+            return -EINVAL; // negative offset
         default:
-            return EINVAL;
+            return -EINVAL;
     }
 }

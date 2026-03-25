@@ -45,7 +45,7 @@
 #define CPUID_1_FFLAGS_D_GET_CX8(x) ((x>>8)&1) // CMPXCHG8B
 #define CPUID_1_FFLAGS_D_GET_APIC(x) ((x>>9)&1) // contains onboard apic
 #define CPUID_1_FFLAGS_D_GET_SEP(x) ((x>>11)&1) // has sysenter/sysexit
-#define CPUID_1_FFLAGS_D_GET_ACPI(x) ((x>>22)&1) // Onboard thermal control MSRs for ACPI 
+#define CPUID_1_FFLAGS_D_GET_ACPI(x) ((x>>22)&1) // Onboard thermal control MSRs for ACPI
 #define CPUID_1_FFLAGS_D_GET_HTT(x) ((x>>28)&1) // "Max APIC IDs reserved field is Valid" (hyperthreading is enabled)
 
 

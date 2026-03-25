@@ -28,7 +28,7 @@ void * page_frame_alloc_init(multiboot_info_t* mbd, unsigned long free_memory, v
         free_space_start_page += PAGE_SIZE_NO_PAE - ((unsigned long)free_space_start_page%PAGE_SIZE_NO_PAE);
         free_memory -= PAGE_SIZE_NO_PAE - ((unsigned long)free_space_start_page%PAGE_SIZE_NO_PAE);
     }
-    
+
     page_frame_table = free_space_start_page;
 
     page_frame_table_entries = free_memory/PAGE_SIZE_NO_PAE; // we may lose < 1 PAGE_SIZE_NO_PAE worth of memory
@@ -50,7 +50,7 @@ void * page_frame_alloc_init(multiboot_info_t* mbd, unsigned long free_memory, v
 
             unsigned long end = mmmt->addr + mmmt->len;
             if (end%PAGE_SIZE_NO_PAE != 0) end = end + PAGE_SIZE_NO_PAE - end%PAGE_SIZE_NO_PAE;
-            
+
             for (int i = start; i < end; i += PAGE_SIZE_NO_PAE) {
                 if (end > (unsigned long)page_frame_table_start_addr+page_frame_table_entries*PAGE_SIZE_NO_PAE) break; // shouldn't happen if kernel.c memory detection works
                 page_frame_table[(i-(unsigned long)page_frame_table_start_addr)/PAGE_SIZE_NO_PAE] = PFALLOC_UNUSABLE;
@@ -144,7 +144,7 @@ void * pfalloc_1M() {
         next_iter:
         if (page_frame_table[i] == PFALLOC_UNUSED) {
             if (page_frame_table_entries - i < PAGE_COUNT_1M) return NULL;
-            
+
             for (int j = 0; j < PAGE_COUNT_1M; j++) {
                 if (page_frame_table[i+j] == 1) {
                     i+=j+1;
@@ -178,18 +178,18 @@ void pffree(void *page) {
     __atomic_sub_fetch(&page_frame_table[page_index], 1, __ATOMIC_RELAXED);
 }
 
-void pffree_1M(void * block_4M_start) {
-    if (block_4M_start < page_frame_table_start_addr) {
-        kprintf("Warning: Tried to free 1M block outside (below) of managed range paddr %p!\n", block_4M_start);
+void pffree_1M(void * block_1M_start) {
+    if (block_1M_start < page_frame_table_start_addr) {
+        kprintf("Warning: Tried to free 1M block outside (below) of managed range paddr %p!\n", block_1M_start);
         return;
     }
-    if (block_4M_start > page_frame_table_start_addr + page_frame_table_entries*PAGE_SIZE_NO_PAE) {
-        kprintf("Warning: Tried to free 1M block outside (above) of managed range paddr %p!\n", block_4M_start);
+    if (block_1M_start > page_frame_table_start_addr + page_frame_table_entries*PAGE_SIZE_NO_PAE) {
+        kprintf("Warning: Tried to free 1M block outside (above) of managed range paddr %p!\n", block_1M_start);
         return;
     }
-    int page_index = (block_4M_start - page_frame_table_start_addr)/PAGE_SIZE_NO_PAE;
+    int page_index = (block_1M_start - page_frame_table_start_addr)/PAGE_SIZE_NO_PAE;
     for (int i = 0; i < PAGE_COUNT_1M; i++) {
-        if (page_frame_table[page_index+i] == PFALLOC_UNUSED) kprintf("Warning: Tried to double free element %d of 1M block paddr %p\n", page_index+i, block_4M_start);
+        if (page_frame_table[page_index+i] == PFALLOC_UNUSED) kprintf("Warning: Tried to double free element %d of 1M block paddr %p\n", page_index+i, block_1M_start);
         __atomic_sub_fetch(&page_frame_table[page_index+i], 1, __ATOMIC_RELAXED);
     }
 }

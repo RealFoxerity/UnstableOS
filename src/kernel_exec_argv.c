@@ -3,7 +3,7 @@
 #include "include/kernel_sched.h"
 #include "include/mm/kernel_memory.h"
 #include "../libc/src/include/string.h"
-#include "include/errno.h"
+#include "../libc/src/include/errno.h"
 #include <stddef.h>
 
 static char check_address(const void * address) {
@@ -27,22 +27,22 @@ static ssize_t vector_check(char * const* vec, size_t vec_size, size_t * count_o
     size_t argc = 0;
     // enumerate and check the list to determine item count
     for (argc = 0; vec_size < ARG_MAX; argc++, vec_size += sizeof(const char *)) {
-        if (!check_address(vec + argc)) return EFAULT;
+        if (!check_address(vec + argc)) return -EFAULT;
         if (vec[argc] == NULL) break;
-        if (!check_address(vec[argc])) return EFAULT;
+        if (!check_address(vec[argc])) return -EFAULT;
     }
     vec_size += sizeof(const char *); // add the NULL pointer (see the System V ABI)
     // ran into the size limit before the guarding NULL
-    if (vec[argc] != NULL) return EFAULT;
-    if (vec_size > ARG_MAX) return E2BIG;
+    if (vec[argc] != NULL) return -EFAULT;
+    if (vec_size > ARG_MAX) return -E2BIG;
 
     // enumerate the strings - check if we can do strcpy
     for (int i = 0; i < argc; i++) {
         for (int j = 0; vec[i][j] != '\0'; j++, vec_size++) {
-            if (!check_address(vec)) return EFAULT;
+            if (!check_address(vec)) return -EFAULT;
         }
         vec_size++; // add the null byte
-        if (vec_size > ARG_MAX) return E2BIG;
+        if (vec_size > ARG_MAX) return -E2BIG;
     }
     *count_out = argc;
     return vec_size;
@@ -75,10 +75,10 @@ enum auxv_types {
 };
 
 ssize_t exec_safe_argv_dup(char * const* argv, char * const* envp, void * stack_top_addr, char ** stack_out) {
-    if (argv == NULL) return EFAULT;
-    if (envp == NULL) return EFAULT;
-    if (!check_address(argv)) return EFAULT;
-    if (!check_address(envp)) return EFAULT;
+    if (argv == NULL) return -EFAULT;
+    if (envp == NULL) return -EFAULT;
+    if (!check_address(argv)) return -EFAULT;
+    if (!check_address(envp)) return -EFAULT;
 
     kassert(stack_out);
 

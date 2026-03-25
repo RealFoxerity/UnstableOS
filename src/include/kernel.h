@@ -46,8 +46,6 @@
     list->prev = item;                              \
 }
 
-#define PATH_MAX 4096
-
 #define SYSCALL_INTERR 0xF0 // if changing, change crt0.s
 
 enum syscalls {
@@ -84,10 +82,21 @@ enum syscalls {
 
     SYSCALL_GETPID,
     SYSCALL_GETPPID,
+    SYSCALL_GETTID,
     //SYSCALL_SETSID,
     SYSCALL_GETPGID, // getpgid(pid_t target_pid)
     SYSCALL_SETPGID, // setpgid(pid_t target_pid, pid_t target_pgid)
+
     SYSCALL_KILL,
+    SYSCALL_TGKILL,
+
+    SYSCALL_SIGACTION,
+    SYSCALL_SIGRETURN,
+    SYSCALL_SIGPROCMASK,
+    SYSCALL_SIGPENDING,
+    SYSCALL_SIGSUSPEND,
+    SYSCALL_SIGQUEUE,
+
     SYSCALL_WAIT, // waits on any child to exit(), pid_t wait()
 
     SYSCALL_CREATE_THREAD, // create_thread(void (* entry_point)(void*), void * args)
@@ -120,4 +129,11 @@ void __attribute__((format(printf, 1, 2))) kprintf(const char *format, ...);
 void __attribute__((noreturn)) panic(char * reason);
 
 void kernel_reset_system(); // kernel_ps2.c
+
+
+
+// feature macros
+#define SYSCALLS_RESCHEDULE
+#define WAIT_ACTS_AS_WUNTRACED // we don't yet support waitid/waitpid with options :P
+
 #endif

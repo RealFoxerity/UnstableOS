@@ -60,7 +60,7 @@ unsigned long pf_get_free_memory();
 void * pfalloc(); // page frame allocator, returns the amount of free space left after physical page housekeeping
 void * pfalloc_1M(); // gets a 1M contiguous memory region, for dma and such
 void pffree(void * page);
-void pffree_1M(void * block_4M_start); // frees memory gotten by pfalloc_1M
+void pffree_1M(void * block_1M_start); // frees memory gotten by pfalloc_1M
 void * pfalloc_dup_page(void * page);
 void * pfalloc_ref_inc(void * page);
 

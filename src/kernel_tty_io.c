@@ -1,6 +1,6 @@
 #include "include/kernel_tty_io.h"
 #include "include/devs.h"
-#include "include/errno.h"
+#include "../libc/src/include/errno.h"
 #include "include/fs/fs.h"
 #include "include/kernel.h"
 #include "include/kernel_sched.h"
@@ -42,13 +42,13 @@ static size_t tty_console_write(tty_t * tty) {
 }
 
 tty_t * tty_init_tty(tcflag_t imodes, tcflag_t lmodes, tcflag_t omodes, const unsigned char * control_chars,
-                    size_t height, size_t width, 
+                    size_t height, size_t width,
                     size_t (*write)(struct tty_t *), char com_port,
                     pid_t controlling_session, pid_t foreground_pgrp) {
     tty_t * new_tty = kalloc(sizeof(tty_t));
     if (!new_tty) return NULL;
     memset(new_tty, 0, sizeof(tty_t));
-    
+
     *new_tty = (tty_t) {
         .used = 1,
         .foreground_pgrp = foreground_pgrp,
@@ -61,7 +61,7 @@ tty_t * tty_init_tty(tcflag_t imodes, tcflag_t lmodes, tcflag_t omodes, const un
         .params.omodes = omodes,
     };
     memcpy(new_tty->params.control_chars, control_chars, sizeof(new_tty->params.control_chars));
-    
+
     return new_tty;
 }
 
@@ -76,14 +76,14 @@ void tty_register(tty_t * tty, dev_t minor) {
 
 void tty_alloc_kernel_console() { // for the kernel task, don't call for user processes
     if (kernel_task == NULL) panic("Tried to allocate console before initializing kernel task!");
-    
+
     tty_t * kernel_console = tty_init_tty(
         TTY_I_CRNL,
         TTY_L_ECHO | TTY_L_ECHOE | TTY_L_ECHOK | TTY_L_ECHOCTL | TTY_L_ICANON | TTY_L_ISIG,
         TTY_O_POST | TTY_O_NLCR,
-        default_control_chars, 
-        display_height, display_width, 
-        tty_console_write, 0, 
+        default_control_chars,
+        display_height, display_width,
+        tty_console_write, 0,
         0, 0);
     tty_register(kernel_console, DEV_TTY_0);
     tty_register(kernel_console, DEV_TTY_S0);
@@ -91,12 +91,13 @@ void tty_alloc_kernel_console() { // for the kernel task, don't call for user pr
 
 int tty_queue_getch(struct tty_queue * tq) { // if 256, got SIGALRM
     kassert(tq->head < TTY_BUFFER_SIZE && tq->tail < TTY_BUFFER_SIZE);
-    
+
     again:
-    while (EMPTY(tq) && !(current_process->signal & ~MASK_SIGALRM)) { // buffer empty or recieved alarm (timer)
+    if (EMPTY(tq))
         thread_queue_add(&tq->read_queue, current_process, current_thread, SCHED_INTERR_SLEEP);
-    }
-    if (current_process->signal & ~MASK_SIGALRM) return 256;
+    if (current_thread->sa_to_be_handled)
+        return 256; // any signal interrupting
+
     char out = 0;
     spinlock_acquire_interruptible(&tq->queue_lock);
     if (EMPTY(tq)) {
@@ -113,16 +114,19 @@ int tty_queue_getch(struct tty_queue * tq) { // if 256, got SIGALRM
 
 #define TTY_QUEUE_MODE 0 // 0 = discards new input, 1 = overwrites old input, 2 = blocks until writable
 
-void tty_queue_putch(struct tty_queue * tq, char c) {
+int tty_queue_putch(struct tty_queue * tq, char c) {
     kassert(tq->head < TTY_BUFFER_SIZE && tq->tail < TTY_BUFFER_SIZE);
     spinlock_acquire_interruptible(&tq->queue_lock);
     while (FULL(tq)) { // buffer full
         kprintf("tty buffer full, flushing\n");
         thread_queue_unblock(&tq->read_queue);
-
+        if (current_thread->sa_to_be_handled) {
+            spinlock_release(&tq->queue_lock);
+            return 256;
+        }
         #if TTY_QUEUE_MODE == 0
             spinlock_release(&tq->queue_lock);
-            return; // discards new data
+            return 0; // discards new data
         #elif TTY_QUEUE_MODE == 1
             DEC(tq); // rewrites old data
         #elif TTY_QUEUE_MODE == 2
@@ -136,7 +140,8 @@ void tty_queue_putch(struct tty_queue * tq, char c) {
     INC(tq);
     //thread_queue_unblock(&tq->read_queue); // commented out, because flushing is handled by the icannon flag
     spinlock_release(&tq->queue_lock);
-} 
+    return 0;
+}
 
 void tty_flush_input(tty_t * tty) { // flush for reading on new line or EOF in case of canonical/line buffered mode
     thread_queue_unblock(&tty->iqueue.read_queue);
@@ -156,11 +161,14 @@ static inline char tty_remove_char(tty_t * tty, char is_vkill) { // cannon mode,
         if (!(
             tty->iqueue.buffer[tty->iqueue.tail-1] == '\n' ||
             (tty->params.control_chars[TCC_VEOF] != _POSIX_VDISABLE && tty->iqueue.buffer[tty->iqueue.tail-1] == tty->params.control_chars[TCC_VEOF]) ||
-            (tty->params.control_chars[TCC_VEOL] != _POSIX_VDISABLE && tty->iqueue.buffer[tty->iqueue.tail-1] == tty->params.control_chars[TCC_VEOL]) 
+            (tty->params.control_chars[TCC_VEOL] != _POSIX_VDISABLE && tty->iqueue.buffer[tty->iqueue.tail-1] == tty->params.control_chars[TCC_VEOL])
         )) {
             if (!is_vkill && tty->params.lmodes & TTY_L_ECHO) {
                 if (tty->params.lmodes & TTY_L_ECHOE) {
-                    tty_translate_line_outgoing("\b \b", 3, tty);
+                    if (tty_translate_line_outgoing("\b \b", 3, tty) != 3) {
+                        spinlock_release(&tty->iqueue.queue_lock);
+                        return -1;
+                    }
                     if (tty->params.lmodes & TTY_L_ECHOCTL) {
                         if (tty->iqueue.buffer[tty->iqueue.tail-1] < ' ' ||
 
@@ -168,12 +176,18 @@ static inline char tty_remove_char(tty_t * tty, char is_vkill) { // cannon mode,
                             tty->iqueue.buffer[tty->iqueue.tail-1] == tty->params.control_chars[TCC_VERASE])) // probably not gonna happen
                         {
                             // remove the ^ from ^X escape
-                            tty_translate_line_outgoing("\b \b", 3, tty);
+                            if (tty_translate_line_outgoing("\b \b", 3, tty) != 3) {
+                                spinlock_release(&tty->iqueue.queue_lock);
+                                return -1;
+                            }
                         }
                     }
                 }
                 else {
-                    tty_translate_line_outgoing((const char *)&tty->params.control_chars[TCC_VERASE], 1, tty);
+                    if (tty_translate_line_outgoing((const char *)&tty->params.control_chars[TCC_VERASE], 1, tty) != 1) {
+                        spinlock_release(&tty->iqueue.queue_lock);
+                        return -1;
+                    }
                 }
             }
             DEC_LAST(&tty->iqueue);
@@ -185,13 +199,14 @@ static inline char tty_remove_char(tty_t * tty, char is_vkill) { // cannon mode,
     return 0;
 }
 
-static inline void tty_remove_line(tty_t * tty) { // cannon mode, KILL char
+static inline char tty_remove_line(tty_t * tty) { // cannon mode, KILL char
     while (tty_remove_char(tty, 1));
     if (tty->params.lmodes & TTY_L_ECHO) {
-        tty_translate_line_outgoing((const char *)&tty->params.control_chars[TCC_VKILL], 1, tty);
+        if (tty_translate_line_outgoing((const char *)&tty->params.control_chars[TCC_VKILL], 1, tty) != 1) return -1;
         if (tty->params.lmodes & TTY_L_ECHOK)
-            tty_translate_line_outgoing("\n", 1, tty);
+            if (tty_translate_line_outgoing("\n", 1, tty) != 1) return -1;
     }
+    return 0;
 }
 
 // TODO: check ordering of operations
@@ -218,11 +233,11 @@ static inline size_t tty_translate_line_incoming(const char * s, size_t n, tty_t
 
         if (tty->params.lmodes & TTY_L_ICANON) {
             if (tty->params.control_chars[TCC_VERASE] != _POSIX_VDISABLE && checked == tty->params.control_chars[TCC_VERASE]) {
-                tty_remove_char(tty, 0);
+                if (tty_remove_char(tty, 0) == -1) return i;
                 continue;
             }
             if (tty->params.control_chars[TCC_VKILL] != _POSIX_VDISABLE && checked == tty->params.control_chars[TCC_VKILL]) {
-                tty_remove_line(tty);
+                if (tty_remove_line(tty) == -1) return i;
                 continue;
             }
         }
@@ -245,22 +260,23 @@ static inline size_t tty_translate_line_incoming(const char * s, size_t n, tty_t
             default:
                 if (tty->params.lmodes & TTY_L_ISIG) {
                     if (tty->params.control_chars[TCC_VINTR] != _POSIX_VDISABLE && checked == tty->params.control_chars[TCC_VINTR]) {
-                        if (tty->params.imodes & TTY_I_IGNBRK) break; // since both at the same time doesn't make sense, probably better to just ignore
-                        if (tty->params.imodes & TTY_I_BRKINT) {
-                            // tty_flush_buffers()
-                            signal_process_group(tty->foreground_pgrp, SIGINT);
-                            break;
-                        }
-                        skip_char = 1;
+                        signal_process_group(tty->foreground_pgrp, &(siginfo_t) {.si_signo = SIGINT });
+                        tty_flush_input(tty);
+                        return i;
                     } else if (tty->params.control_chars[TCC_VQUIT] != _POSIX_VDISABLE && checked == tty->params.control_chars[TCC_VQUIT]) {
-                        signal_process_group(tty->foreground_pgrp, SIGQUIT);
-                        break;
+                        signal_process_group(tty->foreground_pgrp, &(siginfo_t) {.si_signo = SIGQUIT });
+                        tty_flush_input(tty);
+                        return i;
+                    } else if (tty->params.control_chars[TCC_VSUSP] != _POSIX_VDISABLE && checked == tty->params.control_chars[TCC_VSUSP]) {
+                        signal_process_group(tty->foreground_pgrp, &(siginfo_t) {.si_signo = SIGTSTP });
+                        tty_flush_input(tty);
+                        return i;
                     }
                 }
         }
         if (skip_char) continue;
 
-        tty_queue_putch(&tty->iqueue, final);
+        if (tty_queue_putch(&tty->iqueue, final) == 256) return i;
         if (tty->params.lmodes & TTY_L_ECHO) {
             if (tty->params.lmodes & TTY_L_ECHOCTL && final < ' ') {
                 if ((tty->params.control_chars[TCC_VSTART] != _POSIX_VDISABLE &&
@@ -271,24 +287,24 @@ static inline size_t tty_translate_line_incoming(const char * s, size_t n, tty_t
 
                     final == '\n' || final == '\t')
                 {
-                    tty_translate_line_outgoing(&final, 1, tty);
+                    if (tty_translate_line_outgoing(&final, 1, tty) != 1) return i;
                 } else {
-                    tty_translate_line_outgoing("^", 1, tty);
-                    tty_translate_line_outgoing(&(char){final + '@'}, 1, tty);
+                    if (tty_translate_line_outgoing("^", 1, tty) != 1) return i;
+                    if (tty_translate_line_outgoing(&(char){final + '@'}, 1, tty) != 1) return i;
                 }
             } else if (tty->params.lmodes & TTY_L_ECHOCTL &&
                     !(tty->params.lmodes & TTY_L_ICANON) &&
                     final == 0x7f)
             {
-                tty_translate_line_outgoing("^?", 2, tty);    
+                if (tty_translate_line_outgoing("^?", 2, tty) != 2) return i;
             } else {
-                tty_translate_line_outgoing(&final, 1, tty);
+                if (tty_translate_line_outgoing(&final, 1, tty) != 1) return i;
             }
         }
 
-        if (tty->params.lmodes & TTY_L_ICANON && 
-                (final == '\n' || 
-                (tty->params.control_chars[TCC_VEOF] != _POSIX_VDISABLE && final == tty->params.control_chars[TCC_VEOF]) || 
+        if (tty->params.lmodes & TTY_L_ICANON &&
+                (final == '\n' ||
+                (tty->params.control_chars[TCC_VEOF] != _POSIX_VDISABLE && final == tty->params.control_chars[TCC_VEOF]) ||
                 (tty->params.control_chars[TCC_VEOL] != _POSIX_VDISABLE && final == tty->params.control_chars[TCC_VEOL]))) {
             tty_flush_input(tty);
         } else if (!(tty->params.lmodes & TTY_L_ICANON) &&
@@ -309,7 +325,7 @@ static size_t tty_translate_line_outgoing(const char * s, size_t n, tty_t * tty)
     if (tty->write == NULL) return n; // useless to write to a nonbacked tty
 
     if (!(tty->params.omodes & TTY_O_POST)) { // to avoid useless switch
-        for (size_t i = 0; i < n; i++) tty_queue_putch(&tty->oqueue, s[i]);
+        for (size_t i = 0; i < n; i++) if (tty_queue_putch(&tty->oqueue, s[i]) == 256) return i;
         return n;
     }
 
@@ -317,22 +333,22 @@ static size_t tty_translate_line_outgoing(const char * s, size_t n, tty_t * tty)
         switch (s[i]) {
             case '\r':
                 if (tty->params.omodes & TTY_O_CRNL) {
-                    tty_queue_putch(&tty->oqueue, '\n');
+                    if (tty_queue_putch(&tty->oqueue, '\n') == 256) return i;
                     break;
                 }
             case '\n':
                 if (tty->params.omodes & TTY_O_NLCR) {
-                    if (!(tty->params.omodes & TTY_O_CRNL)) tty_queue_putch(&tty->oqueue, '\r');
-                    else tty_queue_putch(&tty->oqueue, '\n'); // \n twice? TODO: implement ONOCR, requires tracking current position
-                    tty_queue_putch(&tty->oqueue, '\n');
+                    if (!(tty->params.omodes & TTY_O_CRNL)) {if (tty_queue_putch(&tty->oqueue, '\r') == 256) return i;}
+                    else {if (tty_queue_putch(&tty->oqueue, '\n') == 256) return i;} // \n twice? TODO: implement ONOCR, requires tracking current position
+                    if (tty_queue_putch(&tty->oqueue, '\n') == 256) return i;
                     break;
                 }
             default:
-                tty_queue_putch(&tty->oqueue, s[i]);
+                if (tty_queue_putch(&tty->oqueue, s[i]) == 256) return i;
         }
-        //if (tty->params.lmodes & TTY_L_ICANON && 
-        //        (s[i] == '\n' || 
-        //        (tty->params.control_chars[TCC_VEOF] != _POSIX_VDISABLE && s[i] == tty->params.control_chars[TCC_VEOF]) || 
+        //if (tty->params.lmodes & TTY_L_ICANON &&
+        //        (s[i] == '\n' ||
+        //        (tty->params.control_chars[TCC_VEOF] != _POSIX_VDISABLE && s[i] == tty->params.control_chars[TCC_VEOF]) ||
         //        (tty->params.control_chars[TCC_VEOL] != _POSIX_VDISABLE && s[i] == tty->params.control_chars[TCC_VEOL]))) {
         //    tty->write(tty);
         //}
@@ -354,36 +370,44 @@ static inline char is_valid_tty(dev_t dev) { // checks if the device is a valid 
 
 ssize_t tty_read(dev_t dev, char * s, size_t n) {
     if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE)) dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_S0); // kernel console can only read (which shouldn't happen anyway) from first serial
-    if (!is_valid_tty(dev)) return EINVAL;
-    
+    if (!is_valid_tty(dev)) return -EINVAL;
+
+    if (n == 0) return 0;
+
     kassert(current_process);
-    
+
     tty_t * tty = terminals[MINOR(dev)];
 
-    while (current_process->pgrp != tty->foreground_pgrp) {
-        signal_process_group(current_process->pgrp, SIGTTIN);
+    if (current_process->pgrp != tty->foreground_pgrp) {
+        signal_process_group(current_process->pgrp, &(siginfo_t) {.si_signo = SIGTTIN });
+        return -EINTR;
     }
-    
-    if (tty->read_remaining != 0) return EAGAIN; // something else is already reading
- 
+
+    if (tty->read_remaining != 0) return -EAGAIN; // something else is already reading
+
     while (!__atomic_compare_exchange_n(&tty->read_remaining, &(unsigned long){0}, n, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) asm volatile ("pause");
 
     int out = 0;
     for (char * i = s; i < s + n; i++) {
         out = tty_queue_getch(&tty->iqueue);
-        if (out == 256) { // SIGALRM, TODO: do proper errno to indicate sigalrm
+        if (tty->params.lmodes & TTY_L_ICANON) {
+            if ((tty->params.control_chars[TCC_VEOF] != _POSIX_VDISABLE && out == tty->params.control_chars[TCC_VEOF]) ||
+                (tty->params.control_chars[TCC_VEOL] != _POSIX_VDISABLE && out == tty->params.control_chars[TCC_VEOL])) {
+                    return i - s;
+                }
+        }
+        if (out == 256) { // signal occured - interrupted sleep
             tty->read_remaining = 0;
-            return i-s;
+            if (i - s == 0)
+                return -EINTR;
+            return i - s;
         }
         *i = out;
 
-        if (tty->params.lmodes & TTY_L_ICANON && 
-                (out == '\n' || 
-                (tty->params.control_chars[TCC_VEOF] != _POSIX_VDISABLE && out == tty->params.control_chars[TCC_VEOF]) || 
-                (tty->params.control_chars[TCC_VEOL] != _POSIX_VDISABLE && out == tty->params.control_chars[TCC_VEOL]))) {
-                    tty->read_remaining = 0;
-                    return i-s + 1;
-                }
+        if (tty->params.lmodes & TTY_L_ICANON && out == '\n') {
+            tty->read_remaining = 0;
+            return i-s + 1;
+        }
     }
     tty->read_remaining = 0;
     return n;
@@ -392,23 +416,30 @@ ssize_t tty_read(dev_t dev, char * s, size_t n) {
 
 ssize_t tty_write(dev_t dev, const char * s, size_t n) { // outputs data - writes data into write queue
     if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE)) dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_0);
+    if (n == 0) return 0;
 
     kassert(current_process);
 
-    //while (current_process->ring != 0 && current_process->pgrp != terminals[MINOR(dev)]->foreground_pgrp) { // allow the kernel to write regardless
-    //    signal_process_group(current_process->pgrp, SIGTTOU);
-    //}
+    if (current_process->ring != 0 && current_process->pgrp != terminals[MINOR(dev)]->foreground_pgrp) { // allow the kernel to write regardless
+        signal_process_group(current_process->pgrp, &(siginfo_t) {.si_signo = SIGTTOU });
+        return -EINTR;
+    }
 
-    return tty_translate_line_outgoing(s, n, terminals[MINOR(dev)]);
+    size_t ret = tty_translate_line_outgoing(s, n, terminals[MINOR(dev)]);
+    if (ret == 0 && n != 0) return -EINTR;
+    return ret;
 }
 long tty_write_to_tty(const char * s, size_t n, dev_t dev) { // writes data into read queue of a tty, aka recv input
     if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE)) dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_0);
         // since the underlying tty is the same for S0 and 0, having both would input stuff 2 times
+    if (n == 0) return 0;
 
-    if (!is_valid_tty(dev)) return EINVAL;
+    if (!is_valid_tty(dev)) return -EINVAL;
 
-    if (!s) return EINVAL;
+    if (!s) return -EINVAL;
 
 
-    return tty_translate_line_incoming(s, n, terminals[MINOR(dev)]);
+    size_t ret = tty_translate_line_incoming(s, n, terminals[MINOR(dev)]);
+    if (ret == 0 && n != 0) return -EINTR;
+    return ret;
 }

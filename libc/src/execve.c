@@ -4,16 +4,20 @@
 #include "../../src/include/kernel.h"
 #include "include/stdio.h"
 #include "include/sys/stat.h"
+#include "include/errno.h"
 
 extern char ** environ;
 int exec(const char * path) {
-    return syscall(SYSCALL_EXEC, path, (const char *[]){path, NULL}, environ);
+    errno = -syscall(SYSCALL_EXEC, path, (const char *[]){path, NULL}, environ);
+    return -1;
 }
 int execv(const char * path, char * const* argv) {
-    return syscall(SYSCALL_EXEC, path, argv, environ);
+    errno = -syscall(SYSCALL_EXEC, path, argv, environ);
+    return -1;
 }
 int execve(const char * path, char * const* argv, char * const* envp) {
-    return syscall(SYSCALL_EXEC, path, argv, envp);
+    errno = -syscall(SYSCALL_EXEC, path, argv, envp);
+    return -1;
 }
 
 static char * find_file(const char * file) {
@@ -54,16 +58,16 @@ int execvp(const char * file, char * const* argv) {
     char * final_path = find_file(file);
     if (final_path == NULL) return -1;
 
-    int ret = execv(final_path, argv);
+    errno = execv(final_path, argv);
     free(final_path);
-    return ret;
+    return -1;
 }
 
 int execvpe(const char * file, char * const* argv, char * const* envp) {
     char * final_path = find_file(file);
     if (final_path == NULL) return -1;
 
-    int ret = execve(final_path, argv, envp);
+    errno = execve(final_path, argv, envp);
     free(final_path);
-    return ret;
+    return -1;
 }

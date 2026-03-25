@@ -27,7 +27,7 @@ struct stat {
 #define __ITMODE_CHAR       0x8000
 
 #define __IPMODE_MASK       0x0FFF
-#define __IPMODE_O_STICKY      0x0008 // sticky bit
+#define __IPMODE_O_STICKY   0x0008 // sticky bit
 #define __IPMODE_O_READ     0x0004
 #define __IPMODE_O_WRITE    0x0002
 #define __IPMODE_O_EXEC     0x0001
