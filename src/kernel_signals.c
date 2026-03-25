@@ -305,7 +305,7 @@ void signal_retry_process(process_t * signaled) {
         char found = 0;
         for (thread_t * thread = signaled->threads; thread != NULL; thread = thread->next) {
             if (thread->sa_to_be_handled) continue;
-            if (signal_dispatch_thread(signaled, thread, curr, 0)) {
+            if (signal_dispatch_thread(signaled, thread, &curr->info, 0)) {
                 found = 1;
                 break;
             }
