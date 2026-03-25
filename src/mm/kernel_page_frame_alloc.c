@@ -76,7 +76,7 @@ void * pfalloc_dup_page(void * page) {
         kprintf("Warning: Tried to duplicate a frame outside (above) of managed range!\n");
         return NULL;
     }
-    int page_index = (page - page_frame_table_start_addr)/PAGE_SIZE_NO_PAE;
+    int page_index = ((unsigned long)page - (unsigned long)page_frame_table_start_addr)/PAGE_SIZE_NO_PAE;
     if (page_frame_table[page_index] == PFALLOC_UNUSED) {
         kprintf("Warning: Tried to duplicate a freed frame!\n");
         return NULL;
@@ -106,7 +106,7 @@ void * pfalloc_ref_inc(void * page) {
         kprintf("Warning: Tried to increment reference counter for a frame outside (above) of managed range!\n");
         return NULL;
     }
-    int page_index = (page - page_frame_table_start_addr)/PAGE_SIZE_NO_PAE;
+    int page_index = ((unsigned long)page - (unsigned long)page_frame_table_start_addr)/PAGE_SIZE_NO_PAE;
     if (page_frame_table[page_index] == PFALLOC_UNUSED) {
         kprintf("Warning: Tried to increment reference counter for a freed frame!\n");
         return NULL;
@@ -170,7 +170,7 @@ void pffree(void *page) {
         kprintf("Warning: Tried to free page frame outside (above) of managed range paddr %p!\n", page);
         return;
     }
-    int page_index = (page - page_frame_table_start_addr)/PAGE_SIZE_NO_PAE;
+    int page_index = ((unsigned long)page - (unsigned long)page_frame_table_start_addr)/PAGE_SIZE_NO_PAE;
     if (page_frame_table[page_index] == PFALLOC_UNUSED) {
         kprintf("Warning: Tried to double free a paddr %p!\n", page);
         return;
@@ -187,7 +187,7 @@ void pffree_1M(void * block_1M_start) {
         kprintf("Warning: Tried to free 1M block outside (above) of managed range paddr %p!\n", block_1M_start);
         return;
     }
-    int page_index = (block_1M_start - page_frame_table_start_addr)/PAGE_SIZE_NO_PAE;
+    int page_index = ((unsigned long)block_1M_start - (unsigned long)page_frame_table_start_addr)/PAGE_SIZE_NO_PAE;
     for (int i = 0; i < PAGE_COUNT_1M; i++) {
         if (page_frame_table[page_index+i] == PFALLOC_UNUSED) kprintf("Warning: Tried to double free element %d of 1M block paddr %p\n", page_index+i, block_1M_start);
         __atomic_sub_fetch(&page_frame_table[page_index+i], 1, __ATOMIC_RELAXED);
