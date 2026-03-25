@@ -13,7 +13,8 @@ typedef unsigned long long clock_t;
 typedef size_t useconds_t;
 typedef ssize_t suseconds_t;
 
-typedef id_t pid_t;
+typedef ssize_t pid_t;
+
 typedef id_t ino_t;
 typedef id_t gid_t;
 typedef id_t uid_t;

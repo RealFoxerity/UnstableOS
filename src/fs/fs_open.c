@@ -5,12 +5,13 @@
 #include "../include/mm/kernel_memory.h"
 
 #include "../../libc/src/include/string.h"
+#include "../../libc/src/include/sys/limits.h"
 #include "../include/kernel_tty_io.h"
 #include "../include/block/memdisk.h"
 #include "../../libc/src/include/fcntl.h"
 
 int open_raw_device(dev_t device, unsigned short mode) {
-    if (mode == 0 || mode > O_RDWR) return EINVAL;
+    if (mode == 0 || mode > O_RDWR) return -EINVAL;
 
     spinlock_acquire(&kernel_fd_lock);
 
@@ -24,13 +25,13 @@ int open_raw_device(dev_t device, unsigned short mode) {
 
     if (fd == -1) {
         spinlock_release(&kernel_fd_lock);
-        return EMFILE;
+        return -EMFILE;
     }
 
     file_descriptor_t * file = get_free_fd();
     if (!file) {
         spinlock_release(&kernel_fd_lock);
-        return ENFILE;
+        return -ENFILE;
     }
 
     inode_t * dev_inode = inode_from_device(device);
@@ -92,12 +93,12 @@ int sys_open(const char * path, unsigned short flags, unsigned short mode) {
 }
 
 int sys_openat(int fd, const char * path, unsigned short flags, unsigned short mode) {
-    if ((fd < 0 || fd >= FD_LIMIT_PROCESS) && fd != AT_FDCWD) return EBADF;
+    if ((fd < 0 || fd >= FD_LIMIT_PROCESS) && fd != AT_FDCWD) return -EBADF;
 
     inode_t * ino = NULL;
     if (fd != AT_FDCWD) {
         file_descriptor_t * file = current_process->fds[fd];
-        if (file == NULL) return EBADF;
+        if (file == NULL) return -EBADF;
         kassert(file->instances > 0);
         ino = file->inode;
     } else
@@ -118,23 +119,23 @@ int sys_openat(int fd, const char * path, unsigned short flags, unsigned short m
 int openat_inode(inode_t * base, const char * path, unsigned short flags, unsigned short mode, inode_t ** out) {
     if (base == NULL) {
         kprintf("\e[41mWarning: called openat with NULL base inode!\e[0m\n");
-        return EINVAL;
+        return -EINVAL;
     }
     if (current_process->root == NULL) {
         kprintf("\e[41mWarning: called openat with NULL root inode!\e[0m\n");
-        return EINVAL;
+        return -EINVAL;
     }
     if (current_process->pwd == NULL) {
         kprintf("\e[41mWarning: called openat with NULL pwd inode!\e[0m\n");
-        return EINVAL;
+        return -EINVAL;
     }
-    if (path == NULL) return EINVAL;
+    if (path == NULL) return -EINVAL;
     kassert(root_mountpoint);
     int ret = 0;
 
     size_t pathlen;
     char * dup_path = secure_strdup(path, PATH_MAX, &pathlen);
-    if (dup_path == NULL) return EFAULT;
+    if (dup_path == NULL) return -EFAULT;
 
     // deciding whether normal path (/,///+) or meta directory //
     if (
@@ -145,7 +146,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, unsign
     ) {
         kprintf("Stub: we don't yet support the // meta directory!\n");
         kfree(dup_path);
-        return EINVAL;
+        return -EINVAL;
     }
 
     // path cleanup
@@ -185,7 +186,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, unsign
 
     // raced with close() on the base inode
     if (base->instances <= (base->is_mountpoint) ? 1 : 0) {
-        ret = EINVAL;
+        ret = -EINVAL;
         goto err;
     }
 
@@ -220,7 +221,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, unsign
         if (last_fragment) {
             if (sb->mount_options & MOUNT_RDONLY && mode & O_WRONLY) {
                 close_inode(prev);
-                ret = EROFS;
+                ret = -EROFS;
                 goto err;
             }
         }
@@ -243,7 +244,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, unsign
             {
                 if ((sb->mount_options & O_RDONLY)) {
                     close_inode(prev);
-                    ret = EROFS;
+                    ret = -EROFS;
                     goto err;
                 }
                 new = sb->funcs->create(sb, prev, final_path, mode);
@@ -251,7 +252,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, unsign
                 break;
             }
             close_inode(prev);
-            ret = ENOENT;
+            ret = -ENOENT;
             goto err;
         }
         if (new == VFS_LOOKUP_ESCAPE) {
@@ -265,7 +266,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, unsign
         }
         if (new == VFS_LOOKUP_NOTDIRECTORY) {
             close_inode(prev);
-            ret = ENOTDIR;
+            ret = -ENOTDIR;
             goto err;
         }
         if (new->is_mountpoint) {
@@ -276,7 +277,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, unsign
 
             if (sb->funcs->lookup == NULL) {
                 close_inode(prev);
-                ret = EINVAL;
+                ret = -EINVAL;
                 goto err;
             }
 
@@ -293,7 +294,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, unsign
 
     if (flags & O_DIRECTORY && !S_ISDIR(new->mode)) {
         close_inode(new);
-        ret = ENOTDIR;
+        ret = -ENOTDIR;
         goto err;
     }
 
@@ -310,7 +311,7 @@ int sys_chdir(const char * path) {
     inode_t * new = NULL;
     int ret = openat_inode(current_process->pwd, path, O_DIRECTORY | O_RDONLY, 0, &new);
     if (ret < 0) return ret;
-    if (new == NULL) return EINVAL;
+    if (new == NULL) return -EINVAL;
 
     spinlock_acquire(&current_process->lock);
     inode_t * old_pwd = current_process->pwd;
@@ -325,7 +326,7 @@ int sys_chroot(const char * path) {
     inode_t * new = NULL;
     int ret = openat_inode(current_process->pwd, path, O_DIRECTORY | O_RDONLY, 0, &new);
     if (ret < 0) return ret;
-    if (new == NULL) return EINVAL;
+    if (new == NULL) return -EINVAL;
 
     spinlock_acquire(&current_process->lock);
     inode_t * old_root = current_process->root;

@@ -39,7 +39,7 @@ file_descriptor_t * get_free_fd() {
 }
 
 int get_fd_from_inode(inode_t * inode, unsigned short flags) {
-    if (inode == NULL) return EINVAL;
+    if (inode == NULL) return -EINVAL;
     spinlock_acquire(&kernel_fd_lock);
 
     int fd = -1;
@@ -52,13 +52,13 @@ int get_fd_from_inode(inode_t * inode, unsigned short flags) {
 
     if (fd == -1) {
         spinlock_release(&kernel_fd_lock);
-        return EMFILE;
+        return -EMFILE;
     }
 
     file_descriptor_t * file = get_free_fd();
     if (!file) {
         spinlock_release(&kernel_fd_lock);
-        return ENFILE;
+        return -ENFILE;
     }
 
     file->inode = inode;
@@ -69,7 +69,7 @@ int get_fd_from_inode(inode_t * inode, unsigned short flags) {
 }
 
 static int check_file(file_descriptor_t * file) {
-    if (file == NULL) return EBADF;
+    if (file == NULL) return -EBADF;
 
     kassert(file->instances > 0);
     kassert(file->inode != NULL);
@@ -79,10 +79,10 @@ static int check_file(file_descriptor_t * file) {
 }
 
 int sys_close(int fd) {
-    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return EBADF;
+    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
 
     file_descriptor_t * file = current_process->fds[fd];
-    if (file == NULL) return EBADF;
+    if (file == NULL) return -EBADF;
 
     current_process->fds[fd] = NULL;
     return close_file(file);
@@ -101,10 +101,10 @@ int close_file(file_descriptor_t * file) {
 ssize_t read_file(file_descriptor_t * file, void * buf, size_t count) {
     int test = check_file(file);
     if (test != 0) return test;
-    if (file->mode & O_SEARCH) return EBADF;
+    if (file->mode & O_SEARCH) return -EBADF;
 
-    if (S_ISDIR(file->inode->mode)) return EISDIR;
-    if (!(file->mode & O_RDONLY)) return EINVAL;
+    if (S_ISDIR(file->inode->mode)) return -EISDIR;
+    if (!(file->mode & O_RDONLY)) return -EINVAL;
 
     ssize_t ret = 0;
     spinlock_acquire_interruptible(&file->access_lock);
@@ -113,7 +113,7 @@ ssize_t read_file(file_descriptor_t * file, void * buf, size_t count) {
         kassert(file->inode->backing_superblock);
         kassert(file->inode->backing_superblock->funcs);
         if (file->inode->backing_superblock->funcs->read == NULL)
-            ret = EINVAL;
+            ret = -EINVAL;
         else
             ret = file->inode->backing_superblock->funcs->read(file, buf, count);
     } else {
@@ -126,7 +126,7 @@ ssize_t read_file(file_descriptor_t * file, void * buf, size_t count) {
                 break;
             default:
                 kprintf("unknown dev major to read from (%d)...\n", MAJOR(file->inode->device));
-                ret = EIO;
+                ret = -EIO;
         }
     }
     spinlock_release(&file->access_lock);
@@ -136,11 +136,11 @@ ssize_t read_file(file_descriptor_t * file, void * buf, size_t count) {
 ssize_t write_file(file_descriptor_t * file, const void * buf, size_t count) {
     int test = check_file(file);
     if (test != 0) return test;
-    if (file->mode & O_SEARCH) return EBADF;
+    if (file->mode & O_SEARCH) return -EBADF;
 
-    if (S_ISDIR(file->inode->mode)) return EISDIR;
+    if (S_ISDIR(file->inode->mode)) return -EISDIR;
     if (!(file->mode & O_WRONLY))
-            return EINVAL;
+            return -EINVAL;
 
     ssize_t ret = 0;
     spinlock_acquire_interruptible(&file->access_lock);
@@ -152,10 +152,10 @@ ssize_t write_file(file_descriptor_t * file, const void * buf, size_t count) {
             kprintf("Warning: File descriptor marked writable on read-only fs, readjusting...\n");
             file->mode ^= O_WRONLY;
             spinlock_release(&file->access_lock);
-            return EINVAL;
+            return -EINVAL;
         }
         if (file->inode->backing_superblock->funcs->write == NULL)
-            ret = EINVAL;
+            ret = -EINVAL;
         else
             ret = file->inode->backing_superblock->funcs->write(file, buf, count);
     } else {
@@ -168,7 +168,7 @@ ssize_t write_file(file_descriptor_t * file, const void * buf, size_t count) {
                 break;
             default:
                 kprintf("unknown dev major to write to (%d)...\n", MAJOR(file->inode->device));
-                ret = EIO;
+                ret = -EIO;
         }
     }
 
@@ -186,7 +186,7 @@ off_t seek_file(file_descriptor_t * file, off_t offset, int whence) {
         case SEEK_END:
             break;
         default:
-            return EINVAL;
+            return -EINVAL;
     }
 
     ssize_t ret = 0;
@@ -196,7 +196,7 @@ off_t seek_file(file_descriptor_t * file, off_t offset, int whence) {
         kassert(file->inode->backing_superblock);
         kassert(file->inode->backing_superblock->funcs);
         if (file->inode->backing_superblock->funcs->seek == NULL)
-            ret = EINVAL;
+            ret = -EINVAL;
         else
             ret = file->inode->backing_superblock->funcs->seek(file, offset, whence);
     } else {
@@ -208,7 +208,7 @@ off_t seek_file(file_descriptor_t * file, off_t offset, int whence) {
             default:
                 kprintf("unknown dev major or not seekable (%d)...\n", MAJOR(file->inode->device));
             case DEV_MAJ_TTY:
-                ret = ESPIPE; // assuming file is not seekable
+                ret = -ESPIPE; // assuming file is not seekable
         }
     }
     spinlock_release(&file->access_lock);
@@ -216,7 +216,7 @@ off_t seek_file(file_descriptor_t * file, off_t offset, int whence) {
 }
 
 ssize_t sys_read(int fd, void * buf, size_t count) {
-    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return EBADF;
+    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
 
     file_descriptor_t * file = current_process->fds[fd];
 
@@ -224,14 +224,14 @@ ssize_t sys_read(int fd, void * buf, size_t count) {
 }
 
 ssize_t sys_write(int fd, const void * buf, size_t count) {
-    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return EBADF;
+    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
 
     file_descriptor_t * file = current_process->fds[fd];
     return write_file(file, buf, count);
 }
 
 off_t sys_seek(int fd, off_t offset, int whence) {
-    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return EBADF;
+    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
 
     file_descriptor_t * file = current_process->fds[fd];
 
@@ -240,7 +240,7 @@ off_t sys_seek(int fd, off_t offset, int whence) {
 
 
 int sys_dup(int oldfd) {
-    if (oldfd < 0 || oldfd >= FD_LIMIT_PROCESS) return EBADF;
+    if (oldfd < 0 || oldfd >= FD_LIMIT_PROCESS) return -EBADF;
 
     spinlock_acquire(&kernel_fd_lock);
     int fd = -1;
@@ -253,7 +253,7 @@ int sys_dup(int oldfd) {
 
     if (fd == -1) {
         spinlock_release(&kernel_fd_lock);
-        return EMFILE;
+        return -EMFILE;
     }
 
     current_process->fds[fd] = current_process->fds[oldfd];
@@ -265,8 +265,8 @@ int sys_dup(int oldfd) {
 }
 
 int sys_dup2(int oldfd, int newfd) {
-    if (oldfd < 0 || oldfd >= FD_LIMIT_PROCESS) return EBADF;
-    if (newfd < 0 || newfd >= FD_LIMIT_PROCESS) return EBADF;
+    if (oldfd < 0 || oldfd >= FD_LIMIT_PROCESS) return -EBADF;
+    if (newfd < 0 || newfd >= FD_LIMIT_PROCESS) return -EBADF;
 
     spinlock_acquire(&kernel_fd_lock);
 
@@ -286,15 +286,15 @@ int sys_dup2(int oldfd, int newfd) {
 
 
 ssize_t sys_readdir(int fd, struct dirent * dent, size_t dent_size) {
-    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return EBADF;
+    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
 
     file_descriptor_t * file = current_process->fds[fd];
     int test = check_file(file);
     if (test != 0) return test;
 
-    if (!S_ISDIR(file->inode->mode)) return ENOTDIR;
+    if (!S_ISDIR(file->inode->mode)) return -ENOTDIR;
 
-    if (!file->inode->backing_superblock->funcs->readdir) return EINVAL;
+    if (!file->inode->backing_superblock->funcs->readdir) return -EINVAL;
 
     spinlock_acquire_interruptible(&file->access_lock);
     ssize_t ret = file->inode->backing_superblock->funcs->readdir(file, dent, dent_size);
@@ -309,13 +309,13 @@ int stat_inode(inode_t * inode, struct stat * buf) {
     kassert(inode->backing_superblock);
     kassert(inode->backing_superblock->funcs);
     if(inode->backing_superblock->funcs->stat == NULL)
-        return EINVAL;
+        return -EINVAL;
 
     return inode->backing_superblock->funcs->stat(inode, buf);
 }
 
 int sys_fstat(int fd, struct stat * buf) {
-    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return EBADF;
+    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
     file_descriptor_t * file = current_process->fds[fd];
     int test = check_file(file);
     if (test != 0) return test;
@@ -330,7 +330,7 @@ int sys_fstatat(int fd, const char * __restrict path, struct stat * __restrict b
     if (fd == AT_FDCWD)
         base = current_process->pwd;
     else {
-        if (fd < 0 || fd >= FD_LIMIT_PROCESS) return EBADF;
+        if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
         int test = check_file(current_process->fds[fd]);
         if (test < 0) return test;
         base = current_process->fds[fd]->inode;

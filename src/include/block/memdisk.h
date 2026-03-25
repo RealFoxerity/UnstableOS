@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include "../../include/devs.h"
 #include "../../include/mm/kernel_memory.h"
+#include "../../../libc/src/include/sys/types.h"
 
 #define ___MEMDISKS_BASE  0x03000000
 // this value ultimately decides the size of initramfs, we don't do remapping of multiboot mods and bootloaders like grub place the the mods immediately after the kernel
@@ -37,7 +38,6 @@ dev_t memdisk_from_range(void * vaddr, size_t n); // creates a memdisk from addr
 
 long memdisk_deinit(dev_t dev); // additionally, if memdisk was allocated, frees all pages
 
-#define ssize_t long
 ssize_t memdisk_read_internal(dev_t dev, size_t seek, void * s, size_t n);
 ssize_t memdisk_write_internal(dev_t dev, size_t seek, const void * s, size_t n);
 

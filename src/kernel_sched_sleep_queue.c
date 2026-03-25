@@ -5,7 +5,7 @@
 #include "../libc/src/include/sys/types.h"
 #include "include/kernel.h"
 #include "include/mm/kernel_memory.h"
-#include "include/errno.h"
+#include "../libc/src/include/errno.h"
 #include <stdint.h>
 
 
@@ -145,7 +145,7 @@ ssize_t sys_nanosleep(process_t * pprocess, thread_t * thread, struct timespec r
     if (old_time_usec + requested_usec + RTC_TIME_RESOLUTION_USEC < uptime_clicks * RTC_TIME_RESOLUTION_USEC) {
         sleep_remove_thread(pprocess, thread);
 
-        if (elapsed == NULL) return EINTR;
+        if (elapsed == NULL) return -EINTR;
 
         requested_usec -= uptime_clicks * RTC_TIME_RESOLUTION_USEC - old_time_usec;
 
@@ -153,7 +153,7 @@ ssize_t sys_nanosleep(process_t * pprocess, thread_t * thread, struct timespec r
             .tv_nsec = (requested_usec % 1000000)*1000,
             .tv_sec = requested_usec / 1000000
         };
-        return EINTR;
+        return -EINTR;
     }
     return 0;
 }

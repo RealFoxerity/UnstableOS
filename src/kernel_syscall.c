@@ -8,7 +8,7 @@
 #include "../libc/src/include/sys/times.h"
 #include "include/mm/kernel_memory.h"
 #include "include/vga.h"
-#include "include/errno.h"
+#include "../libc/src/include/errno.h"
 #include "include/kernel_sched.h"
 #include "include/kernel_semaphore.h"
 #include "include/fs/fs.h"
@@ -20,7 +20,6 @@
 extern void clear_screen_fatal(); // kernel_interrupts.c
 
 extern uint8_t console_x, console_y;
-#define ssize_t long
 
 static char check_address_range(const void * addr, size_t n, char writable, char in_kernel) { // check whether the address range is inside the program, is mapped, and whether it is writable (assumes correct address space)
     if (addr == NULL) return 0;
@@ -69,21 +68,22 @@ long sys_getpgid(pid_t target_pid) {
         tested = tested->next;
     }
     if (tested != NULL) return tested->pgrp; // found the pid
-    else return ESRCH;
+    else return -ESRCH;
 }
 
-long kernel_syscall_dispatcher(context_t ctx);
+void kernel_syscall_dispatcher(mcontext_t ctx);
 // since we use system V abi, arg4 is pushed onto the stack by the user
 __attribute__((naked, no_caller_saved_registers)) void interr_syscall(struct interr_frame * interrupt_frame) {
     asm volatile (
+        "cld;"
         "pusha;"
         "call kernel_syscall_dispatcher;"
-        "addl $0x20, %esp;" // 8 registers from pusha
+        "popa;"
         "iret;"
     );
 }
 
-long kernel_syscall_dispatcher(context_t ctx) {
+void kernel_syscall_dispatcher(mcontext_t ctx) {
     enum syscalls syscall_number = ctx.eax;
     long
     arg1 = ctx.edi,
@@ -91,13 +91,17 @@ long kernel_syscall_dispatcher(context_t ctx) {
     arg3 = ctx.edx,
     arg4 = ((long*)(ctx.iret_frame.sp))[3]; // no clue why [3], but it actually is
 
-    long return_value = ENOSYS;
+    long return_value = -ENOSYS;
 
     kassert(current_process);
     kassert(current_thread);
 
     // we might want to call syscalls from other syscalls and/or drivers
     char in_kernel = (ctx.iret_frame.cs & 3) == 0;
+
+    #ifndef EXIT_AFFECTS_SYSCALLS
+    CRIT_SEC_START
+    #endif
 
     switch (syscall_number) {
         case SYSCALL_YIELD:
@@ -114,16 +118,25 @@ long kernel_syscall_dispatcher(context_t ctx) {
 
         case SYSCALL_EXIT:
             current_process->exitcode = arg1;
+            current_process->postmortem_wstatus = 0x100 | (arg1 & 0xFF);
+
+            signal_process(current_process->parent, &(siginfo_t) {
+                .si_signo  = SIGCHLD,
+                .si_code   = CLD_EXITED,
+                .si_pid    = current_process->pid,
+                .si_status = arg1
+            });
         case SYSCALL_ABORT:
             if (syscall_number == SYSCALL_ABORT) kprintf("Thread %lu of process %lu called abort()!\n", current_thread->tid, current_process->pid); // so that we can keep the fall-through for syscall_exit
-            current_thread->status = SCHED_CLEANUP;
+            current_process->do_cleanup = 1;
+            current_thread->in_critical_section = 0;
             reschedule();
             asm volatile ("jmp kernel_idle");
             break;
 
         case SYSCALL_WRITE:
             if (!check_address_range((const void*)arg2, arg3, 0, in_kernel)) {
-                return_value = EFAULT;
+                return_value = -EFAULT;
                 break;
             }
             asm volatile ("sti;");
@@ -131,7 +144,7 @@ long kernel_syscall_dispatcher(context_t ctx) {
             break;
         case SYSCALL_READ:
             if (!check_address_range((void*)arg2, arg3, 1, in_kernel)) {
-                return_value = EFAULT;
+                return_value = -EFAULT;
                 break;
             }
             asm volatile ("sti;");
@@ -151,14 +164,14 @@ long kernel_syscall_dispatcher(context_t ctx) {
             break;
         case SYSCALL_READDIR:
             if (!check_address_range((void*)arg2, arg3, 1, in_kernel)) {
-                return_value = EFAULT;
+                return_value = -EFAULT;
                 break;
             }
             asm volatile ("sti;");
             return_value = sys_readdir(arg1, (void*)arg2, arg3);
             break;
         case SYSCALL_SEM_INIT:
-            for (int i = 0; i < PROGRAM_MAX_SEMAPHORES; i++) {
+            for (int i = 0; i < SEM_NSEMS_MAX; i++) {
                 if (current_process->semaphores[i] == NULL) {
                     current_process->semaphores[i] = kalloc(sizeof(sem_t));
                     memset(current_process->semaphores[i], 0, sizeof(sem_t));
@@ -171,21 +184,21 @@ long kernel_syscall_dispatcher(context_t ctx) {
                     goto syscall_exit;
                 }
             }
-            return_value = ENOLCK;
+            return_value = -ENOLCK;
             break;
         case SYSCALL_SEM_POST:
-            if (arg1 < 0 || arg1 >= PROGRAM_MAX_SEMAPHORES) {
-                return_value = EINVAL;
+            if (arg1 < 0 || arg1 >= SEM_NSEMS_MAX) {
+                return_value = -EINVAL;
                 break;
             }
             if (current_process->semaphores[arg1] == NULL ||
                 !current_process->semaphores[arg1]->used
             ) {
-                return_value = EINVAL;
+                return_value = -EINVAL;
                 break;
             }
             if (current_process->semaphores[arg1]->value + 1 == 0) { // TODO: fix for atomicity?
-                return_value = ERANGE;
+                return_value = -ERANGE;
                 break;
             }
             asm volatile ("sti;");
@@ -193,8 +206,8 @@ long kernel_syscall_dispatcher(context_t ctx) {
             kernel_sem_post(current_process, arg1);
             break;
         case SYSCALL_SEM_WAIT:
-            if (arg1 < 0 || arg1 >= PROGRAM_MAX_SEMAPHORES) {
-                return_value = EINVAL;
+            if (arg1 < 0 || arg1 >= SEM_NSEMS_MAX) {
+                return_value = -EINVAL;
                 break;
             }
             if (current_process->semaphores[arg1] == NULL ||
@@ -202,7 +215,7 @@ long kernel_syscall_dispatcher(context_t ctx) {
             ) {
                 kprintf("Thread %lu of process %lu called sem_wait on invalid semaphore (%lu)\n", current_thread->tid, current_process->pid, arg1);
 
-                return_value = EINVAL;
+                return_value = -EINVAL;
                 break;
             }
             asm volatile ("sti;");
@@ -210,13 +223,13 @@ long kernel_syscall_dispatcher(context_t ctx) {
             kernel_sem_wait(current_process, current_thread, arg1);
             break;
         case SYSCALL_SEM_DESTROY:
-            if (arg1 < 0 || arg1 >= PROGRAM_MAX_SEMAPHORES) {
-                return_value = EINVAL;
+            if (arg1 < 0 || arg1 >= SEM_NSEMS_MAX) {
+                return_value = -EINVAL;
                 break;
             }
             if (current_process->semaphores[arg1] == NULL ||
                 !current_process->semaphores[arg1]->used) {
-                return_value = EINVAL;
+                return_value = -EINVAL;
                 break;
             }
 
@@ -229,14 +242,17 @@ long kernel_syscall_dispatcher(context_t ctx) {
             return_value = current_process->pid;
             break;
         case SYSCALL_GETPPID:
-            return_value = current_process->ppid;
+            return_value = current_process->parent->pid;
+            break;
+        case SYSCALL_GETTID:
+            return_value = current_thread->tid;
             break;
         case SYSCALL_GETPGID:
             return_value = sys_getpgid((pid_t)arg1);
             break;
         case SYSCALL_MOUNT:
             if (!check_address_range((const void*)arg1, 1, 0, in_kernel)) {
-                return_value = EFAULT;
+                return_value = -EFAULT;
                 break;
             }
             return_value = sys_mount((const char*)arg1, (const char*)arg2, (unsigned char)arg3, (unsigned short)arg4);
@@ -276,7 +292,7 @@ long kernel_syscall_dispatcher(context_t ctx) {
         case SYSCALL_WAIT:
             if (arg1 != 0) {
                 if (!check_address_range((void*)arg1, sizeof(int), 1, in_kernel)) {
-                    return_value = EFAULT;
+                    return_value = -EFAULT;
                     break;
                 }
             }
@@ -284,7 +300,7 @@ long kernel_syscall_dispatcher(context_t ctx) {
             break;
         case SYSCALL_FSTAT:
             if (!check_address_range((void*)arg2, sizeof(struct stat), 1, in_kernel)) {
-                return_value = EFAULT;
+                return_value = -EFAULT;
                 break;
             }
             asm volatile ("sti");
@@ -292,20 +308,20 @@ long kernel_syscall_dispatcher(context_t ctx) {
             break;
 
         case SYSCALL_FSTATAT:
-            if (!check_address_range((void*)arg2, sizeof(struct stat), 1, in_kernel)) {
-                return_value = EFAULT;
+            if (!check_address_range((void*)arg2, sizeof(struct stat), 0, in_kernel)) {
+                return_value = -EFAULT;
                 break;
             }
             asm volatile ("sti");
             return_value = sys_fstatat(arg1, (const char*) arg2, (struct stat *)arg3, arg4);
             break;
         case SYSCALL_NANOSLEEP:
-            if (!check_address_range((void*)arg1, sizeof(struct timespec), 1, in_kernel)) {
-                return_value = EFAULT;
+            if (!check_address_range((void*)arg1, sizeof(struct timespec), 0, in_kernel)) {
+                return_value = -EFAULT;
                 break;
             }
             if ((struct timespec *)arg2 != NULL && !check_address_range((void*)arg1, sizeof(struct timespec), 1, in_kernel)) {
-                return_value = EFAULT;
+                return_value = -EFAULT;
                 break;
             }
             asm volatile ("sti");
@@ -313,18 +329,18 @@ long kernel_syscall_dispatcher(context_t ctx) {
             break;
         case SYSCALL_TIME:
             if (!check_address_range((void*)arg1, sizeof(time_t), 1, in_kernel)) {
-                return_value = EFAULT;
+                return_value = -EFAULT;
                 break;
             }
             *(time_t*)arg1 = system_time_sec;
             break;
         case SYSCALL_TIMES:
             if (!check_address_range((void*)arg1, sizeof(struct tms), 1, in_kernel)) {
-                return_value = EFAULT;
+                return_value = -EFAULT;
                 break;
             }
             if (!check_address_range((void*)arg2, sizeof(clock_t), 1, in_kernel)) {
-                return_value = EFAULT;
+                return_value = -EFAULT;
                 break;
             }
             *(struct tms*)arg1 = (struct tms) {
@@ -335,20 +351,94 @@ long kernel_syscall_dispatcher(context_t ctx) {
             };
             *(clock_t *)arg2 = uptime_clicks;
             break;
+        case SYSCALL_KILL:
+            return_value = sys_kill(arg1, (int)arg2);
+            break;
+        case SYSCALL_TGKILL:
+            return_value = sys_tgkill(arg1, arg2, arg3);
+            break;
+        case SYSCALL_SIGACTION:
+            if (!check_address_range((void*)arg2, sizeof(struct sigaction), 0, in_kernel)) {
+                return_value = -EFAULT;
+                break;
+            }
+            if (arg3 != NULL && !check_address_range((void*)arg3, sizeof(struct sigaction), 1, in_kernel)) {
+                return_value = -EFAULT;
+                break;
+            }
+            return_value = sys_sigaction(arg1, (struct sigaction *)arg2, (struct sigaction *)arg3);
+            break;
+        case SYSCALL_SIGRETURN:
+            sys_sigreturn(&ctx);
+            break;
+        case SYSCALL_SIGPROCMASK:
+            if (!check_address_range((void*)arg2, sizeof(sigset_t), 0, in_kernel)) {
+                return_value = -EFAULT;
+                break;
+            }
+            if (arg3 != NULL && !check_address_range((void*)arg3, sizeof(sigset_t), 1, in_kernel)) {
+                return_value = -EFAULT;
+                break;
+            }
+            return_value = sys_sigprocmask(arg1, (const sigset_t *)arg2, (sigset_t *)arg3);
+            break;
+        case SYSCALL_SIGPENDING:
+            if (!check_address_range((void*)arg1, sizeof(sigset_t), 1, in_kernel)) {
+                return_value = -EFAULT;
+                break;
+            }
+            *(sigset_t *)arg1 = current_process->sa_pending;
+            return_value = 0;
+            break;
+        case SYSCALL_SIGSUSPEND:
+            if (!check_address_range((void*)arg1, sizeof(sigset_t), 1, in_kernel)) {
+                return_value = -EFAULT;
+                break;
+            }
+            return_value = sys_sigsuspend((const sigset_t *)arg1);
+            break;
+        case SYSCALL_SIGQUEUE:
+            return_value = sys_sigqueue(arg1, arg2, (union sigval){arg3});
+            break;
         case SYSCALL_SETPGID:
         case SYSCALL_TCGETPGRP:
         case SYSCALL_TCSETPGRP:
         case SYSCALL_MKDIR:
         case SYSCALL_UNLINK:
-        case SYSCALL_KILL:
         default:
-            return_value = ENOSYS;
+            return_value = -ENOSYS;
             break;
     }
 
 
     syscall_exit:
+    #ifndef EXIT_AFFECTS_SYSCALLS
+    CRIT_SEC_END
+    #endif
+    if (current_thread->in_critical_section) {
+        kprintf("Exiting syscall %d with critical counter at %lu! Forcing to 0!\n", syscall_number, current_thread->in_critical_section);
+    }
+    current_thread->in_critical_section = 0;
+
+    #ifdef SYSCALLS_RESCHEDULE
+    /*
+    numerous reasons to reschedule:
+    avoid kernel starvation by a syscall spamming thread
+    make cleanup happen quicker
+    make signals forced
+
+    since we are already in ring 0, the penalty for calling reschedule is almost zero
+    */
+    reschedule();
+    #else
+    if (current_process->do_cleanup) reschedule();
+    #endif
+
     asm volatile ("cli;");
+
+    memcpy(&current_thread->context, &ctx, sizeof(mcontext_t) - (ctx.iret_frame.cs & 3 ? 0 : 2*sizeof(void *)));
+    signal_dispatch_sa(current_process, current_thread);
+    memcpy(&ctx, &current_thread->context, sizeof(mcontext_t) - (ctx.iret_frame.cs & 3 ? 0 : 2*sizeof(void *)));
 
     // somehow reentrant syscalls break segment selectors upon exit, TODO: figure out why?
     asm volatile (
@@ -358,5 +448,8 @@ long kernel_syscall_dispatcher(context_t ctx) {
         "mov %0, %%gs;"
         ::"R"(current_process->ring > 0 ? ((GDT_USER_DATA<<3) | 3) : (GDT_KERNEL_DATA<<3))
     );
-    return return_value;
+
+    // wont work because we do popa
+    //return return_value;
+    ctx.eax = return_value;
 }

@@ -14,7 +14,7 @@ OBJS	:= $(CRT0) $(CRTI) $(CRTBEGIN) src/entry.o $(CRTEND) $(CRTN)
 
 all: $(OBJS)
 	mkdir -p build
-	$(CC) $(CFLAGS) $(OBJS) $(LIBC) $(LDFLAGS) -o build/ls
+	$(CC) $(CFLAGS) $(OBJS) $(LIBC) -o build/ls $(LDFLAGS)
 
 .PHONY: clean
 clean:

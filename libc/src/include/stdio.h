@@ -34,5 +34,5 @@ int putchar(int c);
 
 char * fgets(char * s, int size, int fd);
 
-
+void perror(const char * s);
 #endif

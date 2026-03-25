@@ -354,7 +354,7 @@ ssize_t tarfs_read(file_descriptor_t * fd, void * buf, size_t n) {
     struct tar_node * root = sb->data;
     struct tar_node * this = fd->inode->id;
 
-    if (!S_ISREG(this->mode)) return EINVAL;
+    if (!S_ISREG(this->mode)) return -EINVAL;
 
     if (!is_valid_node(root, this)) panic("Invalid this/root TARFS node combo!");
 
@@ -382,23 +382,23 @@ off_t tarfs_seek(file_descriptor_t * fd, off_t off, int whence) {
     struct tar_node * node = fd->inode->id;
     switch (whence) {
         case SEEK_SET:
-            if (off < 0) return EINVAL;
+            if (off < 0) return -EINVAL;
             return fd->off = off;
         case SEEK_CUR:
-            if (fd->off + off > fd->off && off < 0) return EINVAL; // underflow - negative offset
-            if (fd->off + off < fd->off && off > 0) return E2BIG; // overflow
+            if (fd->off + off > fd->off && off < 0) return -EINVAL; // underflow - negative offset
+            if (fd->off + off < fd->off && off > 0) return -E2BIG; // overflow
 
             return fd->off = fd->off + off;
         case SEEK_END:
             if (off >= 0) {
-                if (fd->off + off > fd->off && off < 0) return EINVAL; // underflow - negative offset
-                if (fd->off + off < fd->off && off > 0) return E2BIG; // overflow
+                if (fd->off + off > fd->off && off < 0) return -EINVAL; // underflow - negative offset
+                if (fd->off + off < fd->off && off > 0) return -E2BIG; // overflow
                 return fd->off = node->size + off;
             }
             else if (off < 0 && -off <= fd->off) return fd->off = fd->off - off;
-            return EINVAL; // negative offset
+            return -EINVAL; // negative offset
         default:
-            return EINVAL;
+            return -EINVAL;
     }
 }
 
@@ -419,7 +419,7 @@ ssize_t tarfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_
     switch (fd->off) {
         case 0: // "."
             if (dent_size < sizeof(struct dirent) + 2)
-                return EINVAL;
+                return -EINVAL;
             *dent = (struct dirent) {
                 .d_ino = this->record_offset,
                 .d_off = fd->off,
@@ -431,7 +431,7 @@ ssize_t tarfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_
             break;
         case 1:
             if (dent_size < sizeof(struct dirent) + 3)
-                return EINVAL;
+                return -EINVAL;
             *dent = (struct dirent) {
                 .d_ino = this->upper->record_offset,
                 .d_off = fd->off,
@@ -448,7 +448,7 @@ ssize_t tarfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_
                 if (this == NULL) return 0;
             }
             if (dent_size < sizeof(struct dirent) + strlen(this->path_fragment) + 1)
-                return EINVAL;
+                return -EINVAL;
             *dent = (struct dirent) {
                 .d_ino = this->record_offset,
                 .d_off = fd->off,
@@ -474,7 +474,7 @@ int tarfs_stat(inode_t * file, struct stat * buf) {
 
     if (!is_valid_node(root, this)) panic("Invalid this/root TARFS node combo!");
 
-    if (this->record_offset > INT32_MAX || this->size > INT32_MAX) return EOVERFLOW;
+    if (this->record_offset > INT32_MAX || this->size > INT32_MAX) return -EOVERFLOW;
 
     *buf = (struct stat) {
         .st_dev = sb->device,

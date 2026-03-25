@@ -25,7 +25,7 @@ static inline void check_deadlock(sem_t * sem, process_t * pprocess) { // tested
                 __builtin_unreachable();
             } else {
                 kprintf("Process %lu deadlocked, killing...\n", pprocess->pid);
-                pprocess->threads->status = SCHED_CLEANUP;
+                pprocess->do_cleanup = 1;
                 reschedule();
             }
             return;
@@ -60,6 +60,7 @@ void spinlock_acquire(spinlock_t * lock) { // disables interrupts after lock
 // same as normal spinlock_acquire, but doesn't call cli
 void spinlock_acquire_interruptible(spinlock_t * lock) {
     if (!lock) panic("Tried to lock a NULL spinlock");
+    CRIT_SEC_START
 
     asm volatile ("pushf; pop %0;" : "=R"(lock->eflags));
 
@@ -83,6 +84,7 @@ void spinlock_acquire_interruptible(spinlock_t * lock) {
 // NEVER TRY TO LOCK A GLOBAL SPINLOCK INSIDE NONREENTRANT INTERRUPTS
 void spinlock_acquire_nonreentrant(spinlock_t * lock) {
     if (!lock) panic("Tried to lock a NULL spinlock");
+    CRIT_SEC_START
 
     asm volatile ("pushf; pop %0;" : "=R"(lock->eflags));
 
@@ -96,7 +98,7 @@ void spinlock_acquire_nonreentrant(spinlock_t * lock) {
     } while (!__atomic_compare_exchange_n(&lock->state, &(unsigned long){SPINLOCK_UNLOCKED}, SPINLOCK_LOCKED, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST));
 }
 
-void spinlock_release(spinlock_t * lock) {if (!lock) panic("Tried to release NULL spinlock"); __atomic_store_n(&lock->state, SPINLOCK_UNLOCKED, __ATOMIC_RELEASE); asm volatile ("push %0; popf;" :: "R"(lock->eflags));}
+void spinlock_release(spinlock_t * lock) {if (!lock) panic("Tried to release NULL spinlock"); CRIT_SEC_END __atomic_store_n(&lock->state, SPINLOCK_UNLOCKED, __ATOMIC_RELEASE); asm volatile ("push %0; popf;" :: "R"(lock->eflags));}
 
 void kernel_sem_post(process_t * calling_process, int sem_idx) {
     kassert(calling_process->semaphores[sem_idx]);

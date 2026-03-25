@@ -5,7 +5,7 @@
 #include "include/block/memdisk.h"
 #include "include/debug/backtrace.h"
 #include "include/devs.h"
-#include "include/errno.h"
+#include "../libc/src/include/errno.h"
 #include "include/fs/fs.h"
 #include "include/fs/vfs.h"
 #include "include/kernel_exec.h"
@@ -331,9 +331,9 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
 
     switch (sys_spawn("/init", (char *[]){"/init", "root=memdisk", NULL}, (char * []){"PATH=/bin:/sbin", "PWD=/", "HOME=/",NULL})) {
         case 1: break; // success, pid 1
-        case ENOEXEC: panic("Exec format error on init process!");
-        case ENOENT: panic("Failed to locate /init!");
-        case EISDIR: panic("/init is a directory!");
+        case-ENOEXEC: panic("Exec format error on init process!");
+        case-ENOENT: panic("Failed to locate /init!");
+        case-EISDIR: panic("/init is a directory!");
         default:
             panic("Failed to load /init!\n");
     }

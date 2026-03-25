@@ -15,7 +15,14 @@ void thread_queue_unblock(thread_queue_t * thread_queue) {
     struct __thread_queue_inner * next = thread_queue->queue.next;
 
     kassert(thread_queue->queue.thread->instances > 0);
-    thread_queue->queue.thread->status = SCHED_RUNNABLE;
+
+    char rerun = 0;
+    // see the comment in kernel_sched.h
+    if (thread_queue->queue.magic_queue_value == thread_queue->queue.thread->magic_queue_value) {
+        thread_queue->queue.thread->status = SCHED_RUNNABLE;
+    } else {
+        rerun = 1;
+    }
     if (__atomic_sub_fetch(&thread_queue->queue.thread->instances, 1, __ATOMIC_RELAXED) == 0) kfree(thread_queue->queue.thread);
 
     if (next != NULL) {
@@ -27,8 +34,11 @@ void thread_queue_unblock(thread_queue_t * thread_queue) {
     }
 
     spinlock_release(&thread_queue->queue_lock);
-
-    reschedule();
+    // the thread handle was invalid, rerun to unblock another thread
+    if (rerun)
+        thread_queue_unblock(thread_queue);
+    else
+        reschedule();
 }
 
 // pprocess and thread here to allow adding other threads than current
@@ -54,6 +64,7 @@ void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, threa
     thread_queue->queue.prev->parent_process = pprocess;
     thread_queue->queue.prev->thread = thread;
 
+    thread_queue->queue.magic_queue_value = __atomic_add_fetch(&thread->magic_queue_value, 1, __ATOMIC_RELAXED);
 
     before_unlock:
     thread->status = new_status;

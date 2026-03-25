@@ -5,6 +5,7 @@
 - there is no check if pid exists or not, multiple issues with pid wraparound
 - multiple issues with instance fields wraparound in numerous structures
 - `fork()` sometimes panics on real hardware (increment of free page)
+- race can overflow a semaphore's value (unsigned long) back to 0
 ### Known issues/quirks
 ---
 - very unwieldy way of handling userspace thread creation
@@ -19,10 +20,11 @@
 ### Known missing features
 ---
 - `scanf()` and `printf()` family of functions don't implement floats
-- `wait()` supports only exit status reporting - `WEXITSTATUS()` macro
 - `execve()` family of functions doesn't accept NULL argv or envp
 - `execve()` family of functions doesn't currently implement auxv
 - everything in the TODO obviously
+- missing `sigaltstack()` and everything along with it
+- missing `SA_RESTART`, almost all `si_code` values for `siginfo_t`
 ### Known console issues (compared to a VT102 excluding DEC escapes)
 ---
 - not setting bg for the rest of a line when encountering `\r\n`

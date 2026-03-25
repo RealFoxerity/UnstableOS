@@ -14,6 +14,7 @@ It is not meant as a production OS, there is no testing, there is no fuzzing. I 
 - ELF loading & userspace processes
 - Ramdisks & Tar as initial ramdisk
 - `exec()`, CoW `fork()`, `spawn()`, `wait()`
+- Signals - most of `sig*`, `kill()`, `tgkill()`
 - Semaphores and kernel spinlocks (technically mutexes)
 - Mostly POSIX compliant TTY
 - DEC VT102 inspired framebuffer console
@@ -72,10 +73,14 @@ see [caveats.md](./caveats.md) for info
 - [ ] ISO9660
 - [ ] sockets/pipes
 - [ ] symlinks
-- [ ] signals
+- [x] signals
+- [ ] proper (linked) `ucontext_t`
+- [ ] signal alternative stacks
+- [ ] implement priority for realtime signals 
+- [ ] `waitid()`, `waitpid()`
 - [ ] `alarm()`
 - [ ] finish implementing sessions and foreground groups for TTY
-- [ ] errno in userspace instead of returning negative numbers
+- [x] errno in userspace instead of returning negative numbers
 - [ ] scheduler priorities?
 - [ ] any form of fpu
 - [ ] PCI
@@ -89,3 +94,4 @@ see [caveats.md](./caveats.md) for info
 - [ ] auxiliary vector (for elf interpreters)
 - [ ] Thread-Local Storage + proper errno
 - [ ] Core utils
+- [ ] proper POSIX threads implementation

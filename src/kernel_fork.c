@@ -46,13 +46,13 @@ static PAGE_DIRECTORY_TYPE * fork_dup_address_space() {
 
     // we don't directly copy stacks and there isn't anything there after them anyway
     memcpy(page_directory, PDE_ADDR_VIRT,
-        ((unsigned long)(PROGRAM_STACK_VADDR - PROGRAM_THREADS_MAX * PROGRAM_STACK_SIZE) >> 22) * sizeof(PAGE_DIRECTORY_TYPE));
+        ((unsigned long)(PROGRAM_STACK_VADDR - PTHREAD_THREADS_MAX * PROGRAM_STACK_SIZE) >> 22) * sizeof(PAGE_DIRECTORY_TYPE));
 
     page_directory[PAGE_DIRECTORY_ENTRIES-1] =
         (unsigned long)page_directory_phys | PTE_PDE_PAGE_WRITABLE | PTE_PDE_PAGE_PRESENT;
 
     disable_wp();
-    for (int i = 0; i < (unsigned long)(PROGRAM_STACK_VADDR - PROGRAM_THREADS_MAX * PROGRAM_STACK_SIZE) >> 22; i++) {
+    for (int i = 0; i < (unsigned long)(PROGRAM_STACK_VADDR - PTHREAD_THREADS_MAX * PROGRAM_STACK_SIZE) >> 22; i++) {
         if (!(PDE_ADDR_VIRT[i] & PTE_PDE_PAGE_PRESENT)) continue;
 
         // we do this & ~ because the page could get PTE_PDE_PAGE_ACCESSED_DURING_TRANSLATE
@@ -153,7 +153,7 @@ static PAGE_DIRECTORY_TYPE * fork_dup_address_space() {
     return page_directory_phys;
 }
 
-pid_t sys_fork(context_t * ctx) {
+pid_t sys_fork(mcontext_t * ctx) {
     kassert(current_process->ring != 0); // i really don't want to deal with the kernel forking
 
     spinlock_acquire(&address_spaces_lock); // we need scheduler to reschedule if lockee
@@ -168,9 +168,18 @@ pid_t sys_fork(context_t * ctx) {
     new_proc->thread_stacks[GET_STACK_IDX_FROM_ADDR(current_thread->stack)] = 1;
 
     new_proc->pid = __atomic_add_fetch(&last_pid, 1, __ATOMIC_RELAXED);
-    new_proc->ppid = current_process->pid;
+    new_proc->parent = current_process;
     new_proc->user_clicks = new_proc->system_clicks = new_proc->dead_user_clicks = new_proc->dead_system_clicks = 0;
 
+    memset(new_proc->sa_pending_info, 0, sizeof(new_proc->sa_pending_info));
+
+    for (struct rt_siginfo_ll * freed = new_proc->sa_rt_queue; freed != NULL; ) {
+        struct rt_siginfo_ll * next = freed->next;
+        kfree(freed);
+        freed = next;
+    }
+    new_proc->sa_rt_queue_last  = NULL;
+    new_proc->sa_rt_queue_count = 0;
 
     // "duplicate" all file descriptors and semaphores, TODO: fix the UINT32_MAX :3
     for (int i = 0; i < FD_LIMIT_PROCESS; i++) {
@@ -178,7 +187,7 @@ pid_t sys_fork(context_t * ctx) {
             kassert(__atomic_add_fetch(&current_process->fds[i]->instances, 1, __ATOMIC_RELAXED) != UINT32_MAX);
     }
 
-    for (int i = 0; i < PROGRAM_MAX_SEMAPHORES; i++) {
+    for (int i = 0; i < SEM_NSEMS_MAX; i++) {
         if (current_process->semaphores[i])
             kassert(__atomic_add_fetch(&current_process->semaphores[i]->used, 1, __ATOMIC_RELAXED) != UINT32_MAX);
     }
@@ -191,14 +200,17 @@ pid_t sys_fork(context_t * ctx) {
 
     memcpy(new_thread, current_thread, sizeof(thread_t));
 
+    new_thread->sa_to_be_handled = 0; // to be sure, sa_mask is retained
+
     new_thread->tid = __atomic_add_fetch(&last_tid, 1, __ATOMIC_RELAXED);
     new_thread->next = NULL;
     new_thread->prev = new_thread;
+    new_thread->in_critical_section = 0;
     new_thread->kernel_stack = kalloc(current_thread->kernel_stack_size) +
                                 current_thread->kernel_stack_size;
     kassert(new_thread->kernel_stack);
 
-    memcpy(&new_thread->context, ctx, sizeof(context_t));
+    memcpy(&new_thread->context, ctx, sizeof(mcontext_t));
     new_thread->context.eax = 0; // returning 0 from the fork
 
     // see kernel_sched.c for description of how we handle context switching

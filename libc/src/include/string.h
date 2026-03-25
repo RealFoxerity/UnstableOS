@@ -39,4 +39,8 @@ char * strndup(const char * s, size_t n);
 
 char * strtok(char * __restrict src, const char * __restrict delim);
 
+// in stdio.c along with perror
+char *strerror(int errnum);
+int strerror_r(int errnum, char *strerrbuf, size_t buflen);
+
 #endif

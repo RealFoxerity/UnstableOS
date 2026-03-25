@@ -33,9 +33,11 @@ int execvp(const char * file, char * const* argv);
 int execvpe(const char * file, char * const* argv, char * const* envp);
 
 pid_t getpid();
+pid_t gettid();
 pid_t getppid();
 
 unsigned sleep(unsigned seconds);
+int pause();
 
 long syscall(unsigned long syscall_number, ...);
 
