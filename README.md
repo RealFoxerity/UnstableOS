@@ -71,7 +71,8 @@ see [caveats.md](./caveats.md) for info
 - [ ] VFAT
 - [ ] ATAPI
 - [ ] ISO9660
-- [ ] sockets/pipes
+- [x] pipes (see [caveats.md](./caveats.md))
+- [ ] sockets and named pipes
 - [ ] symlinks
 - [x] signals
 - [ ] proper (linked) `ucontext_t`

@@ -3,10 +3,10 @@
 #include "../include/kernel_sched.h"
 #include "../include/errno.h"
 #include "../../libc/src/include/string.h"
+#include "../../libc/src/include/sys/stat.h"
 #include "../include/kernel_tty_io.h"
 #include "../include/block/memdisk.h"
 
-#include <fcntl.h>
 #include <stddef.h>
 spinlock_t kernel_fd_lock = {0};
 
@@ -62,13 +62,13 @@ int get_fd_from_inode(inode_t * inode, unsigned short flags) {
     }
 
     file->inode = inode;
-    file->mode = flags;
+    file->flags = flags;
     current_process->fds[fd] = file;
     spinlock_release(&kernel_fd_lock);
     return fd;
 }
 
-static int check_file(file_descriptor_t * file) {
+static int check_file(const file_descriptor_t * file) {
     if (file == NULL) return -EBADF;
 
     kassert(file->instances > 0);
@@ -89,11 +89,12 @@ int sys_close(int fd) {
 }
 
 int close_file(file_descriptor_t * file) {
+    spinlock_acquire(&file->access_lock);
     spinlock_acquire(&kernel_fd_lock);
 
-    __atomic_sub_fetch(&file->instances, 1, __ATOMIC_RELAXED);
-    if (file->instances == 0) close_inode(file->inode);
+    if (__atomic_sub_fetch(&file->instances, 1, __ATOMIC_RELAXED) == 0) close_inode(file->inode);
     // call inode_cleanup() maybe
+    spinlock_release(&file->access_lock); // has to be before kernel_fd_lock, otherwise UAF
     spinlock_release(&kernel_fd_lock);
     return 0;
 }
@@ -101,15 +102,18 @@ int close_file(file_descriptor_t * file) {
 ssize_t read_file(file_descriptor_t * file, void * buf, size_t count) {
     int test = check_file(file);
     if (test != 0) return test;
-    if (file->mode & O_SEARCH) return -EBADF;
+    if (file->flags & O_SEARCH) return -EBADF;
 
     if (S_ISDIR(file->inode->mode)) return -EISDIR;
-    if (!(file->mode & O_RDONLY)) return -EINVAL;
+    if (!(file->flags & O_RDONLY)) return -EINVAL;
+
+    if (count > SSIZE_MAX) { return -E2BIG; }
 
     ssize_t ret = 0;
     spinlock_acquire_interruptible(&file->access_lock);
-
-    if (!file->inode->is_raw_device) {
+    if (S_ISFIFO(file->inode->mode)) {
+        ret = pipe_read(file, buf, count);
+    } else if (!(S_ISBLK(file->inode->mode) || S_ISCHR(file->inode->mode))) {
         kassert(file->inode->backing_superblock);
         kassert(file->inode->backing_superblock->funcs);
         if (file->inode->backing_superblock->funcs->read == NULL)
@@ -136,21 +140,25 @@ ssize_t read_file(file_descriptor_t * file, void * buf, size_t count) {
 ssize_t write_file(file_descriptor_t * file, const void * buf, size_t count) {
     int test = check_file(file);
     if (test != 0) return test;
-    if (file->mode & O_SEARCH) return -EBADF;
+    if (file->flags & O_SEARCH) return -EBADF;
 
     if (S_ISDIR(file->inode->mode)) return -EISDIR;
-    if (!(file->mode & O_WRONLY))
+    if (!(file->flags & O_WRONLY))
             return -EINVAL;
+
+    if (count > SSIZE_MAX) { return -E2BIG; }
 
     ssize_t ret = 0;
     spinlock_acquire_interruptible(&file->access_lock);
 
-    if (!file->inode->is_raw_device) {
+    if (S_ISFIFO(file->inode->mode)) {
+        ret = pipe_write(file, buf, count);
+    } else if (!(S_ISBLK(file->inode->mode) || S_ISCHR(file->inode->mode))) {
         kassert(file->inode->backing_superblock);
         kassert(file->inode->backing_superblock->funcs);
         if (!(file->inode->backing_superblock->mount_options & MOUNT_RDONLY)) {
             kprintf("Warning: File descriptor marked writable on read-only fs, readjusting...\n");
-            file->mode ^= O_WRONLY;
+            file->flags ^= O_WRONLY;
             spinlock_release(&file->access_lock);
             return -EINVAL;
         }
@@ -190,16 +198,16 @@ off_t seek_file(file_descriptor_t * file, off_t offset, int whence) {
     }
 
     ssize_t ret = 0;
+    if (S_ISFIFO(file->inode->mode)) { return -ESPIPE; }
     spinlock_acquire_interruptible(&file->access_lock);
-
-    if (!file->inode->is_raw_device) {
+    if (!(S_ISBLK(file->inode->mode) || S_ISCHR(file->inode->mode))) {
         kassert(file->inode->backing_superblock);
         kassert(file->inode->backing_superblock->funcs);
         if (file->inode->backing_superblock->funcs->seek == NULL)
             ret = -EINVAL;
         else
             ret = file->inode->backing_superblock->funcs->seek(file, offset, whence);
-    } else {
+    } else if (S_ISBLK(file->inode->mode) || S_ISCHR(file->inode->mode)) {
         switch (MAJOR(file->inode->device)) {
             case DEV_MAJ_MEM:
                 ret = memdisk_seek(file, offset, whence);
@@ -208,8 +216,10 @@ off_t seek_file(file_descriptor_t * file, off_t offset, int whence) {
             default:
                 kprintf("unknown dev major or not seekable (%d)...\n", MAJOR(file->inode->device));
             case DEV_MAJ_TTY:
-                ret = -ESPIPE; // assuming file is not seekable
+                ret = -ESPIPE;
         }
+    } else {
+        ret = -ESPIPE; // assuming file is not seekable
     }
     spinlock_release(&file->access_lock);
     return ret;

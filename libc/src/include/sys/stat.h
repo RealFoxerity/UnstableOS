@@ -23,6 +23,7 @@ struct stat {
 #define __ITMODE_MASK       0xF000
 #define __ITMODE_REG        0x1000
 #define __ITMODE_DIR        0x2000
+#define __ITMODE_PIPE       0x3000
 #define __ITMODE_BLK        0x4000
 #define __ITMODE_CHAR       0x8000
 
@@ -64,14 +65,15 @@ struct stat {
 #define S_IFMT __ITMODE_MASK
 #define S_IFBLK __ITMODE_BLK
 #define S_IFCHR __ITMODE_CHAR
+#define S_IFFIFO __ITMODE_PIPE
 #define S_IFREG __ITMODE_REG
 #define S_IFDIR __ITMODE_DIR
 
-
-#define S_ISREG(mode) (((mode) & S_IFMT) == S_IFREG)
-#define S_ISDIR(mode) (((mode) & S_IFMT) == S_IFDIR)
-#define S_ISBLK(mode) (((mode) & S_IFMT) == S_IFBLK)
-#define S_ISCHR(mode) (((mode) & S_IFMT) == S_IFCHR)
+#define S_ISBLK(mode)  (((mode) & S_IFMT) == S_IFBLK)
+#define S_ISCHR(mode)  (((mode) & S_IFMT) == S_IFCHR)
+#define S_ISDIR(mode)  (((mode) & S_IFMT) == S_IFDIR)
+#define S_ISFIFO(mode) (((mode) & S_IFMT) == S_IFFIFO)
+#define S_ISREG(mode)  (((mode) & S_IFMT) == S_IFREG)
 
 int stat(const char * __restrict path, struct stat * __restrict buf);
 int fstat(int fd, struct stat * buf);

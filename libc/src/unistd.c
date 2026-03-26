@@ -32,6 +32,15 @@ ssize_t read (int fd, void * buf, size_t count) {
     return ret;
 }
 
+int pipe(int fildes[2]) {
+    int ret = syscall(SYSCALL_PIPE, fildes);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return ret;
+}
+
 off_t lseek(int fd, off_t offset, int whence) {
     off_t ret = syscall(SYSCALL_SEEK, fd, offset, whence);
     if (ret < 0) {

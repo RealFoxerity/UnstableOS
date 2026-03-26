@@ -68,6 +68,8 @@ enum syscalls {
 
     SYSCALL_READDIR, // theoretically could be implemented in read()
 
+    SYSCALL_PIPE,
+
     SYSCALL_CHDIR,
     SYSCALL_CHROOT,
 
@@ -135,5 +137,6 @@ void kernel_reset_system(); // kernel_ps2.c
 // feature macros
 #define SYSCALLS_RESCHEDULE
 #define WAIT_ACTS_AS_WUNTRACED // we don't yet support waitid/waitpid with options :P
+//#define SIGPIPE_ON_READ
 
 #endif

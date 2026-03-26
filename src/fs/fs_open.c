@@ -10,8 +10,8 @@
 #include "../include/block/memdisk.h"
 #include "../../libc/src/include/fcntl.h"
 
-int open_raw_device(dev_t device, unsigned short mode) {
-    if (mode == 0 || mode > O_RDWR) return -EINVAL;
+int open_raw_device(dev_t device, unsigned short flags) {
+    if (flags == 0 || flags > O_RDWR) return -EINVAL;
 
     spinlock_acquire(&kernel_fd_lock);
 
@@ -38,7 +38,7 @@ int open_raw_device(dev_t device, unsigned short mode) {
     kassert(dev_inode);
 
     file->inode = dev_inode;
-    file->mode = mode;
+    file->flags = flags;
 
     current_process->fds[fd] = file;
 

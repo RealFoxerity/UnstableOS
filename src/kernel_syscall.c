@@ -1,19 +1,18 @@
 #include <stdint.h>
 
-#include "include/kernel_exec.h"
-#include "include/kernel_interrupts.h"
-#include "include/kernel.h"
-#include "../libc/src/include/string.h"
-#include "../libc/src/include/time.h"
-#include "../libc/src/include/sys/times.h"
-#include "include/mm/kernel_memory.h"
-#include "include/vga.h"
-#include "../libc/src/include/errno.h"
-#include "include/kernel_sched.h"
-#include "include/kernel_semaphore.h"
-#include "include/fs/fs.h"
+#include "kernel_exec.h"
+#include "kernel_interrupts.h"
+#include "kernel.h"
+#include <string.h>
+#include <time.h>
+#include <sys/times.h>
+#include "mm/kernel_memory.h"
+#include <errno.h>
+#include "kernel_sched.h"
+#include "kernel_semaphore.h"
+#include "fs/fs.h"
 
-#include "include/kernel_gdt_idt.h"
+#include "kernel_gdt_idt.h"
 
 #define kprintf(fmt, ...) kprintf("Kernel Routines: "fmt, ##__VA_ARGS__)
 
@@ -27,7 +26,7 @@ static char check_address_range(const void * addr, size_t n, char writable, char
     addr = (void*)((unsigned long) addr & ~(PAGE_SIZE_NO_PAE - 1));
 
     for (const void * iteraddr = addr; iteraddr < addr+n && iteraddr >= addr; iteraddr += PAGE_SIZE_NO_PAE) { // > addr in case we wrap around
-        PAGE_TABLE_TYPE * pte = paging_get_pte(iteraddr);
+        const PAGE_TABLE_TYPE * pte = paging_get_pte(iteraddr);
         if (pte == NULL) {
             if (!(iteraddr >= PROGRAM_HEAP_VADDR && iteraddr < PROGRAM_HEAP_VADDR + PROGRAM_HEAP_SIZE))
                 return 0;
@@ -149,6 +148,13 @@ void kernel_syscall_dispatcher(mcontext_t ctx) {
             }
             asm volatile ("sti;");
             return_value = sys_read(arg1, (void*)arg2, arg3);
+            break;
+        case SYSCALL_PIPE:
+            if (!check_address_range((int *)arg1, 2*sizeof(int), 1, in_kernel)) {
+                return_value = -EFAULT;
+                break;
+            }
+            return_value = sys_pipe((int *)arg1);
             break;
         case SYSCALL_DUP:
             asm volatile ("sti;");
@@ -362,7 +368,7 @@ void kernel_syscall_dispatcher(mcontext_t ctx) {
                 return_value = -EFAULT;
                 break;
             }
-            if (arg3 != NULL && !check_address_range((void*)arg3, sizeof(struct sigaction), 1, in_kernel)) {
+            if ((struct sigaction *)arg3 != NULL && !check_address_range((void*)arg3, sizeof(struct sigaction), 1, in_kernel)) {
                 return_value = -EFAULT;
                 break;
             }
@@ -376,7 +382,7 @@ void kernel_syscall_dispatcher(mcontext_t ctx) {
                 return_value = -EFAULT;
                 break;
             }
-            if (arg3 != NULL && !check_address_range((void*)arg3, sizeof(sigset_t), 1, in_kernel)) {
+            if ((struct sigaction *)arg3 != NULL && !check_address_range((void*)arg3, sizeof(sigset_t), 1, in_kernel)) {
                 return_value = -EFAULT;
                 break;
             }
