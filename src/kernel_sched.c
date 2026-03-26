@@ -32,10 +32,13 @@ spinlock_t scheduler_lock = {0};
 
 __attribute__((naked)) void reschedule() {
     asm volatile (
+        "pushl %ebp;" // for backtracing
+        "movl %esp, %ebp;"
         "pushf;"
         "sti;"
         "int $0x20;"
         "popf;"
+        "popl %ebp;"
         "ret;"
     );
 }

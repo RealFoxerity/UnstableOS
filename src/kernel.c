@@ -338,6 +338,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
             panic("Failed to load /init!\n");
     }
 
+    enable_interrupts();
     while (1) {
         // kernel thread serves as the idle task
         asm volatile("hlt;");

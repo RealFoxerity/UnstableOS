@@ -1,16 +1,16 @@
-#include "include/kernel.h"
-#include "include/kernel_interrupts.h"
-#include "include/kernel_sched.h"
-#include "../libc/src/include/errno.h"
-#include "../libc/src/include/signal.h"
-#include "../libc/src/include/string.h"
-#include "../libc/src/include/sys/limits.h"
-#include "include/kernel_spinlock.h"
-#include "include/mm/kernel_memory.h"
+#include "kernel.h"
+#include "kernel_interrupts.h"
+#include "kernel_sched.h"
+#include <errno.h>
+#include <signal.h>
+#include <string.h>
+#include <sys/limits.h>
+#include "kernel_spinlock.h"
+#include "mm/kernel_memory.h"
 
 // TODO: permission checks
 
-static void signal_queue_up(process_t * signaled, siginfo_t * info) {
+static void signal_queue_up(process_t * signaled, const siginfo_t * info) {
     if (info->si_signo == 0) return;
 
     if (info->si_signo >= SIGRTMIN && info->si_signo <= SIGRTMAX) {

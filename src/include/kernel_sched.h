@@ -53,28 +53,7 @@ enum pstatus_t {
 
 #define FD_LIMIT_PROCESS OPEN_MAX
 
-struct process_t;
-struct thread_t;
-
-
-struct __thread_queue_inner {
-    struct process_t * parent_process;
-    struct thread_t * thread;
-    unsigned int magic_queue_value;
-    struct __thread_queue_inner * prev;
-    struct __thread_queue_inner * next;
-};
-struct thread_queue {
-    struct __thread_queue_inner queue;
-    spinlock_t queue_lock;
-} typedef thread_queue_t;
-
-struct sem_t {
-    unsigned long used;
-    unsigned long value;
-    struct thread_queue waiting_queue;
-} typedef sem_t;
-
+struct sem_t;
 
 #define sa_to_be_handled sa_info_to_be_handled.si_signo
 struct thread_t {
@@ -138,7 +117,7 @@ struct process_t {
     const char ** argv;
     //const char * envp;
 
-    sem_t * semaphores[SEM_NSEMS_MAX];
+    struct sem_t * semaphores[SEM_NSEMS_MAX];
 
     struct sigaction sa_handlers[NSIG_MAX - 1];
 
@@ -178,6 +157,19 @@ struct program {
     void * heap;
 };
 
+
+// intentionally here, so that process_t and thread_t is already defined for kernel_sched_queues.h
+#include "kernel_sched_queues.h"
+// these unfortunately have to be here so that process_t and thread_t work
+void thread_queue_unblock(thread_queue_t * thread_queue);
+void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, enum pstatus_t new_status);
+struct sem_t {
+    unsigned long used;
+    unsigned long value;
+    struct thread_queue waiting_queue;
+} typedef sem_t;
+
+
 void kernel_idle();
 void scheduler_init();
 void schedule(mcontext_t * context);
@@ -207,9 +199,6 @@ extern spinlock_t scheduler_lock;
 
 extern pid_t last_pid;
 extern pid_t last_tid;
-
-void thread_queue_unblock(thread_queue_t * thread_queue);
-void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, enum pstatus_t new_status);
 
 
 // kernel_signals.c

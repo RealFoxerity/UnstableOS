@@ -25,7 +25,7 @@ static void cleanup_inode_list() { // acquire lock before this
 // acquire lock before this, sets the inode instance count to 1
 inode_t * get_free_inode() {
     kassert(kernel_inodes);
-    //cleanup_inode_list(); 
+    //cleanup_inode_list();
     // considering a single inode is 40 bytes, and thus the entire list is 328K, i don't think we need the cleanup
 
     for (int i = 0; i < INODE_LIMIT_KERNEL; i++) {
@@ -51,9 +51,10 @@ static inode_t * __get_inode_raw_device(dev_t device) {
 
     inode_t * inode = NULL;
     for (int i = 0; i < INODE_LIMIT_KERNEL; i++) {
-        if (kernel_inodes[i] != NULL && kernel_inodes[i]->instances != 0 && 
-                kernel_inodes[i]->device == device && kernel_inodes[i]->is_raw_device) {
-            
+        if (kernel_inodes[i] != NULL && kernel_inodes[i]->instances != 0 &&
+                (S_ISBLK(kernel_inodes[i]->mode) || S_ISCHR(kernel_inodes[i]->mode)) &&
+                kernel_inodes[i]->device == device) {
+
             inode = kernel_inodes[i];
             break;
         }
@@ -65,7 +66,7 @@ static inode_t * __get_inode_raw_device(dev_t device) {
 
 inode_t * get_inode_raw_device(dev_t device) { // gets the inode representing a raw device instead of a file
     spinlock_acquire(&kernel_inode_lock);
-    
+
     inode_t * inode =  __get_inode_raw_device(device);
 
     spinlock_release(&kernel_inode_lock);
@@ -77,9 +78,9 @@ inode_t * __get_inode(superblock_t * sb, void * inode_number) {
 
     inode_t * inode = NULL;
     for (int i = 0; i < INODE_LIMIT_KERNEL; i++) {
-        if (kernel_inodes[i] != NULL && kernel_inodes[i]->instances != 0 && 
+        if (kernel_inodes[i] != NULL && kernel_inodes[i]->instances != 0 &&
                 kernel_inodes[i]->backing_superblock == sb && kernel_inodes[i]->id == inode_number) {
-            
+
             inode = kernel_inodes[i];
             break;
         }
@@ -116,10 +117,13 @@ inode_t * create_inode(superblock_t * sb, void * inode_number) {
 
 void close_inode(inode_t *inode) {
     spinlock_acquire(&inode->lock);
-    __atomic_sub_fetch(&inode->instances, 1, __ATOMIC_RELAXED);
-    if (inode->instances == 0)
-        if (inode->backing_superblock->funcs->release)
-                inode->backing_superblock->funcs->release(inode);
+    if (__atomic_sub_fetch(&inode->instances, 1, __ATOMIC_RELAXED) == 0) {
+        if (inode->backing_superblock &&
+            inode->backing_superblock->funcs &&
+            inode->backing_superblock->funcs->release)
+            inode->backing_superblock->funcs->release(inode);
+        if (S_ISFIFO(inode->mode)) kfree(inode->pipe);
+    }
     spinlock_release(&inode->lock);
 }
 
@@ -131,10 +135,10 @@ inode_t * inode_from_device(dev_t device) {
         new_inode->instances ++;
         goto end;
     }
-    
+
     new_inode = get_free_inode();
 
-    new_inode->is_raw_device = 1;
+    new_inode->mode = S_IFBLK;
     new_inode->device = device;
 
     end:

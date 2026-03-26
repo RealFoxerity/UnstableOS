@@ -4,7 +4,6 @@
 - scanf() consumes \n
 - there is no check if pid exists or not, multiple issues with pid wraparound
 - multiple issues with instance fields wraparound in numerous structures
-- `fork()` sometimes panics on real hardware (increment of free page)
 - race can overflow a semaphore's value (unsigned long) back to 0
 ### Known issues/quirks
 ---
@@ -15,6 +14,8 @@
 - `fork()` (intentionally) doesn't copy any other stack than the calling thread's (which can lead to lost argc/argv/environ)
 - userspace `readdir()` is not thread-safe (POSIX doesn't specify whether it has to be)
 - orphaned processes are reparented to their "grandparent" instead of to the init
+- pipes only check if the fd has instance count >1 instead of checking for readers/writers
+- consequently, EPIPE and SIGPIPE is sent regardless if readers/writers exist (if instance count < 2)
 - I don't think every kernel process operation is thread safe, too lazy to check
 
 ### Known missing features

@@ -11,17 +11,16 @@
 #define FS_LIMIT_KERNEL 0x100 // maximum amount of mounted file systems kernel-wide
 
 
-#include "../../../libc/src/include/unistd.h" // for off_t, and seek modes
-#include "../../../libc/src/include/fcntl.h" // for O_* and I_* macros
+#include <unistd.h> // for off_t, and seek modes
+#include <fcntl.h> // for O_* and I_* macros
 
-// note that device fields here (except raw device inodes) are just for bookkeeping
-// the intended solution is for file system drivers to create a file descriptor
-// referring to the individual device, and then call sys_read/sys_write/sys_seek
+
+struct pipe;
 
 struct inode_t {
     void * id; // unique identifier *for a given filesystem*
 
-    unsigned short mode; // __I*
+    mode_t mode; // __I*
 
     size_t instances; // how many descriptors (and therefore processes) use this inode, 0 is considered an unused inode
 
@@ -34,12 +33,13 @@ struct inode_t {
     char is_mountpoint; // if inode is a mountpoint, instances will be at least 1 to avoid clean, think of it as the superblock using it
     struct superblock_t * next_superblock; // pointer to the superblock structure mounted at this inode
 
-    char is_raw_device; // this file represents a raw device, call the device functions rather than the superblock ones
-    dev_t device;
+    union {
+        dev_t device; // if S_ISBLK(mode) | S_ISCHR(mode)
+        struct pipe * pipe; // if S_ISFIFO(mode); extra field so that named pipes can be more easily implemented
+    };
 } typedef inode_t;
 
 struct {
-    unsigned short mode; // O_*
     unsigned short flags;
 
     size_t instances; // how many processes have this descriptor opened (for fork()/dup*() duplication)
@@ -74,6 +74,20 @@ extern file_descriptor_t ** kernel_fds;
 extern inode_t ** kernel_inodes;
 extern superblock_t ** kernel_superblocks;
 
+/* Intentionally here, so that when kernel_sched_queues.h includes kernel_sched.h
+ * file_descriptor_t and inode_t is already defined
+ */
+
+#include <sys/limits.h>
+#include "../kernel_sched_queues.h"
+
+struct pipe {
+    spinlock_t pipe_lock;
+    struct thread_queue read_queue, write_queue;
+    unsigned char pipe_fifo[PIPE_BUF];
+    size_t head, tail;
+};
+
 void init_fds();
 void init_inodes();
 void init_superblocks();
@@ -96,7 +110,7 @@ inode_t * get_inode(superblock_t * sb, void * inode_number);
 // exactly the same but increases instances if found and creates if not
 inode_t * create_inode(superblock_t * sb, void * inode_number);
 void close_inode(inode_t * inode);
-int open_raw_device(dev_t device, unsigned short mode); // locks file descriptor lock itself
+int open_raw_device(dev_t device, unsigned short flags); // locks file descriptor lock itself
 
 void inode_change_mode(inode_t * inode, unsigned short new_mode);
 
@@ -119,7 +133,7 @@ ssize_t sys_read(int fd, void * buf, size_t count);
 ssize_t sys_write(int fd, const void * buf, size_t count);
 off_t sys_seek(int fd, off_t off, int whence);
 
-#include "../../../libc/src/include/dirent.h"
+#include <dirent.h>
 ssize_t sys_readdir(int fd, struct dirent * dent, size_t dent_size);
 
 // because we want drivers' file objects to be file descriptors as well
@@ -131,6 +145,11 @@ int close_file(file_descriptor_t * file); // primarily for closing on exit()
 ssize_t read_file(file_descriptor_t * file, void * buf, size_t count);
 ssize_t write_file(file_descriptor_t * file, const void * buf, size_t count);
 off_t seek_file(file_descriptor_t * file, off_t off, int whence);
+
+// here because we need to access file_descriptor_t
+int sys_pipe(int fildes[2]);
+ssize_t pipe_write(const file_descriptor_t * file, const void * s, size_t n);
+ssize_t pipe_read(const file_descriptor_t * file, void * s, size_t n);
 
 int sys_dup(int oldfd);
 int sys_dup2(int oldfd, int newfd);
