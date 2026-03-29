@@ -23,9 +23,9 @@ libc:
 utils: libc
 	$(MAKE) -C utils
 
-.PHONY: iso
+.PHONY: iso build/UnstableOS.iso
 iso: build/UnstableOS.iso
-build/UnstableOS.iso: all
+build/UnstableOS.iso: all build/memdisk.tar
 	mkdir -p build/iso/boot/limine
 	cp build/UnstableOS.bin build/memdisk.tar build/iso
 	cp limine.conf\
@@ -57,9 +57,10 @@ src/kernel_page_fault.o: src/kernel_page_fault.c
 src/kernel_syscall.o: src/kernel_syscall.c
 	$(CC) $(CFLAGS) -mgeneral-regs-only -mno-red-zone -c src/kernel_syscall.c -o src/kernel_syscall.o
 
+PHONY: build/memdisk.tar
 build/memdisk.tar: utils
-	mkdir -p build/initmd/bin
+	mkdir -p build/initmd/bin build/initmd/dev
 	cp utils/*/build/* build/initmd/bin/
 	cp build/initmd/bin/test build/initmd/init
 	cp -r utils build/initmd
-	tar -C build/initmd -cf build/memdisk.tar init utils bin
+	tar -C build/initmd -cf build/memdisk.tar init utils bin dev

@@ -55,7 +55,7 @@ void print_file_info(const struct stat * info, const char * name) {
         if (info->st_mode & S_IRGRP) printf("r");
         else printf("-");
 
-        if (info->st_mode & S_IWGRP) printf("r");
+        if (info->st_mode & S_IWGRP) printf("w");
         else printf("-");
 
         if (info->st_mode & S_IXGRP) {
@@ -74,7 +74,7 @@ void print_file_info(const struct stat * info, const char * name) {
         if (info->st_mode & S_IROTH) printf("r");
         else printf("-");
 
-        if (info->st_mode & S_IWOTH) printf("r");
+        if (info->st_mode & S_IWOTH) printf("w");
         else printf("-");
 
         if (info->st_mode & S_IXOTH) {

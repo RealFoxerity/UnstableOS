@@ -17,7 +17,7 @@
 #include "include/kernel.h"
 #include "include/mm/kernel_memory.h"
 #include "include/kernel_gdt_idt.h"
-#include "include/ps2_keyboard.h"
+#include "include/ps2_controller.h"
 #include "include/rs232.h"
 #include "include/kernel_sched.h"
 #include "include/timer.h"
@@ -305,7 +305,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
 
 
     tty_alloc_kernel_console();
-    keyboard_init();
+    ps2_init();
 
     init_fds();
     init_inodes();
@@ -317,17 +317,27 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
         panic("initrd too large");
 
     // considering how we do file descriptors, it's guaranteed these will be 0, 1, 2
-    kassert(open_raw_device(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), O_RDWR) >= 0);
-    kassert(open_raw_device(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), O_RDWR) >= 0);
-    kassert(open_raw_device(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), O_RDWR) >= 0);
+    kassert(open_raw_device_fd(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), O_RDWR) >= 0);
+    kassert(open_raw_device_fd(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), O_RDWR) >= 0);
+    kassert(open_raw_device_fd(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), O_RDWR) >= 0);
 
     dev_t initrd_memdisk = 0;
     kassert((initrd_memdisk = memdisk_from_range(initrd_start, initrd_len) != (dev_t)-1));
 
     int initrd_fd = -1;
-    kassert((initrd_fd = open_raw_device(GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0), O_RDONLY)) >= 0);
+    kassert((initrd_fd = open_raw_device_fd(GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0), O_RDONLY)) >= 0);
 
     mount_root(GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0), FS_TARFS, 0);
+
+    inode_t * dev_inode = NULL;
+    if (openat_inode(current_process->root, "/dev", O_DIRECTORY | O_RDONLY, 0, &dev_inode) < 0) {
+        kprintf("No /dev directory in initial memdisk, /dev won't be mounted\n");
+    } else {
+        if (mount_dev(-1, dev_inode, FS_DEVFS, 0) != 0) {
+            kprintf("Error while mounting /dev, /dev won't be mounted\n");
+        }
+        close_inode(dev_inode);
+    }
 
     switch (sys_spawn("/init", (char *[]){"/init", "root=memdisk", NULL}, (char * []){"PATH=/bin:/sbin", "PWD=/", "HOME=/",NULL})) {
         case 1: break; // success, pid 1

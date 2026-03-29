@@ -162,6 +162,7 @@ struct program {
 #include "kernel_sched_queues.h"
 // these unfortunately have to be here so that process_t and thread_t work
 void thread_queue_unblock(thread_queue_t * thread_queue);
+void thread_queue_unblock_all(thread_queue_t * thread_queue);
 void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, enum pstatus_t new_status);
 struct sem_t {
     unsigned long used;

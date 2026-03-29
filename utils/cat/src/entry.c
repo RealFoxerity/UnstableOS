@@ -1,7 +1,7 @@
-#include "../../../libc/src/include/fcntl.h"
-#include "../../../libc/src/include/unistd.h"
-#include "../../../libc/src/include/stdlib.h"
-#include "../../../libc/src/include/stdio.h"
+#include <fcntl.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <stdio.h>
 
 int main(int argc, char ** argv) {
     if (argc < 2) {
@@ -18,8 +18,8 @@ int main(int argc, char ** argv) {
     char buf[128];
 
     ssize_t read_bytes = 0;
-    while ((read_bytes = read(fd, buf, 128)) == 128) {
-        write(STDOUT_FILENO, buf, 128);
+    while ((read_bytes = read(fd, buf, 128)) > 0) { // 0 being EOF
+        write(STDOUT_FILENO, buf, read_bytes);
     }
 
     if (read_bytes < 0) {
@@ -27,7 +27,6 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
-    write(STDOUT_FILENO, buf, read_bytes);
     printf("\n");
     return 0;
 }

@@ -364,12 +364,14 @@ static long signal_send_process(pid_t pid, siginfo_t * sig) {
 }
 
 static long signal_send_process_group(pid_t pgrp, siginfo_t * sig) {
+    char found = 0;
     for (process_t * signaled = process_list; signaled != NULL; signaled = signaled->next) {
         if (signaled->pgrp == pgrp) {
             signal_process(signaled, sig);
-            return 0;
+            found = 1;
         }
     }
+    if (found) return 0;
     return -ESRCH;
 }
 

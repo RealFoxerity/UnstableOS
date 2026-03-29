@@ -28,7 +28,7 @@ struct inode_t {
 
     struct superblock_t * backing_superblock; // used to lookup functions to use for i/o operations, same as next for "/"
 
-    spinlock_t lock;
+    spinlock_t lock; // never try to lock with interrupts enabled, will deadlock scheduler on process destroying
 
     char is_mountpoint; // if inode is a mountpoint, instances will be at least 1 to avoid clean, think of it as the superblock using it
     struct superblock_t * next_superblock; // pointer to the superblock structure mounted at this inode
@@ -110,7 +110,8 @@ inode_t * get_inode(superblock_t * sb, void * inode_number);
 // exactly the same but increases instances if found and creates if not
 inode_t * create_inode(superblock_t * sb, void * inode_number);
 void close_inode(inode_t * inode);
-int open_raw_device(dev_t device, unsigned short flags); // locks file descriptor lock itself
+int open_raw_device(dev_t device, unsigned short flags, file_descriptor_t ** file_out); // locks file descriptor lock itself
+int open_raw_device_fd(dev_t device, unsigned short flags); // locks file descriptor lock itself
 
 void inode_change_mode(inode_t * inode, unsigned short new_mode);
 
@@ -142,9 +143,15 @@ ssize_t sys_readdir(int fd, struct dirent * dent, size_t dent_size);
 // this is theoretically more dangerous as we can't completely get rid of the fd and there could be UAF
 // alternatively we could do message passing and deferring to the kernel but that's much harder
 int close_file(file_descriptor_t * file); // primarily for closing on exit()
+// when we know for 100% that the inode isn't used anywhere in the running process
+// (for example the scheduler when destroying an application)
+// so that we don't have to needlessly wait
+int close_file_forced(file_descriptor_t * file);
 ssize_t read_file(file_descriptor_t * file, void * buf, size_t count);
 ssize_t write_file(file_descriptor_t * file, const void * buf, size_t count);
 off_t seek_file(file_descriptor_t * file, off_t off, int whence);
+
+ssize_t ps2_mouse_read(void * buf, size_t n);
 
 // here because we need to access file_descriptor_t
 int sys_pipe(int fildes[2]);
@@ -156,8 +163,8 @@ int sys_dup2(int oldfd, int newfd);
 
 #define MOUNT_RDONLY 1
 
-long sys_mount(const char * dev_path, const char * mount_path, unsigned char type, unsigned short options);
-
+long mount_dev(dev_t dev, inode_t * mount_point, unsigned char type, unsigned short options);
 long mount_root(dev_t dev, unsigned char type, unsigned short options);
+long sys_mount(const char * dev_path, const char * mount_path, unsigned char type, unsigned short options);
 
 #endif

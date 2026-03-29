@@ -13,6 +13,7 @@ enum dev_maj {
     DEV_MAJ_MEM,
     DEV_MAJ_BLOCK,
     DEV_MAJ_TTY,
+    DEV_MAJ_MISC
 };
 
 #define MEMDISK_LIMIT_KERNEL 4
@@ -21,6 +22,12 @@ enum dev_mem_min {
     DEV_MEM_MEMDISK1,
     DEV_MEM_MEMDISK2,
     DEV_MEM_MEMDISK3,
+};
+
+enum dev_misc_min {
+    DEV_MISC_PS2MOUSE,
+    DEV_MISC_ZERO,
+    DEV_MISC_NULL,
 };
 
 #define __TTY_CONSOLE 16

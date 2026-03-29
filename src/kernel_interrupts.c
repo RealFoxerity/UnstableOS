@@ -2,7 +2,7 @@
 #include "include/debug/backtrace.h"
 #include "include/kernel_gdt_idt.h"
 #include "include/kernel_sched.h"
-#include "include/ps2_keyboard.h"
+#include "include/ps2_controller.h"
 #include "include/lowlevel.h"
 #include "include/kernel.h"
 #include "include/timer.h"
@@ -502,24 +502,20 @@ __attribute__((naked, no_caller_saved_registers)) void interr_pic_pit(struct int
 
 
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_keyboard(struct interr_frame * interrupt_frame) {
-    keyboard_driver(1);
+    ps2_driver(1);
 }
 
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_mouse(struct interr_frame * interrupt_frame) {
-    kprintf("Got called");
-    inb(PS2_DATA_PORT);
-    pic_send_eoi(PIC_INTERR_PS2_MOUSE);
+    ps2_driver(2);
 }
 
-extern void com_recv_byte(unsigned char com);
+extern void com_recv_byte(char com);
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_com2(struct interr_frame * interrupt_frame) {
     com_recv_byte(1);
-    pic_send_eoi(PIC_INTERR_COM2);
 }
 
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_com1(struct interr_frame * interrupt_frame) {
     com_recv_byte(0);
-    pic_send_eoi(PIC_INTERR_COM1);
 }
 
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_lpt2(struct interr_frame * interrupt_frame) {

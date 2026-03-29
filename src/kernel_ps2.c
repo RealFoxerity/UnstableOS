@@ -1,21 +1,25 @@
-#include "include/kernel_interrupts.h"
-#include "include/kernel_sched.h"
-#include "include/kernel_spinlock.h"
-#include "include/keyboard.h"
-#include "include/ps2_keyboard.h"
-#include "include/lowlevel.h"
-#include "include/kernel.h"
+#include "kernel_interrupts.h"
+#include "kernel_sched.h"
+#include "kernel_spinlock.h"
+#include "keyboard.h"
+#include "ps2_controller.h"
+#include "kernel_ps2_lut.h"
+#include "lowlevel.h"
+#include "kernel.h"
 #include <stdint.h>
+
+#include <string.h>
 
 #define kprintf(x, ...) kprintf("PS/2 driver: "x, ##__VA_ARGS__)
 
 struct ps2_device {
     char present;
+    char is_mouse;
     uint8_t type;
     char scan_code_set;
 };
 
-static struct ps2_device ps2_present_devices[2];
+static struct ps2_device ps2_present_devices[2] = {0};
 
 
 enum driver_states {
@@ -23,14 +27,14 @@ enum driver_states {
     PS2_INITIALIZED,
     PS2_DRIVER_RUNNING,
 };
-enum driver_states ps2_driver_state = PS2_UNINITIALIZED; 
+enum driver_states ps2_driver_state = PS2_UNINITIALIZED;
 
 #define PS2_ID_WAIT_AMOUNT 3
 #define PS2_RETRY_COUNT 3
 
-static inline char ps2_output_buffer_full() { // there is data to read from device/ctrl
+static inline char ps2_output_buffer_full(uint8_t device_num) { // there is data to read from device/ctrl
     uint8_t status_reg = inb(PS2_COMM_PORT);
-    return (status_reg & PS2_STATUS_OUTPUT_BUFFER_FULL) != 0;
+    return (status_reg & (device_num == 1 ? PS2_STATUS_OUTPUT_BUFFER_FULL : PS2_STATUS_DEVICE_2_OBUFFER_FULL)) != 0;
 }
 
 static inline char ps2_input_buffer_full() { // clear for writing
@@ -42,8 +46,16 @@ static inline void ps2_wait_until_ready_w() { // ready to write
     while (ps2_input_buffer_full());
 }
 
-static inline void ps2_wait_until_ready_r() { // ready to read
-    while (!ps2_output_buffer_full());
+#define PS2_BUFFER_WAIT_TIME 100
+static inline void ps2_wait_until_ready_r(uint8_t device_num) { // ready to read
+    // sometimes the mouse doesn't respond before initialization
+    // and the PS2_STATUS_DEVICE_2_OBUFFER_FULL bit is implementation dependant anyway
+    for (int i = 0; i < PS2_BUFFER_WAIT_TIME; i++)
+        if (ps2_output_buffer_full(device_num)) return;
+    // try the normal one
+    for (int i = 0; i < PS2_BUFFER_WAIT_TIME; i++)
+        if (ps2_output_buffer_full(1)) return;
+    // just give up and assume broken wait, 200 io reads should be always enough anyway
 }
 
 static inline void ps2_prepare_send_port_2() {
@@ -70,7 +82,7 @@ static inline char ps2_disable_scanning(char device_num) {
         if (device_num == 2) ps2_prepare_send_port_2();
         ps2_wait_until_ready_w();
         outb(PS2_DATA_PORT, PS2_COMMAND_DISABLE_SCANNING);
-        ps2_wait_until_ready_r();
+        ps2_wait_until_ready_r(device_num);
         if ((res_byte = inb(PS2_DATA_PORT)) == PS2_RESPONSE_ACK) break;
         else if (res_byte != PS2_RESPONSE_RESEND_LAST_BYTE) {
             kprintf("Warning: PS/2 device %d responded with garbage to disable scan command, attempt %d/3\n", device_num, i+1);
@@ -88,7 +100,7 @@ static inline char ps2_enable_scanning(char device_num) {
         if (device_num == 2) ps2_prepare_send_port_2();
         ps2_wait_until_ready_w();
         outb(PS2_DATA_PORT, PS2_COMMAND_ENABLE_SCANNING);
-        ps2_wait_until_ready_r();
+        ps2_wait_until_ready_r(device_num);
         if ((res_byte = inb(PS2_DATA_PORT)) == PS2_RESPONSE_ACK) break;
         else if (res_byte != PS2_RESPONSE_RESEND_LAST_BYTE) {
             kprintf("Warning: PS/2 device %d responded with garbage to enable scanning command, attempt %d/3\n", device_num, i+1);
@@ -99,10 +111,9 @@ static inline char ps2_enable_scanning(char device_num) {
 
 static inline char test_ps2_device(char device_num) {
     if (!ps2_disable_scanning(device_num)) return 0;
-    enum ps2_controller_port_test_response test_status;
     outb(PS2_COMM_PORT, device_num == 1?PS2_CONTROLLER_COMMAND_TEST_PORT1:PS2_CONTROLLER_COMMAND_TEST_PORT2);
-    ps2_wait_until_ready_r();
-    test_status = inb(PS2_DATA_PORT);
+    ps2_wait_until_ready_r(device_num);
+    enum ps2_controller_port_test_response test_status = inb(PS2_DATA_PORT);
 
     switch (test_status) {
         case PS2_CONTROLLER_TEST_PASSED:
@@ -128,7 +139,9 @@ static inline char test_ps2_device(char device_num) {
 }
 
 static inline char ps2_keyboard_set_cs1(uint8_t device_num) {
+#ifndef PS2_TRY_TO_NEGOTIATE_SC1
     return 0;
+#else
     uint8_t res_byte;
     for (int i = 0; i <= PS2_RETRY_COUNT; i++) {
         if (i == PS2_RETRY_COUNT) {
@@ -141,7 +154,7 @@ static inline char ps2_keyboard_set_cs1(uint8_t device_num) {
         outb(PS2_DATA_PORT, PS2_COMMAND_SCAN_CODE);
         ps2_wait_until_ready_w();
         outb(PS2_DATA_PORT, PS2_SCAN_CODE_SET_1);
-        ps2_wait_until_ready_r();
+        ps2_wait_until_ready_r(device_num);
         if ((res_byte = inb(PS2_DATA_PORT)) == PS2_RESPONSE_ACK) break;
         else if (res_byte != PS2_RESPONSE_RESEND_LAST_BYTE) {
             kprintf("Warning: PS/2 device %d responded with garbage to set scancode set command, attempt %d/3\n", device_num, i+1);
@@ -156,28 +169,153 @@ static inline char ps2_keyboard_set_cs1(uint8_t device_num) {
         outb(PS2_DATA_PORT, PS2_COMMAND_SCAN_CODE);
         ps2_wait_until_ready_w();
         outb(PS2_DATA_PORT, PS2_SCAN_CODE_GET_CURRENT);
-        ps2_wait_until_ready_r();
+        ps2_wait_until_ready_r(device_num);
         if ((res_byte = inb(PS2_DATA_PORT)) == PS2_RESPONSE_ACK) break;
         else if (res_byte != PS2_RESPONSE_RESEND_LAST_BYTE) {
             kprintf("Warning: PS/2 device %d responded with garbage to get scancode set command, attempt %d/3\n", device_num, i+1);
         }
     }
-    ps2_wait_until_ready_r();
+    ps2_wait_until_ready_r(device_num);
     res_byte = inb(PS2_DATA_PORT);
     if (res_byte != PS2_SCAN_CODE_SET_1) {
         kprintf("Error: PS/2 device %d refused to switch to scancode set 1 (got scs %hhx)\n", device_num, res_byte);
         return 0;
     }
     return 1;
+#endif
 }
 
 
-static inline void ps2_errored_device(char device_num) {
+static void ps2_errored_device(char device_num) {
     kprintf("Disabling device %d\n", device_num);
     outb(PS2_COMM_PORT, device_num == 1 ? PS2_CONTROLLER_COMMAND_DISABLE_PORT1:PS2_CONTROLLER_COMMAND_DISABLE_PORT2);
+    ps2_present_devices[device_num - 1].present = 0;
 }
 
-static inline void gather_ps2_device_info(uint8_t device_num) { // todo: implement timer and checking bit 1 of status register
+static uint16_t ps2_get_id(uint8_t device_num) {
+    uint8_t major = 0;
+    for (int j = 0; j <= PS2_ID_WAIT_AMOUNT; j++) {
+        if (j == PS2_ID_WAIT_AMOUNT) {
+            kprintf("Unspecified PS/2 device on device number %d, assuming keyboard\n", device_num);
+            return PS2_DEVICE_KEYBOARD;
+        }
+        if (ps2_output_buffer_full(device_num)) {
+            major = inb(PS2_DATA_PORT);
+            break;
+        }
+    }
+
+    for (int j = 0; j <= PS2_ID_WAIT_AMOUNT; j++) {
+        if (ps2_output_buffer_full(device_num)) {
+            return (major << 8) | inb(PS2_DATA_PORT);
+        }
+    }
+    return major << 8;
+}
+
+static char ps2_reset_mouse(uint8_t device_num) {
+    uint8_t res_byte;
+    for (int i = 0; i <= PS2_RETRY_COUNT; i++) {
+        if (i == PS2_RETRY_COUNT) {
+            errored:
+            ps2_errored_device(device_num);
+            return 0;
+        }
+        if (device_num == 2) ps2_prepare_send_port_2();
+        ps2_wait_until_ready_w();
+        outb(PS2_DATA_PORT, PS2_COMMANDM_RESET);
+        io_wait(); // mice don't follow the 0 bit of the status register
+        if ((res_byte = inb(PS2_DATA_PORT)) == PS2_RESPONSE_ACK) break;
+        if (res_byte != PS2_RESPONSE_RESEND_LAST_BYTE) {
+            kprintf("Warning: PS/2 mouse %d responded with garbage to reset command, attempt %d/3\n", device_num, i+1);
+        }
+    }
+    for (int i = 0; i <= PS2_RETRY_COUNT; i++) {
+        if (i == PS2_RETRY_COUNT) {
+            kprintf("Warning: PS/2 mouse %d didn't come back after reset!\n", device_num);
+            goto errored;
+        }
+        if (inb(PS2_DATA_PORT) == PS2_RESPONSE_SELF_TEST_PASSED) break;
+    }
+    return 1;
+}
+
+static char ps2_set_sample_rate(uint8_t device_num, uint8_t sample_rate) {
+    uint8_t res_byte;
+    switch (sample_rate) {
+        case 10:
+        case 20:
+        case 40:
+        case 80:
+        case 100:
+        case 200:
+            for (int i = 0; i <= PS2_RETRY_COUNT; i++) {
+                if (i == PS2_RETRY_COUNT) {
+                    ps2_errored_device(device_num);
+                    return 0;
+                }
+                if (device_num == 2) ps2_prepare_send_port_2();
+                ps2_wait_until_ready_w();
+                outb(PS2_DATA_PORT, PS2_COMMANDM_SET_SAMPLE_RATE);
+                io_wait(); // mice don't follow the 0 bit of the status register
+                outb(PS2_DATA_PORT, sample_rate);
+                io_wait();
+                if ((res_byte = inb(PS2_DATA_PORT)) == PS2_RESPONSE_ACK) break;
+                if (res_byte != PS2_RESPONSE_RESEND_LAST_BYTE) {
+                    kprintf("Warning: PS/2 mouse %d responded with garbage to set sample rate command, attempt %d/3\n", device_num, i+1);
+                }
+            }
+            return 1;
+        default: return 0;
+    }
+}
+
+// will try to negotiate up to a 5 button mouse, returning the new type
+static char ps2_mouse_switch_modes(uint8_t device_num) {
+    if (!ps2_present_devices[device_num - 1].is_mouse) return 0;
+    switch (ps2_present_devices[device_num - 1].type) {
+        case PS2_DEVICE_STD_MOUSE:
+            if (!ps2_set_sample_rate(device_num, 200)) return 0;
+            if (!ps2_set_sample_rate(device_num, 100)) return 0;
+            if (!ps2_set_sample_rate(device_num, 80)) return 0;
+            if (ps2_get_id(device_num) >> 8 != PS2_DEVICE_MOUSE_SCROLL)
+                return PS2_DEVICE_STD_MOUSE;
+        case PS2_DEVICE_MOUSE_SCROLL:
+            if (!ps2_set_sample_rate(device_num, 200)) return 0;
+            if (!ps2_set_sample_rate(device_num, 200)) return 0;
+            if (!ps2_set_sample_rate(device_num, 80)) return 0;
+            if (ps2_get_id(device_num) >> 8 != PS2_DEVICE_5_BUTTON_MOUSE)
+                return PS2_DEVICE_MOUSE_SCROLL;
+        case PS2_DEVICE_5_BUTTON_MOUSE:
+            return PS2_DEVICE_5_BUTTON_MOUSE;
+        default: return 0;
+    }
+}
+
+// TODO: the compaq bit to enable the aux port, didn't need it on my hw though
+static char ps2_mouse_init(uint8_t device_num) {
+    uint8_t res_byte;
+    if (!ps2_reset_mouse(device_num)) return 0;
+    ps2_present_devices[device_num - 1].type = ps2_mouse_switch_modes(device_num);
+    if (!ps2_set_sample_rate(device_num, PS2_MOUSE_PACKET_SPEED)) return 0;
+    for (int i = 0; i <= PS2_RETRY_COUNT; i++) {
+        if (i == PS2_RETRY_COUNT) {
+            ps2_errored_device(device_num);
+            return 0;
+        }
+        if (device_num == 2) ps2_prepare_send_port_2();
+        ps2_wait_until_ready_w();
+        outb(PS2_DATA_PORT, PS2_COMMANDM_ENABLE_PACKET_STREAMING);
+        io_wait();
+        if ((res_byte = inb(PS2_DATA_PORT)) == PS2_RESPONSE_ACK) return 1;
+        if (res_byte != PS2_RESPONSE_RESEND_LAST_BYTE) {
+            kprintf("Warning: PS/2 mouse %d responded with garbage to enable streaming, attempt %d/3\n", device_num, i+1);
+        }
+    }
+    return 1;
+}
+
+static inline void ps2_init_device(uint8_t device_num) { // todo: implement timer and checking bit 1 of status register
     uint8_t res_byte;
     if (!ps2_disable_scanning(device_num)) {
         errored:
@@ -185,57 +323,35 @@ static inline void gather_ps2_device_info(uint8_t device_num) { // todo: impleme
         return;
     }
 
-    for (int i = 0; i < PS2_RETRY_COUNT; i++) {
+    for (int i = 0; i <= PS2_RETRY_COUNT; i++) {
         if (i == PS2_RETRY_COUNT) goto errored;
         if (device_num == 2) ps2_prepare_send_port_2();
         ps2_wait_until_ready_w();
         outb(PS2_DATA_PORT, PS2_COMMAND_ID_KEYBOARD);
-        ps2_wait_until_ready_r();
+        ps2_wait_until_ready_r(device_num);
         if ((res_byte = inb(PS2_DATA_PORT)) == PS2_RESPONSE_ACK) break;
         else if (res_byte != PS2_RESPONSE_RESEND_LAST_BYTE) {
             kprintf("Warning: PS/2 device %d responded with garbage to id command, attempt %d/3\n", device_num, i+1);
         }
     }
 
-    enum ps2_device_types id_major = 0xFF;
-    enum ps2_keyboard_types id_minor = 0;
-
-    char have_byte_2 = 0;
-    for (int j = 0; j <= PS2_ID_WAIT_AMOUNT; j++) {
-        if (j == PS2_ID_WAIT_AMOUNT) {
-            kprintf("Unspecified PS/2 device on device number %d, assuming keyboard\n", device_num);
-            if (!ps2_keyboard_set_cs1(device_num)) {
-                kprintf("Falling back to scancode set 2\n");
-                ps2_present_devices[device_num-1].scan_code_set = 2;
-            } else ps2_present_devices[device_num-1].scan_code_set = 1;
-            goto normal;
-        }
-        if (ps2_output_buffer_full()) {
-            id_major = inb(PS2_DATA_PORT);
-            break;
-        }
-    }
-
-    for (int j = 0; j <= PS2_ID_WAIT_AMOUNT; j++) {
-        if (ps2_output_buffer_full()) {
-            id_minor = inb(PS2_DATA_PORT);
-            have_byte_2 = 1;
-            break;
-        }
-    }
+    uint16_t device_ids = ps2_get_id(device_num);
+    enum ps2_device_types id_major = device_ids >> 8;
+    enum ps2_keyboard_types id_minor = device_ids & 0xff;
+    char have_byte_2 = id_minor != 0;
 
     switch (id_major) {
         case PS2_DEVICE_STD_MOUSE:
             kprintf("Standard mouse on device number %d\n", device_num);
-            goto errored; // don't have yet implemented mouse
+            ps2_present_devices[device_num - 1].is_mouse = 1;
             break;
         case PS2_DEVICE_MOUSE_SCROLL:
             kprintf("Mouse with scroll wheel on device number %d\n", device_num);
-            goto errored;
+            ps2_present_devices[device_num - 1].is_mouse = 1;
             break;
         case PS2_DEVICE_5_BUTTON_MOUSE:
             kprintf("5 button mouse on device number %d\n", device_num);
-            goto errored;
+            ps2_present_devices[device_num - 1].is_mouse = 1;
             break;
 
         case PS2_DEVICE_KEYBOARD:
@@ -283,13 +399,17 @@ static inline void gather_ps2_device_info(uint8_t device_num) { // todo: impleme
             break;
     }
 
-    normal:
-    if (!ps2_enable_scanning(device_num)) goto errored;
     ps2_present_devices[device_num - 1].present = 1;
-    ps2_present_devices[device_num - 1].type = have_byte_2?id_minor : id_major;
-} 
 
-void keyboard_init() {
+    if (ps2_present_devices[device_num - 1].is_mouse) {
+        ps2_mouse_init(device_num);
+    } else {
+        ps2_present_devices[device_num - 1].type = have_byte_2?id_minor : id_major;
+    }
+    if (!ps2_enable_scanning(device_num)) goto errored;
+}
+
+void ps2_init() {
     uint32_t prev_eflags = 0;
     asm volatile (
         "pushf\n\t"
@@ -300,14 +420,14 @@ void keyboard_init() {
 
     // implement check acpi
 
-    if (ps2_output_buffer_full()) inb(PS2_DATA_PORT); // discard any remaining data
+    if (ps2_output_buffer_full(1)) inb(PS2_DATA_PORT); // discard any remaining data
 
     outb(PS2_COMM_PORT, PS2_CONTROLLER_COMMAND_DISABLE_PORT1); // to stop them from sending interrupts
     io_wait();
     outb(PS2_COMM_PORT, PS2_CONTROLLER_COMMAND_DISABLE_PORT2);
 
     outb(PS2_COMM_PORT, PS2_CONTROLLER_COMMAND_READ_BYTE);
-    ps2_wait_until_ready_r();
+    ps2_wait_until_ready_r(1);
     uint8_t config_byte = inb(PS2_DATA_PORT);
     config_byte |= //PS2_CONTROLLER_CONFIG_ENABLE_PORT1_TRANSLATION | // NOTE: translation doesn't do anything on port 2
                     //PS2_CONTROLLER_CONFIG_DISABLE_PORT1_CLOCK |    
@@ -320,7 +440,7 @@ void keyboard_init() {
     outb(PS2_DATA_PORT, config_byte);
 
     outb(PS2_COMM_PORT, PS2_CONTROLLER_COMMAND_SELF_TEST);
-    ps2_wait_until_ready_r();
+    ps2_wait_until_ready_r(1);
     uint8_t self_test_status = inb(PS2_DATA_PORT);
     if (self_test_status != PS2_CONTROLLER_SELF_TEST_PASSED) {
         kprintf("WARNING: PS/2 CONTROLLER FAILED A SELF TEST\n");
@@ -339,7 +459,7 @@ void keyboard_init() {
     io_wait();
 
     outb(PS2_COMM_PORT, PS2_CONTROLLER_COMMAND_READ_BYTE);
-    ps2_wait_until_ready_r();
+    ps2_wait_until_ready_r(1);
     config_byte = inb(PS2_DATA_PORT);
 
     if ((config_byte & PS2_CONTROLLER_CONFIG_DISABLE_PORT2_CLOCK) == 0) {
@@ -354,12 +474,12 @@ void keyboard_init() {
     }
 
     if (valid_devices & 1) {
-        gather_ps2_device_info(1);
+        ps2_init_device(1);
         config_byte |= PS2_CONTROLLER_CONFIG_ENABLE_PORT1_INTERRUPT;
         config_byte &= ~PS2_CONTROLLER_CONFIG_DISABLE_PORT1_CLOCK;
     }
     if (valid_devices & 2) {
-        gather_ps2_device_info(2);
+        ps2_init_device(2);
         config_byte |= PS2_CONTROLLER_CONFIG_ENABLE_PORT2_INTERRUPT;
         config_byte &= ~PS2_CONTROLLER_CONFIG_DISABLE_PORT1_CLOCK;
     } else {
@@ -375,93 +495,6 @@ void keyboard_init() {
     asm volatile ("push %0; popf;" ::"R"(prev_eflags));
 }
 
-static const uint8_t ps2_sc2_2byte_to_1_lookup[256] = {
-    [PS2_SC2_B2_KEY_MULTIMEDIA_WWW_SEARCH] = PS2_SC1_B2_KEY_MULTIMEDIA_WWW_SEARCH,
-    [PS2_SC2_B2_KEY_RALT] = PS2_SC1_B2_KEY_RALT,
-    [PS2_SC2_B2_KEY_RCONTROL] = PS2_SC1_B2_KEY_RCONTROL,
-    [PS2_SC2_B2_KEY_MULTIMEDIA_PREV_TRACK] = PS2_SC1_B2_KEY_MULTIMEDIA_PREV_TRACK,
-    [PS2_SC2_B2_KEY_MULTIMEDIA_WWW_FAVORITES] = PS2_SC1_B2_KEY_MULTIMEDIA_WWW_FAVORITES,
-    [PS2_SC2_B2_KEY_LMETA] = PS2_SC1_B2_KEY_LMETA,
-    [PS2_SC2_B2_KEY_MULTIMEDIA_WWW_REFRESH] = PS2_SC1_B2_KEY_MULTIMEDIA_WWW_REFRESH,
-    [PS2_SC2_B2_KEY_MULTIMEDIA_VOLUME_DOWN] = PS2_SC1_B2_KEY_MULTIMEDIA_VOLUME_DOWN,
-    [PS2_SC2_B2_KEY_MULTIMEDIA_MUTE] = PS2_SC1_B2_KEY_MULTIMEDIA_MUTE,
-    [PS2_SC2_B2_KEY_RMETA] = PS2_SC1_B2_KEY_RMETA,
-    [PS2_SC2_B2_KEY_MULTIMEDIA_WWW_STOP] = PS2_SC1_B2_KEY_MULTIMEDIA_WWW_STOP,
-    [PS2_SC2_B2_KEY_MULTIMEDIA_CALCULATOR] = PS2_SC1_B2_KEY_MULTIMEDIA_CALCULATOR,
-    [PS2_SC2_B2_KEY_COMPOSE] = PS2_SC1_B2_KEY_COMPOSE,
-    [PS2_SC2_B2_KEY_MULTIMEDIA_WWW_FORWARD] = PS2_SC1_B2_KEY_MULTIMEDIA_WWW_FORWARD,
-    [PS2_SC2_B2_KEY_MULTIMEDIA_VOLUME_UP] = PS2_SC1_B2_KEY_MULTIMEDIA_VOLUME_UP,
-    [PS2_SC2_B2_KEY_MULTIMEDIA_PLAY] = PS2_SC1_B2_KEY_MULTIMEDIA_PLAY,
-    [PS2_SC2_B2_KEY_ACPI_POWER] = PS2_SC1_B2_KEY_ACPI_POWER,
-    [PS2_SC2_B2_KEY_MULTIMEDIA_WWW_BACK] = PS2_SC1_B2_KEY_MULTIMEDIA_WWW_BACK,
-    [PS2_SC2_B2_KEY_MULTIMEDIA_WWW_HOME] = PS2_SC1_B2_KEY_MULTIMEDIA_WWW_HOME,
-    [PS2_SC2_B2_KEY_MULTIMEDIA_STOP] = PS2_SC1_B2_KEY_MULTIMEDIA_STOP,
-    [PS2_SC2_B2_KEY_ACPI_SLEEP] = PS2_SC1_B2_KEY_ACPI_SLEEP,
-    [PS2_SC2_B2_KEY_MULTIMEDIA_MY_COMPUTER] = PS2_SC1_B2_KEY_MULTIMEDIA_MY_COMPUTER,
-    [PS2_SC2_B2_KEY_MULTIMEDIA_EMAIL] = PS2_SC1_B2_KEY_MULTIMEDIA_EMAIL,
-    [PS2_SC2_B2_KEY_KP_SLASH] = PS2_SC1_B2_KEY_KP_SLASH,
-    [PS2_SC2_B2_KEY_MULTIMEDIA_NEXT_TRACK] = PS2_SC1_B2_KEY_MULTIMEDIA_NEXT_TRACK,
-    [PS2_SC2_B2_KEY_MULTIMEDIA_MEDIA_SELECT] = PS2_SC1_B2_KEY_MULTIMEDIA_MEDIA_SELECT,
-    [PS2_SC2_B2_KEY_KP_ENTER] = PS2_SC1_B2_KEY_KP_ENTER,
-    [PS2_SC2_B2_KEY_ACPI_WAKE] = PS2_SC1_B2_KEY_ACPI_WAKE,
-    [PS2_SC2_B2_KEY_END] = PS2_SC1_B2_KEY_END,
-    [PS2_SC2_B2_KEY_LEFT] = PS2_SC1_B2_KEY_LEFT,
-    [PS2_SC2_B2_KEY_HOME] = PS2_SC1_B2_KEY_HOME,
-    [PS2_SC2_B2_KEY_INSERT] = PS2_SC1_B2_KEY_INSERT,
-    [PS2_SC2_B2_KEY_DELETE] = PS2_SC1_B2_KEY_DELETE,
-    [PS2_SC2_B2_KEY_DOWN] = PS2_SC1_B2_KEY_DOWN,
-    [PS2_SC2_B2_KEY_RIGHT] = PS2_SC1_B2_KEY_RIGHT,
-    [PS2_SC2_B2_KEY_UP] = PS2_SC1_B2_KEY_UP,
-    [PS2_SC2_B2_KEY_PAGE_DOWN] = PS2_SC1_B2_KEY_PAGE_DOWN,
-    [PS2_SC2_B2_KEY_PAGE_UP] = PS2_SC1_B2_KEY_PAGE_UP,
-};
-
-static const uint16_t ps2_sc1_2byte_translate_lookup[256] = {
-[PS2_SC1_B2_KEY_MULTIMEDIA_PREV_TRACK] = KEY_MULTIMEDIA_PREV_TRACK,
-[PS2_SC1_B2_KEY_MULTIMEDIA_NEXT_TRACK] = KEY_MULTIMEDIA_NEXT_TRACK,
-[PS2_SC1_B2_KEY_KP_ENTER] = KEY_KP_ENTER,
-[PS2_SC1_B2_KEY_RCONTROL] = KEY_RCONTROL,
-[PS2_SC1_B2_KEY_MULTIMEDIA_MUTE] = KEY_MULTIMEDIA_MUTE,
-[PS2_SC1_B2_KEY_MULTIMEDIA_CALCULATOR] = KEY_MULTIMEDIA_CALCULATOR,
-[PS2_SC1_B2_KEY_MULTIMEDIA_PLAY] = KEY_MULTIMEDIA_PLAY,
-[PS2_SC1_B2_KEY_MULTIMEDIA_STOP] = KEY_MULTIMEDIA_STOP,
-[PS2_SC1_B2_FAKE_LSHIFT] = 0,
-[PS2_SC1_B2_KEY_PRINT_SCREEN] = KEY_PRINT_SCREEN,
-[PS2_SC1_B2_FAKE_SCROLLOCK] = 0,
-[PS2_SC1_B2_KEY_BREAK] = KEY_BREAK,
-[PS2_SC1_B2_KEY_MULTIMEDIA_VOLUME_DOWN] = KEY_VOLUME_DOWN,
-[PS2_SC1_B2_KEY_MULTIMEDIA_VOLUME_UP] = KEY_VOLUME_UP,
-[PS2_SC1_B2_KEY_MULTIMEDIA_WWW_HOME] = KEY_WWW_HOME,
-[PS2_SC1_B2_KEY_KP_SLASH] = KEY_KP_SLASH,
-[PS2_SC1_B2_KEY_RALT] = KEY_RALT,
-[PS2_SC1_B2_KEY_HOME] = KEY_HOME,
-[PS2_SC1_B2_KEY_UP] = KEY_UP,
-[PS2_SC1_B2_KEY_PAGE_UP] = KEY_PAGE_UP,
-[PS2_SC1_B2_KEY_LEFT] = KEY_LEFT,
-[PS2_SC1_B2_KEY_RIGHT] = KEY_RIGHT,
-[PS2_SC1_B2_KEY_END] = KEY_END,
-[PS2_SC1_B2_KEY_DOWN] = KEY_DOWN,
-[PS2_SC1_B2_KEY_PAGE_DOWN] = KEY_PAGE_DOWN,
-[PS2_SC1_B2_KEY_INSERT] = KEY_INSERT,
-[PS2_SC1_B2_KEY_DELETE] = KEY_DELETE,
-[PS2_SC1_B2_KEY_LMETA] = KEY_LMETA,
-[PS2_SC1_B2_KEY_RMETA] = KEY_RMETA,
-[PS2_SC1_B2_KEY_COMPOSE] = KEY_COMPOSE,
-[PS2_SC1_B2_KEY_ACPI_POWER] = KEY_ACPI_POWER,
-[PS2_SC1_B2_KEY_ACPI_SLEEP] = KEY_ACPI_SLEEP,
-[PS2_SC1_B2_KEY_ACPI_WAKE] = KEY_ACPI_WAKE,
-[PS2_SC1_B2_KEY_MULTIMEDIA_WWW_SEARCH] = KEY_MULTIMEDIA_WWW_SEARCH,
-[PS2_SC1_B2_KEY_MULTIMEDIA_WWW_FAVORITES] = KEY_MULTIMEDIA_WWW_FAVORITES,
-[PS2_SC1_B2_KEY_MULTIMEDIA_WWW_REFRESH] = KEY_MULTIMEDIA_WWW_REFRESH,
-[PS2_SC1_B2_KEY_MULTIMEDIA_WWW_STOP] = KEY_MULTIMEDIA_WWW_STOP,
-[PS2_SC1_B2_KEY_MULTIMEDIA_WWW_FORWARD] = KEY_MULTIMEDIA_WWW_FORWARD,
-[PS2_SC1_B2_KEY_MULTIMEDIA_WWW_BACK] = KEY_MULTIMEDIA_WWW_BACK,
-[PS2_SC1_B2_KEY_MULTIMEDIA_MY_COMPUTER] = KEY_MULTIMEDIA_MY_COMPUTER,
-[PS2_SC1_B2_KEY_MULTIMEDIA_EMAIL] = KEY_MULTIMEDIA_EMAIL,
-[PS2_SC1_B2_KEY_MULTIMEDIA_MEDIA_SELECT] = KEY_MULTIMEDIA_MEDIA_SELECT,
-};
-
-
 enum ps2_internal_states {
     PS2_NORMAL,
     PS2_WAITING_FOR_ACK,
@@ -475,8 +508,13 @@ enum ps2_internal_states {
     PS2_SC2_WAITING_FOR_RELEASE,
     PS2_SC2_2B_WAITING_FOR_RELEASE,
     PS2_SC2_3B_WAITING_FOR_RELEASE, // still applies to pause
-    PS2_SC2_WAITING_FOR_RELEASED_PAUSE, // different state because the release is set in the not always present sencond byte
-    PS2_SC2_WAITING_FOR_RELEASED_PAUSE_2
+    PS2_SC2_WAITING_FOR_RELEASED_PAUSE, // different state because the release is set in the not always present second byte
+    PS2_SC2_WAITING_FOR_RELEASED_PAUSE_2,
+
+    PS2_MOUSE_NORMAL,
+    PS2_MOUSE_WAITING_FOR_BYTE_2,
+    PS2_MOUSE_WAITING_FOR_BYTE_3,
+    PS2_MOUSE_WAITING_FOR_BYTE_4,
 };
 
 static enum ps2_internal_states internal_state_port1 = 0;
@@ -491,99 +529,16 @@ struct ps2_keyboard_state {
 static struct ps2_keyboard_state keyboard_state = {0};
 
 
-static const char ps2_sc2_to_1_lookup[256] = {
-    [PS2_SC2_KEY_F9] = KEY_F9,
-    [PS2_SC2_KEY_F5] = KEY_F5,
-    [PS2_SC2_KEY_F3] = KEY_F3,
-    [PS2_SC2_KEY_F1] = KEY_F1,
-    [PS2_SC2_KEY_F2] = KEY_F2,
-    [PS2_SC2_KEY_F12] = KEY_F12,
-    [PS2_SC2_KEY_F10] = KEY_F10,
-    [PS2_SC2_KEY_F8] = KEY_F8,
-    [PS2_SC2_KEY_F6] = KEY_F6,
-    [PS2_SC2_KEY_F4] = KEY_F4,
-    [PS2_SC2_KEY_TAB] = KEY_TAB,
-    [PS2_SC2_KEY_BACKTICK] = KEY_BACKTICK,
-    [PS2_SC2_KEY_LALT] = KEY_LALT,
-    [PS2_SC2_KEY_LSHIFT] = KEY_LSHIFT,
-    [PS2_SC2_KEY_LCONTROL] = KEY_LCONTROL,
-    [PS2_SC2_KEY_Q] = KEY_Q,
-    [PS2_SC2_KEY_1] = KEY_1,
-    [PS2_SC2_KEY_Z] = KEY_Z,
-    [PS2_SC2_KEY_S] = KEY_S,
-    [PS2_SC2_KEY_A] = KEY_A,
-    [PS2_SC2_KEY_W] = KEY_W,
-    [PS2_SC2_KEY_2] = KEY_2,
-    [PS2_SC2_KEY_C] = KEY_C,
-    [PS2_SC2_KEY_X] = KEY_X,
-    [PS2_SC2_KEY_D] = KEY_D,
-    [PS2_SC2_KEY_E] = KEY_E,
-    [PS2_SC2_KEY_4] = KEY_4,
-    [PS2_SC2_KEY_3] = KEY_3,
-    [PS2_SC2_KEY_SPACE] = KEY_SPACE,
-    [PS2_SC2_KEY_V] = KEY_V,
-    [PS2_SC2_KEY_F] = KEY_F,
-    [PS2_SC2_KEY_T] = KEY_T,
-    [PS2_SC2_KEY_R] = KEY_R,
-    [PS2_SC2_KEY_5] = KEY_5,
-    [PS2_SC2_KEY_N] = KEY_N,
-    [PS2_SC2_KEY_B] = KEY_B,
-    [PS2_SC2_KEY_H] = KEY_H,
-    [PS2_SC2_KEY_G] = KEY_G,
-    [PS2_SC2_KEY_Y] = KEY_Y,
-    [PS2_SC2_KEY_6] = KEY_6,
-    [PS2_SC2_KEY_M] = KEY_M,
-    [PS2_SC2_KEY_J] = KEY_J,
-    [PS2_SC2_KEY_U] = KEY_U,
-    [PS2_SC2_KEY_7] = KEY_7,
-    [PS2_SC2_KEY_8] = KEY_8,
-    [PS2_SC2_KEY_COMMA] = KEY_COMMA,
-    [PS2_SC2_KEY_K] = KEY_K,
-    [PS2_SC2_KEY_I] = KEY_I,
-    [PS2_SC2_KEY_O] = KEY_O,
-    [PS2_SC2_KEY_0] = KEY_0,
-    [PS2_SC2_KEY_9] = KEY_9,
-    [PS2_SC2_KEY_DOT] = KEY_DOT,
-    [PS2_SC2_KEY_SLASH] = KEY_SLASH,
-    [PS2_SC2_KEY_L] = KEY_L,
-    [PS2_SC2_KEY_SEMICOLON] = KEY_SEMICOLON,
-    [PS2_SC2_KEY_P] = KEY_P,
-    [PS2_SC2_KEY_MINUS] = KEY_MINUS,
-    [PS2_SC2_KEY_APOSTROPHE] = KEY_APOSTROPHE,
-    [PS2_SC2_KEY_LBRACE] = KEY_LBRACE,
-    [PS2_SC2_KEY_EQUAL] = KEY_EQUAL,
-    [PS2_SC2_KEY_CAPSLOCK] = KEY_CAPSLOCK,
-    [PS2_SC2_KEY_RSHIFT] = KEY_RSHIFT,
-    [PS2_SC2_KEY_ENTER] = KEY_ENTER,
-    [PS2_SC2_KEY_RBRACE] = KEY_RBRACE,
-    [PS2_SC2_KEY_BACKSLASH] = KEY_BACKSLASH,
-    [PS2_SC2_KEY_BACKSPACE] = KEY_BACKSPACE,
-    [PS2_SC2_KEY_KP_1] = KEY_KP_1,
-    [PS2_SC2_KEY_KP_4] = KEY_KP_4,
-    [PS2_SC2_KEY_KP_7] = KEY_KP_7,
-    [PS2_SC2_KEY_KP_0] = KEY_KP_0,
-    [PS2_SC2_KEY_KP_DOT] = KEY_KP_DOT,
-    [PS2_SC2_KEY_KP_2] = KEY_KP_2,
-    [PS2_SC2_KEY_KP_5] = KEY_KP_5,
-    [PS2_SC2_KEY_KP_6] = KEY_KP_6,
-    [PS2_SC2_KEY_KP_8] = KEY_KP_8,
-    [PS2_SC2_KEY_ESCAPE] = KEY_ESCAPE,
-    [PS2_SC2_KEY_NUMLOCK] = KEY_NUMLOCK,
-    [PS2_SC2_KEY_F11] = KEY_F11,
-    [PS2_SC2_KEY_KP_PLUS] = KEY_KP_PLUS,
-    [PS2_SC2_KEY_KP_3] = KEY_KP_3,
-    [PS2_SC2_KEY_KP_MINUS] = KEY_KP_MINUS,
-    [PS2_SC2_KEY_KP_ASTERISK] = KEY_KP_ASTERISK,
-    [PS2_SC2_KEY_KP_9] = KEY_KP_9,
-    [PS2_SC2_KEY_SCROLLLOCK] = KEY_SCROLLLOCK,
-    [PS2_SC2_KEY_F7] = KEY_F7,
-};
-
-
 extern void console_translate_scancode(uint32_t scancode);
 
 
-static void keyboard_driver_internal(char device_num) {
+static void ps2_keyboard_driver_internal(char device_num) {
+    if (!ps2_output_buffer_full(device_num)) {
+        kprintf("Warning: Keyboard driver got called with data present for a different device, flushing\n");
+        // we have to flush, otherwise the controller hangs :P
+        inb(PS2_DATA_PORT);
+        return;
+    }
     uint32_t out = 0;
 
     uint8_t current_byte = inb(PS2_DATA_PORT);
@@ -625,6 +580,7 @@ static void keyboard_driver_internal(char device_num) {
                 case KEY_LALT:
                     keyboard_state.mods ^= PS2_KEY_MOD_LALT_MASK;
                     break;
+                default: break;
             }
             switch (current_byte) { // we don't care about release
                 case KEY_CAPSLOCK:
@@ -638,6 +594,7 @@ static void keyboard_driver_internal(char device_num) {
                 case KEY_SCROLLLOCK:
                     keyboard_state.leds ^= PS2_LED_SCROLLLOCK;
                     break;
+                default: break;
             }
             out = (current_byte & (~PS2_SC1_KEY_RELEASED_MASK)) | ((current_byte&PS2_SC1_KEY_RELEASED_MASK)?KEY_RELEASED_MASK:0);
             out |= keyboard_state.mods << 12;
@@ -662,6 +619,7 @@ static void keyboard_driver_internal(char device_num) {
                 case PS2_SC1_B2_KEY_RMETA:
                     keyboard_state.mods ^= PS2_KEY_MOD_RMETA_MASK;
                     break;
+                default: break;
             }
             out = ps2_sc1_2byte_translate_lookup[current_byte&(~PS2_SC1_KEY_RELEASED_MASK)] | ((current_byte&PS2_SC1_KEY_RELEASED_MASK)?KEY_RELEASED_MASK:0);
             out |= keyboard_state.mods << 12;
@@ -706,7 +664,7 @@ static void keyboard_driver_internal(char device_num) {
             *internal_state = PS2_NORMAL;
             return;
 
-        
+
 
         case PS2_SC2_WAITING_FOR_RELEASE:
             current_byte = ps2_sc2_to_1_lookup[current_byte];
@@ -727,19 +685,93 @@ static void keyboard_driver_internal(char device_num) {
             out |= keyboard_state.mods << 12;
             *internal_state = PS2_NORMAL;
             break;
+        default: break; // mouse commands aren't relevant
     }
-    
+    if (out == 0) return;
     if (out == (KEY_DELETE | KEY_MOD_LCONTROL_MASK | KEY_MOD_RALT_MASK)) kernel_reset_system();
 
     console_translate_scancode(out);
 }
 
-spinlock_t ps2_pending_lock = {0};
-char pending_device = -1;
+static unsigned char mouse_buffer[4]; // 4 in case of 5 button/scroll wheel mouse
+
+#include <errno.h>
+static spinlock_t ps2_driver_lock = {0};
+static thread_queue_t mouse_queue = {0};
+
+ssize_t ps2_mouse_read(void * buf, size_t n) {
+    thread_queue_add(&mouse_queue, current_process, current_thread, SCHED_INTERR_SLEEP);
+    if (current_thread->sa_to_be_handled != 0) return -EINTR;
+
+#ifdef PS2_MOUSE_LINUX_COMPAT
+    memcpy(buf, mouse_buffer, n > 3 ? 3 : n);
+    return n > 3 ? 3 : n;
+#else
+    memcpy(buf, mouse_buffer, n > 4 ? 4 : n);
+    return n > 4 ? 4 : n;
+#endif
+}
+
+static void ps2_mouse_driver_internal(char device_num) {
+    if (!ps2_output_buffer_full(device_num)) {
+        kprintf("Warning: Mouse driver got called with data present for a different device, flushing\n");
+        inb(PS2_DATA_PORT);
+        return;
+    }
+
+    uint8_t current_byte = inb(PS2_DATA_PORT);
+    if (ps2_present_devices[device_num-1].present == 0) {
+        kprintf("Recieved an interrupt for a disabled device! Ignoring\n");
+        return;
+    }
+    enum ps2_internal_states * internal_state;
+    if (device_num == 1)
+        internal_state = &internal_state_port1;
+    else
+        internal_state = &internal_state_port2;
+
+    switch (*internal_state) {
+        case PS2_NORMAL:
+            if (!(current_byte & PS2_MOUSE_P1_ALWAYS_1)) return; // unaligned byte probably
+            mouse_buffer[0] = current_byte;
+            *internal_state = PS2_MOUSE_WAITING_FOR_BYTE_2;
+            return;
+        case PS2_MOUSE_WAITING_FOR_BYTE_2:
+            mouse_buffer[1] = current_byte;
+            *internal_state = PS2_MOUSE_WAITING_FOR_BYTE_3;
+            return;
+        case PS2_MOUSE_WAITING_FOR_BYTE_3:
+            mouse_buffer[2] = current_byte;
+            if (ps2_present_devices[device_num-1].type != PS2_DEVICE_STD_MOUSE) {
+                *internal_state = PS2_MOUSE_WAITING_FOR_BYTE_4;
+                return;
+            }
+            *internal_state = PS2_MOUSE_NORMAL;
+            break;
+        case PS2_MOUSE_WAITING_FOR_BYTE_4:
+            mouse_buffer[3] = current_byte;
+            *internal_state = PS2_MOUSE_NORMAL;
+            break;
+        default: break;
+    }
+    switch (ps2_present_devices[device_num-1].type) {
+        case PS2_DEVICE_STD_MOUSE:
+            mouse_buffer[3] = 0;
+            break;
+        case PS2_DEVICE_MOUSE_SCROLL:
+            mouse_buffer[3] &= 0xF; // to be sure of no garbage data
+            break;
+        default: break;
+    }
+
+    thread_queue_unblock_all(&mouse_queue);
+}
+
+volatile char pending_device = -1;
 
 thread_t * ps2_driver_thread = NULL;
 
-static void keyboard_driver_loop() {
+static __attribute__((noreturn)) void ps2_driver_loop() {
     kassert(ps2_driver_thread);
     while (1) {
         if (__builtin_expect(pending_device == -1, 0)) {
@@ -747,33 +779,47 @@ static void keyboard_driver_loop() {
             reschedule();
         }
         else {
-            spinlock_acquire(&ps2_pending_lock);
-            keyboard_driver_internal(pending_device);
+            spinlock_acquire(&ps2_driver_lock);
+            if (ps2_present_devices[pending_device - 1].is_mouse)
+                ps2_mouse_driver_internal(pending_device);
+            else
+                ps2_keyboard_driver_internal(pending_device);
+
+            if (ps2_present_devices[pending_device - 1].is_mouse)
+                pic_send_eoi(PIC_INTERR_PS2_MOUSE);
+            else
+                pic_send_eoi(PIC_INTERR_KEYBOARD);
             pending_device = -1;
-            spinlock_release(&ps2_pending_lock);
-            pic_send_eoi(PIC_INTERR_KEYBOARD);
+            spinlock_release(&ps2_driver_lock);
         }
     }
 }
 
-void keyboard_driver(char device_num) {
+void ps2_driver(char device_num) {
     if (__builtin_expect(ps2_driver_state == PS2_UNINITIALIZED, 0)) {
-        pic_send_eoi(PIC_INTERR_KEYBOARD);
+        fallback:
+        if (ps2_present_devices[device_num-1].is_mouse)
+            pic_send_eoi(PIC_INTERR_PS2_MOUSE);
+        else
+            pic_send_eoi(PIC_INTERR_KEYBOARD);
         return;
     }
-    if (__builtin_expect(ps2_driver_state == PS2_INITIALIZED, 0)) {
-        ps2_driver_thread = kernel_create_thread(kernel_task, keyboard_driver_loop, NULL);
-        ps2_driver_state = PS2_DRIVER_RUNNING;
-    }
-    if (pending_device != -1) {
-        kprintf("Warning: PS/2 driver not keeping up with user input!\n");
-        while (pending_device != -1); // since spinlock_acquire disables interrupts, only way this could happen is in a different core and so this is safe
-    }
 
-    spinlock_acquire(&ps2_pending_lock);
+    if (__builtin_expect(ps2_driver_state == PS2_INITIALIZED, 0)) {
+        ps2_driver_thread = kernel_create_thread(kernel_task, (void (*)(void *))ps2_driver_loop, NULL);
+        if (ps2_driver_thread != NULL) ps2_driver_state = PS2_DRIVER_RUNNING;
+        else goto fallback;
+    }
+    asm volatile ("sti");
+    //if (pending_device != -1) {
+        //kprintf("Warning: PS/2 driver not keeping up with user input!\n");
+        while (pending_device != -1) {} // since spinlock_acquire disables interrupts, only way this could happen is in a different core and so this is safe
+    //}
+
+    spinlock_acquire(&ps2_driver_lock);
     pending_device = device_num;
     ps2_driver_thread->status = SCHED_RUNNABLE;
-    spinlock_release(&ps2_pending_lock);
+    spinlock_release(&ps2_driver_lock);
 }
 
 uint32_t scancode_translate_numpad(uint32_t scancode) { // converts numpad to special chars if numlock disabled
@@ -791,6 +837,7 @@ uint32_t scancode_translate_numpad(uint32_t scancode) { // converts numpad to sp
             break;
         case KEY_KP_4:
             new_scancode = KEY_LEFT;
+            break;
         case KEY_KP_5:
             new_scancode = KEY_INVALID;
             break;

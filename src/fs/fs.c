@@ -88,24 +88,32 @@ int sys_close(int fd) {
     return close_file(file);
 }
 
+// when we know for 100% that the file isn't used anywhere in the running process
+// (for example the scheduler when destroying and application)
+// so that we don't have to needlessly wait
+int close_file_forced(file_descriptor_t * file) {
+    inode_t * inode = file->inode; // to not race
+    if (__atomic_sub_fetch(&file->instances, 1, __ATOMIC_RELAXED) == 0) close_inode(inode);
+}
+
 int close_file(file_descriptor_t * file) {
     spinlock_acquire(&file->access_lock);
     spinlock_acquire(&kernel_fd_lock);
-
-    if (__atomic_sub_fetch(&file->instances, 1, __ATOMIC_RELAXED) == 0) close_inode(file->inode);
+    close_file_forced(file);
     // call inode_cleanup() maybe
     spinlock_release(&file->access_lock); // has to be before kernel_fd_lock, otherwise UAF
     spinlock_release(&kernel_fd_lock);
     return 0;
 }
 
-ssize_t read_file(file_descriptor_t * file, void * buf, size_t count) {
+ssize_t read_file(file_descriptor_t *file, void *buf, size_t count) {
     int test = check_file(file);
     if (test != 0) return test;
     if (file->flags & O_SEARCH) return -EBADF;
 
     if (S_ISDIR(file->inode->mode)) return -EISDIR;
     if (!(file->flags & O_RDONLY)) return -EINVAL;
+    if (count == 0) return 0;
 
     if (count > SSIZE_MAX) { return -E2BIG; }
 
@@ -126,7 +134,23 @@ ssize_t read_file(file_descriptor_t * file, void * buf, size_t count) {
                 ret = tty_read(file->inode->device, buf, count);
                 break;
             case DEV_MAJ_MEM:
-                ret =  memdisk_read(file, buf, count);
+                ret = memdisk_read(file, buf, count);
+                break;
+            case DEV_MAJ_MISC:
+                switch (MINOR(file->inode->device)) {
+                    case DEV_MISC_PS2MOUSE:
+                        ret = ps2_mouse_read(buf, count);
+                        break;
+                    case DEV_MISC_NULL:
+                        ret = 0;
+                        break;
+                    case DEV_MISC_ZERO:
+                        memset(buf, 0, count);
+                        ret = count;
+                        break;
+                    default:
+                        ret = -EIO;
+                }
                 break;
             default:
                 kprintf("unknown dev major to read from (%d)...\n", MAJOR(file->inode->device));
@@ -137,16 +161,17 @@ ssize_t read_file(file_descriptor_t * file, void * buf, size_t count) {
     return ret;
 }
 
-ssize_t write_file(file_descriptor_t * file, const void * buf, size_t count) {
+ssize_t write_file(file_descriptor_t *file, const void *buf, size_t count) {
     int test = check_file(file);
     if (test != 0) return test;
     if (file->flags & O_SEARCH) return -EBADF;
 
     if (S_ISDIR(file->inode->mode)) return -EISDIR;
     if (!(file->flags & O_WRONLY))
-            return -EINVAL;
+        return -EINVAL;
 
     if (count > SSIZE_MAX) { return -E2BIG; }
+    if (count == 0) return 0;
 
     ssize_t ret = 0;
     spinlock_acquire_interruptible(&file->access_lock);
@@ -172,7 +197,17 @@ ssize_t write_file(file_descriptor_t * file, const void * buf, size_t count) {
                 ret = tty_write(file->inode->device, buf, count);
                 break;
             case DEV_MAJ_MEM:
-                ret =  memdisk_write(file, buf, count);
+                ret = memdisk_write(file, buf, count);
+                break;
+            case DEV_MAJ_MISC:
+                switch (MINOR(file->inode->device)) {
+                    case DEV_MISC_NULL:
+                    case DEV_MISC_ZERO:
+                        ret = count;
+                        break;
+                    default:
+                        ret = -EIO;
+                }
                 break;
             default:
                 kprintf("unknown dev major to write to (%d)...\n", MAJOR(file->inode->device));

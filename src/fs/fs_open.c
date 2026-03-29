@@ -10,7 +10,33 @@
 #include "../include/block/memdisk.h"
 #include "../../libc/src/include/fcntl.h"
 
-int open_raw_device(dev_t device, unsigned short flags) {
+
+static int __open_raw_device(dev_t device, unsigned short flags, file_descriptor_t ** file_out) {
+    kassert(file_out);
+    file_descriptor_t * file = get_free_fd();
+    if (!file) {
+        return -ENFILE;
+    }
+
+    inode_t * dev_inode = inode_from_device(device);
+    kassert(dev_inode);
+
+    file->inode = dev_inode;
+    file->flags = flags;
+    *file_out = file;
+    return 0;
+}
+int open_raw_device(dev_t device, unsigned short flags, file_descriptor_t ** file_out) {
+    if (flags == 0 || flags > O_RDWR) return -EINVAL;
+    int ret = 0;
+    spinlock_acquire(&kernel_fd_lock);
+
+    ret = __open_raw_device(device, flags, file_out);
+
+    spinlock_release(&kernel_fd_lock);
+    return ret;
+}
+int open_raw_device_fd(dev_t device, unsigned short flags) {
     if (flags == 0 || flags > O_RDWR) return -EINVAL;
 
     spinlock_acquire(&kernel_fd_lock);
@@ -28,18 +54,12 @@ int open_raw_device(dev_t device, unsigned short flags) {
         return -EMFILE;
     }
 
-    file_descriptor_t * file = get_free_fd();
-    if (!file) {
+    file_descriptor_t * file = NULL;
+    int ret = __open_raw_device(device, flags, &file);
+    if (ret < 0 || file == NULL) {
         spinlock_release(&kernel_fd_lock);
-        return -ENFILE;
+        return ret;
     }
-
-    inode_t * dev_inode = inode_from_device(device);
-    kassert(dev_inode);
-
-    file->inode = dev_inode;
-    file->flags = flags;
-
     current_process->fds[fd] = file;
 
     spinlock_release(&kernel_fd_lock);

@@ -28,4 +28,5 @@ extern int errno; // libc_init.c
 #define ECHILD    23
 #define EOVERFLOW 24
 #define EINTR     25
+#define ENODEV    26
 #endif
