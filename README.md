@@ -24,9 +24,10 @@ List of defined syscalls can be found in [kernel.h](./src/include/kernel.h)
 
 ## Drivers
 ---
-- PS/2 keyboards
+- PS/2 keyboards and mice
 - RS/232 (serial)
 - Tar as a filesystem
+- mountable devtmpfs
 - RTC
 - VGA
 

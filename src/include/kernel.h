@@ -4,7 +4,7 @@
 #include "../../libc/src/include/stdio.h"
 #include "devs.h"
 
-#define KERNEL_TIMER_RESOLUTION_MSEC 40
+#define KERNEL_TIMER_RESOLUTION_MSEC 4
 #define RTC_TIMER_RESOLUTION_HZ 1024
 #define RTC_TIME_RESOLUTION_USEC (1000000 / RTC_TIMER_RESOLUTION_HZ)
 
@@ -134,9 +134,15 @@ void kernel_reset_system(); // kernel_ps2.c
 
 
 
-// feature macros
+/****** feature macros ******/
 #define SYSCALLS_RESCHEDULE
 #define WAIT_ACTS_AS_WUNTRACED // we don't yet support waitid/waitpid with options :P
 //#define SIGPIPE_ON_READ
+
+// most devices start at sc2 and need lookup tables to convert to sc1
+// some devices allow to directly set them as sc1, meaning we can skip the conversion
+#define PS2_TRY_TO_NEGOTIATE_SC1
+#define PS2_MOUSE_PACKET_SPEED 40 // per second; can be 10, 20, 40, 80, 100, 200
+//#define PS2_MOUSE_LINUX_COMPAT // makes the psaux device work as it does on linux - 3 bytes; no scroll wheel/5 buttons
 
 #endif

@@ -6,7 +6,6 @@
 #define PS2_DATA_PORT 0x60
 #define PS2_COMM_PORT 0x64
 
-
 #define PS2_KEY_MOD_NUMLOCK_MASK (KEY_MOD_NUMLOCK_MASK >> 12)
 #define PS2_KEY_MOD_CAPSLOCK_MASK (KEY_MOD_CAPSLOCK_MASK >> 12)
 #define PS2_KEY_MOD_LSHIFT_MASK (KEY_MOD_LSHIFT_MASK >> 12)
@@ -128,13 +127,55 @@ enum ps2_keyboard_commands {
     PS2_COMMAND_RESET_SELF_TEST,
 };
 
+enum ps2_mouse_commands { // mouse first sends ACK to all of these
+    PS2_COMMANDM_SET_SCALING11 = 0xE6,
+    PS2_COMMANDM_SET_SCALING21,
+    PS2_COMMANDM_SET_RESOLUTION,
+    PS2_COMMANDM_STATUS_REQUEST,
+    PS2_COMMANDM_SET_STREAM_MODE, // resets counters, enters reporting mode
+    PS2_COMMANDM_REQUEST_SINGLE_PACKET, // explicit packet request
+    PS2_COMMANDM_RESET_WRAP_MODE, // resets counters, enters last mode before wrap mode
+    PS2_COMMANDM_SET_WRAP_MODE = 0xEE, // resets counters, enters wrap mode
+    PS2_COMMANDM_SET_REMOTE_MODE = 0xF0, // resets counters, enters remote mode
+    PS2_COMMANDM_GET_MOUSE_ID = 0xF2,
+
+    // can be 10, 20, 40, 80, 100, 200
+    PS2_COMMANDM_SET_SAMPLE_RATE,
+    PS2_COMMANDM_ENABLE_PACKET_STREAMING,
+    PS2_COMMANDM_DISABLE_PACKET_STREAMING,
+    PS2_COMMANDM_SET_DEFAULTS, // disables scanning, 100 packets/s, res 4 pixels/mm
+    PS2_COMMANDM_RESEND_LAST = 0xFE,
+    PS2_COMMANDM_RESET
+};
+
+enum ps2_mouse_resp_b1 {
+    PS2_MOUSE_P1_LEFT_BTN = 1,
+    PS2_MOUSE_P1_RIGHT_BTN = 2,
+    PS2_MOUSE_P1_MIDDLE_BTN = 4,
+    PS2_MOUSE_P1_ALWAYS_1 = 8,
+    PS2_MOUSE_P1_X_SIGN = 16,
+    PS2_MOUSE_P1_Y_SIGN = 32,
+    PS2_MOUSE_P1_X_OVERFLOW = 64,
+    PS2_MOUSE_P1_Y_OVERFLOW = 128,
+};
+
+enum ps2_5_button_mouse_resp_b4 {
+    PS2_MOUSE5_P4_Z0 = 1,
+    PS2_MOUSE5_P4_Z1 = 2,
+    PS2_MOUSE5_P4_Z2 = 4,
+    PS2_MOUSE5_P4_Z3 = 8,
+    PS2_MOUSE5_P4_BTN_4 = 16,
+    PS2_MOUSE5_P4_BTN_5 = 32,
+};
+
 enum ps2_controller_status_register {
     PS2_STATUS_OUTPUT_BUFFER_FULL = 1, // set before reading from 0x60
     PS2_STATUS_INPUT_BUFFER_FULL = 2, // unset before writing
-    PS2_STATUS_PASSED_POST = 4, // see PS2_CONTROLLER_CONFIG_PASED_POST
+    PS2_STATUS_PASSED_POST = 4, // see PS2_CONTROLLER_CONFIG_PASSED_POST
     PS2_STATUS_DATA_INPUT_IS_FOR_CTRL = 8,
-    PS2_STATUS_TIMED_OUT_ERROR = 64,
-    PS2_STATUS_PARITY_ERROR = 128,
+    PS2_STATUS_DEVICE_2_OBUFFER_FULL = 0x20,
+    PS2_STATUS_TIMED_OUT_ERROR = 0x40,
+    PS2_STATUS_PARITY_ERROR = 0x80,
 };
 enum ps2_responses {
     PS2_RESPONSE_ERROR,
@@ -343,7 +384,7 @@ enum ps2_keyboard_set_2_second_byte {
     PS2_SC2_B2_KEY_PAGE_UP = 0x7D,
 };
 
-void keyboard_init();
-void keyboard_driver(char device_num);
+void ps2_init();
+void ps2_driver(char device_num);
 
 #endif

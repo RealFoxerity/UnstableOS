@@ -4,10 +4,8 @@
 #include "include/kernel_spinlock.h"
 #include <stdint.h>
 
-void thread_queue_unblock(thread_queue_t * thread_queue) {
-    spinlock_acquire(&thread_queue->queue_lock);
+static void __thread_queue_unblock(thread_queue_t * thread_queue) {
     if (thread_queue->queue.parent_process == NULL) { // queue with no waiting processes
-        spinlock_release(&thread_queue->queue_lock);
         return;
     }
 
@@ -33,12 +31,23 @@ void thread_queue_unblock(thread_queue_t * thread_queue) {
         memset(&thread_queue->queue, 0, sizeof(struct __thread_queue_inner));
     }
 
-    spinlock_release(&thread_queue->queue_lock);
     // the thread handle was invalid, rerun to unblock another thread
-    if (rerun)
-        thread_queue_unblock(thread_queue);
-    else
-        reschedule();
+    if (rerun) __thread_queue_unblock(thread_queue);
+}
+
+void thread_queue_unblock(thread_queue_t * thread_queue) {
+    spinlock_acquire(&thread_queue->queue_lock);
+    __thread_queue_unblock(thread_queue);
+    spinlock_release(&thread_queue->queue_lock);
+    reschedule();
+}
+
+void thread_queue_unblock_all(thread_queue_t * thread_queue) {
+    spinlock_acquire(&thread_queue->queue_lock);
+    while (thread_queue->queue.parent_process != NULL)
+        __thread_queue_unblock(thread_queue);
+    spinlock_release(&thread_queue->queue_lock);
+    reschedule();
 }
 
 // pprocess and thread here to allow adding other threads than current

@@ -1,10 +1,11 @@
 #include <stdint.h>
 #include <stddef.h>
-#include "include/rs232.h"
-#include "include/devs.h"
-#include "include/kernel_tty_io.h"
-#include "include/lowlevel.h"
-#include "include/kernel.h"
+#include "rs232.h"
+#include "devs.h"
+#include "kernel_tty_io.h"
+#include "lowlevel.h"
+#include "kernel.h"
+#include "kernel_sched.h"
 
 #define kprintf(fmt, ...) kprintf("RS-232 driver: "fmt, ##__VA_ARGS__)
 
@@ -121,13 +122,57 @@ long com_write(unsigned char com, const char * data, unsigned long len) {
     return len;
 }
 
-void com_recv_byte(unsigned char com) { // called by interrupt
-    if (com >= COM_PORTS) {
+
+static spinlock_t com_driver_lock = {0};
+static thread_t * com_driver_thread = NULL;
+static volatile char com_pending = -1;
+static __attribute__((noreturn)) void com_driver_loop() {
+    while (1) {
+        if (__builtin_expect(com_pending == -1, 0)) {
+            com_driver_thread->status = SCHED_UNINTERR_SLEEP;
+            reschedule();
+        } else {
+            spinlock_acquire_interruptible(&com_driver_lock);
+            unsigned char data = inb(com_addresses[(int)com_pending]);
+            tty_write_to_tty((char*)&data, 1, GET_DEV(DEV_MAJ_TTY, DEV_TTY_S0 + com_pending));
+
+            com_pending = -1;
+            spinlock_release(&com_driver_lock);
+
+            pic_unmask_irq(PIC_INTERR_COM1);
+            pic_unmask_irq(PIC_INTERR_COM2);
+
+            pic_send_eoi(PIC_INTERR_COM1);
+            pic_send_eoi(PIC_INTERR_COM2);
+        }
+    }
+}
+
+void com_recv_byte(char com) { // called by interrupt
+    if (com < 0 || com >= COM_PORTS) {
         kprintf("Invalid COM port specified from interrupt handler (%d)!\n", com);
         return;
     }
-    char data = inb(com_addresses[com]);
-    tty_write_to_tty(&data, 1, GET_DEV(DEV_MAJ_TTY, DEV_TTY_S0 + com));
+    if (com_driver_thread == NULL) {
+        com_driver_thread = kernel_create_thread(kernel_task, (void (*)(void*))com_driver_loop, NULL);
+    }
+    // so that we can do interruptible spinlocks
+    switch (com) {
+        case 0:
+            pic_mask_irq(PIC_INTERR_COM1);
+            break;
+        case 1:
+            pic_mask_irq(PIC_INTERR_COM2);
+        default: break;
+    }
+    asm volatile ("sti");
+
+    while (com_pending != -1) { }
+
+    spinlock_acquire(&com_driver_lock);
+    com_pending = com;
+    com_driver_thread->status = SCHED_RUNNABLE;
+    spinlock_release(&com_driver_lock);
 }
 
 long com_read(unsigned char com, char * data_out, unsigned long len) { // i guess technically not needed assuming we allocate a TTY for every single serial port

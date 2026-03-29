@@ -26,5 +26,6 @@ static const char * __errno_msgs[] = {
     [ENOEXEC]   = "Executable file format error",
     [ECHILD]    = "No child processes",
     [EOVERFLOW] = "Value too large to be stored in data type",
-    [EINTR]     = "Interrupted function"
+    [EINTR]     = "Interrupted function",
+    [ENODEV]    = "No such device",
 };

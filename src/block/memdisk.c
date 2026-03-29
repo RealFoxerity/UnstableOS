@@ -91,6 +91,11 @@ ssize_t memdisk_read_internal(dev_t dev, size_t seek, void * s, size_t n) {
 
     size_t len = 0;
     for (unsigned char * i = memdisks[MINOR(dev)].start_addr + seek; i < (unsigned char *)memdisks[MINOR(dev)].start_addr + memdisks[MINOR(dev)].size && len < n; i++, len++) {
+        if (__builtin_expect(current_thread->sa_to_be_handled != 0, 0)) {
+            __atomic_sub_fetch(&memdisks[MINOR(dev)].busy, 1, __ATOMIC_RELAXED);
+            if (len == 0) return -EINTR;
+            return len + 1;
+        }
         ((unsigned char *)s)[len] = *i;
     }
 
@@ -112,6 +117,11 @@ ssize_t memdisk_write_internal(dev_t dev, size_t seek, const void * s, size_t n)
 
     size_t len = 0;
     for (unsigned char * i = memdisks[MINOR(dev)].start_addr + seek; i < (unsigned char *)memdisks[MINOR(dev)].start_addr + memdisks[MINOR(dev)].size && len < n; i++, len++) {
+        if (__builtin_expect(current_thread->sa_to_be_handled != 0, 0)) {
+            __atomic_sub_fetch(&memdisks[MINOR(dev)].busy, 1, __ATOMIC_RELAXED);
+            if (len == 0) return -EINTR;
+            return len + 1;
+        }
         *i = ((unsigned char *)s)[len];
     }
 

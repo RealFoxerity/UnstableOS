@@ -187,7 +187,7 @@ static inline char scheduler_remove_process(process_t * process) {
 
     for (int i = 0; i < FD_LIMIT_PROCESS; i++) {
         if (process->fds[i]) {
-            close_file(process->fds[i]);
+            close_file_forced(process->fds[i]);
         }
     }
 

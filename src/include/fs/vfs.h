@@ -59,9 +59,10 @@ struct vfs_ops {
     //void(*rewinddir)(file_descriptor_t * fd);
 };
 
-#define SUPPORTED_FS_COUNT 1
+#define SUPPORTED_FS_COUNT 2
 enum supported_filesystems {
     FS_TARFS,
+    FS_DEVFS,
 };
 
 extern const struct vfs_ops * fs_operations[SUPPORTED_FS_COUNT]; // defined in vfs.c, assigned in files belonging to individual fs

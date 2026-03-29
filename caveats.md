@@ -1,4 +1,4 @@
-### Known bugs
+###  Known bugs
 ---
 - broken RTC 12 hr mode time reading on certain platforms
 - scanf() consumes \n
