@@ -55,7 +55,7 @@ enum ps2_controller_port_test_response {
 enum ps2_controller_config_byte {
     PS2_CONTROLLER_CONFIG_ENABLE_PORT1_INTERRUPT = 1, // 1 = enabled
     PS2_CONTROLLER_CONFIG_ENABLE_PORT2_INTERRUPT = 2,
-    PS2_CONTROLLER_CONFIG_PASED_POST = 4, // 1 = passed post, 0 = didn't in which case, how did we get here?
+    PS2_CONTROLLER_CONFIG_PASSED_POST = 4, // 1 = passed post, 0 = didn't in which case, how did we get here?
     PS2_CONTROLLER_CONFIG_DISABLE_PORT1_CLOCK = 16,
     PS2_CONTROLLER_CONFIG_DISABLE_PORT2_CLOCK = 32,
     PS2_CONTROLLER_CONFIG_ENABLE_PORT1_TRANSLATION = 64, // enabled = data is translated into scan code set 1
