@@ -159,9 +159,8 @@ void com_recv_byte(char com) { // called by interrupt
     // so that we can do interruptible spinlocks
     switch (com) {
         case 0:
-            pic_mask_irq(PIC_INTERR_COM1);
-            break;
         case 1:
+            pic_mask_irq(PIC_INTERR_COM1);
             pic_mask_irq(PIC_INTERR_COM2);
         default: break;
     }

@@ -176,7 +176,7 @@ static char tar_add_cached_path(struct tar_node * root, const char * path, ustar
                 return -1;
             }
             init_folder:
-            kprintf("Registering mode %hx path %s\n", mode, path);
+            //kprintf("Registering mode %hx path %s\n", mode, path);
             checked->inner = create_new_node(off, next_slash, size, uid, gid, dev, mode, mtime, record_offset);
             checked->inner->upper = checked;
             return 0;
@@ -190,7 +190,7 @@ static char tar_add_cached_path(struct tar_node * root, const char * path, ustar
                 kprintf("Path fragment %s of %s specifies non-existent directory!\n", off, path);
                 return -1;
             }
-            kprintf("Registering mode %hx path %s\n", mode, path);
+            //kprintf("Registering mode %hx path %s\n", mode, path);
             checked->next = create_new_node(off, next_slash, size, uid, gid, dev, mode, mtime, record_offset);
             checked->next->upper = checked->upper;
             return 0;
