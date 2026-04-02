@@ -295,14 +295,14 @@ void kernel_syscall_dispatcher(mcontext_t ctx) {
         case SYSCALL_FORK:
             return_value = sys_fork(&ctx);
             break;
-        case SYSCALL_WAIT:
-            if (arg1 != 0) {
-                if (!check_address_range((void*)arg1, sizeof(int), 1, in_kernel)) {
+        case SYSCALL_WAITPID:
+            if ((int*)arg2 != NULL) {
+                if (!check_address_range((int*)arg2, sizeof(int), 1, in_kernel)) {
                     return_value = -EFAULT;
                     break;
                 }
             }
-            return_value = sys_wait((int*)arg1);
+            return_value = sys_waitpid(arg1, (int*)arg2, arg3);
             break;
         case SYSCALL_FSTAT:
             if (!check_address_range((void*)arg2, sizeof(struct stat), 1, in_kernel)) {

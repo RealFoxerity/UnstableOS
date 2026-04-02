@@ -63,7 +63,7 @@ static inline void ps2_wait_until_ready_r(uint8_t device_num) { // ready to read
     time_t prev_time = uptime_clicks;
     while (uptime_clicks < prev_time + PS2_BUFFER_WAIT_TIME_CLICKS) {
         if (ps2_output_buffer_full(device_num)) return;
-        if (ps2_output_buffer_full(1)) return;
+        //if (ps2_output_buffer_full(1)) return;
     }
 }
 
@@ -120,6 +120,12 @@ static inline char ps2_enable_scanning(char device_num) {
     return 1;
 }
 
+static void ps2_errored_device(char device_num) {
+    kprintf("Disabling device %d\n", device_num);
+    outb(PS2_COMM_PORT, device_num == 1 ? PS2_CONTROLLER_COMMAND_DISABLE_PORT1:PS2_CONTROLLER_COMMAND_DISABLE_PORT2);
+    ps2_present_devices[device_num - 1].present = 0;
+}
+
 static inline char test_ps2_device(char device_num) {
     if (!ps2_disable_scanning(device_num)) return 0;
     if (ps2_input_buffer_full()) inb(PS2_DATA_PORT); // in case something was still there
@@ -149,6 +155,7 @@ static inline char test_ps2_device(char device_num) {
         default:
             kprintf("Device %d failed port test: Unknown error\n", device_num);
     }
+    ps2_errored_device(device_num);
     return 0;
 }
 
@@ -200,13 +207,6 @@ static inline char ps2_keyboard_set_cs1(uint8_t device_num) {
 #endif
 }
 
-
-static void ps2_errored_device(char device_num) {
-    kprintf("Disabling device %d\n", device_num);
-    outb(PS2_COMM_PORT, device_num == 1 ? PS2_CONTROLLER_COMMAND_DISABLE_PORT1:PS2_CONTROLLER_COMMAND_DISABLE_PORT2);
-    ps2_present_devices[device_num - 1].present = 0;
-}
-
 static uint16_t ps2_get_id(uint8_t device_num) {
     uint8_t res_byte;
     for (int i = 0; i <= PS2_RETRY_COUNT; i++) {
@@ -228,7 +228,7 @@ static uint16_t ps2_get_id(uint8_t device_num) {
     for (int j = 0; j <= PS2_ID_WAIT_AMOUNT; j++) {
         if (j == PS2_ID_WAIT_AMOUNT) {
             kprintf("Unspecified PS/2 device on device number %d, assuming keyboard\n", device_num);
-            return PS2_DEVICE_KEYBOARD << 8;
+            return PS2_DEVICE_KEYBOARD << 8 | PS2_DEVICE_KEYBOARD_MF2_1;
         }
         ps2_wait_until_ready_r(device_num);
         if (ps2_output_buffer_full(1)) {
@@ -237,11 +237,12 @@ static uint16_t ps2_get_id(uint8_t device_num) {
         }
     }
     if (major == PS2_RESPONSE_ACK) {
+        kprintf("Device %d didn't report correct id byte, ancient device?\n", device_num);
         // VirtualBox shines once again, guess what else isn't supported?
         switch (device_num) {
             default:
             case 1:
-                return PS2_DEVICE_KEYBOARD << 8;
+                return PS2_DEVICE_KEYBOARD << 8 | PS2_DEVICE_KEYBOARD_MF2_1;
             case 2:
                 return PS2_DEVICE_STD_MOUSE << 8;
         }
@@ -449,16 +450,17 @@ static inline void ps2_init_device(uint8_t device_num) { // todo: implement time
 
 void ps2_init() {
     // implement check acpi
-    disable_interrupts();
-    if (ps2_output_buffer_full(1)) inb(PS2_DATA_PORT); // discard any remaining data
+    pic_mask_irq(PIC_INTERR_KEYBOARD);
+    pic_mask_irq(PIC_INTERR_PS2_MOUSE);
+
+    pic_send_eoi(PIC_INTERR_KEYBOARD);
+    pic_send_eoi(PIC_INTERR_PS2_MOUSE);
+    inb(PS2_DATA_PORT); // flush anything that could've been queued
 
     ps2_wait_until_ready_w();
     outb(PS2_COMM_PORT, PS2_CONTROLLER_COMMAND_DISABLE_PORT1); // to stop them from sending interrupts
     ps2_wait_until_ready_w();
     outb(PS2_COMM_PORT, PS2_CONTROLLER_COMMAND_DISABLE_PORT2);
-
-    // we need the RTC for timeouts
-    enable_interrupts();
 
     ps2_wait_until_ready_w();
     outb(PS2_COMM_PORT, PS2_CONTROLLER_COMMAND_READ_BYTE);
@@ -533,14 +535,16 @@ void ps2_init() {
 
     ps2_driver_state = PS2_INITIALIZED;
 
-    pic_send_eoi(PIC_INTERR_KEYBOARD);
-    pic_send_eoi(PIC_INTERR_PS2_MOUSE);
+    pic_unmask_irq(PIC_INTERR_KEYBOARD);
+    pic_unmask_irq(PIC_INTERR_PS2_MOUSE);
 
     // this last as it enables the interrupts
     ps2_wait_until_ready_w();
     outb(PS2_COMM_PORT, PS2_CONTROLLER_COMMAND_WRITE_BYTE);
     ps2_wait_until_ready_w();
     outb(PS2_DATA_PORT, config_byte);
+
+    inb(PS2_DATA_PORT); // flush anything that could've been queued
 }
 
 enum ps2_internal_states {
@@ -833,26 +837,24 @@ static __attribute__((noreturn)) void ps2_driver_loop() {
             else
                 ps2_keyboard_driver_internal(pending_device);
 
-            if (pending_device == 1)
-                pic_send_eoi(PIC_INTERR_KEYBOARD);
-            else
-                pic_send_eoi(PIC_INTERR_PS2_MOUSE);
-            pending_device = -1;
-            spinlock_release(&ps2_driver_lock);
-
+            pic_send_eoi(PIC_INTERR_KEYBOARD);
+            pic_send_eoi(PIC_INTERR_PS2_MOUSE);
             pic_unmask_irq(PIC_INTERR_KEYBOARD);
             pic_unmask_irq(PIC_INTERR_PS2_MOUSE);
+
+            pending_device = -1;
+            spinlock_release(&ps2_driver_lock);
         }
     }
 }
 
 void ps2_driver(char device_num) {
+    //kprintf("HEEEELLPPPP\n");
     if (__builtin_expect(ps2_driver_state == PS2_UNINITIALIZED, 0)) {
         fallback:
-        if (device_num == 1)
-            pic_send_eoi(PIC_INTERR_KEYBOARD);
-        else
-            pic_send_eoi(PIC_INTERR_PS2_MOUSE);
+        inb(PS2_DATA_PORT); // flush the input
+        pic_send_eoi(PIC_INTERR_KEYBOARD);
+        pic_send_eoi(PIC_INTERR_PS2_MOUSE);
         return;
     }
 

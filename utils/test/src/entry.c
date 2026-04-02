@@ -162,10 +162,7 @@ int main(int argc, char ** argv) {
                     execvp(filename, new_argv);
                     return 127;
                 default:
-                    if (wait(&wstatus) == -1 && errno == EINTR) {
-                        printf("WINTR ");
-                        break;
-                    }
+                    while (wait(&wstatus) == -1 && errno == EINTR) {}
                     if (WIFSIGNALED(wstatus)) {
                         printf("WSIG: %d ", WTERMSIG(wstatus));
                         break;

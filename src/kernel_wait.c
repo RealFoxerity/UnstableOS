@@ -1,48 +1,46 @@
-#include "include/kernel.h"
-#include "../libc/src/include/errno.h"
-#include "include/kernel_sched.h"
-#include "include/kernel_spinlock.h"
-#include "include/mm/kernel_memory.h"
+#include "kernel.h"
+#include <errno.h>
+#include "kernel_sched.h"
+#include "kernel_spinlock.h"
+#include "mm/kernel_memory.h"
+#include <sys/wait.h>
+#include "kernel_exec.h"
 
-pid_t sys_wait(int * wstatus) {
+static process_t * find_in_list(pid_t pid, process_t * list) {
+    for (process_t * child = list; child != NULL; child = child->next) {
+        if (child->parent == current_process) {
+            if (pid < -1 && child->pgrp == -pid) return child;
+            if (pid == -1)                       return child;
+            if (pid == 0 && child->pgrp == current_process->pgrp) return child;
+            if (pid >  0 && child->pid  == pid)  return child;
+        }
+    }
+    return NULL;
+}
+
+
+
+pid_t sys_waitpid(pid_t pid, int * wstatus, int options) {
     process_t * child = NULL;
 
-    // preliminary check whether we even have children
-    spinlock_acquire(&scheduler_lock);
-
-    for (child = zombie_list; child != NULL; child = child->next) {
-        if (child->parent == current_process) goto found_child;
-    }
-
-    // will never get another process in the zombie list with sigchld disabled
-    if (current_process->sa_handlers[SIGCHLD - 1].sa_handler == SIG_IGN ||
-        current_process->sa_handlers[SIGCHLD - 1].sa_flags & SA_NOCLDWAIT)
-    {
-            spinlock_release(&scheduler_lock);
-            return -ECHILD;
-    }
-    for (child = process_list; child != NULL; child = child->next) {
-        if (child->parent == current_process) break;
-    }
-    spinlock_release(&scheduler_lock);
-    if (child == NULL) return -ECHILD; // no zombie or running child at all
+    // get the most up-to-date info
+    // since each reschedule moves the process to the end
+    // of the queue, this forces all terminated processes
+    // to be put into the zombie list
+    reschedule();
 
     while (1) {
         spinlock_acquire(&scheduler_lock);
-
-        for (child = zombie_list; child != NULL; child = child->next) {
-            if (child->parent == current_process) break;
+        child = find_in_list(pid, zombie_list);
+        if  (child == NULL && find_in_list(pid, process_list) == NULL) {
+            spinlock_release(&scheduler_lock);
+            return -ECHILD;
         }
-        if (child != NULL) break;
+        if (child != NULL) goto found;
 
-        if (child == NULL) {
-            for (child = process_list; child != NULL; child = child->next) {
-                if (child->parent == current_process) break;
-            }
-            if (child == NULL) {
-                spinlock_release(&scheduler_lock);
-                return -ECHILD;
-            }
+        if (options & WNOHANG) {
+            spinlock_release(&scheduler_lock);
+            return 0;
         }
 
         current_thread->status = SCHED_WAITING;
@@ -55,21 +53,19 @@ pid_t sys_wait(int * wstatus) {
 
             // killed/exited not here because there's a delay between that signal
             // and the child process struct being in the zombie list
-            #ifdef WAIT_ACTS_AS_WUNTRACED
             if (current_thread->sa_info_to_be_handled.si_code == CLD_STOPPED) {
-                *wstatus = 0x000400;
+                if (!(options & WUNTRACED)) return -EINTR;
+                if (wstatus != NULL) *wstatus = 0x000400;
                 return current_thread->sa_info_to_be_handled.si_pid;
             }
             if (current_thread->sa_info_to_be_handled.si_code == CLD_CONTINUED) {
-                *wstatus = 0x000800;
+                if (!(options & WCONTINUED)) return -EINTR;
+                if (wstatus != NULL) *wstatus = 0x000800;
                 return current_thread->sa_info_to_be_handled.si_pid;
             }
-            #endif
         }
     }
-
-    found_child:
-    // TODO: change when adding more wstatuses
+    found:
     if (wstatus != NULL) *wstatus = child->postmortem_wstatus;
 
     // unlink the child
