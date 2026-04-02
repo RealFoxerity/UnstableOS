@@ -464,6 +464,11 @@ __attribute__((no_caller_saved_registers)) void pic_send_eoi(uint8_t irq) {
     outb(port, PIC_OCW2_EOI | PIC_OCW2_SPECIFIC | (irq & 7));
 }
 
+__attribute__((no_caller_saved_registers)) void pic_send_eoi_all() {
+    outb(PIC_M_COMM_ADDR, PIC_OCW2_EOI);
+    outb(PIC_S_COMM_ADDR, PIC_OCW2_EOI);
+}
+
 
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_default(struct interr_frame * interrupt_frame) {
     outb(PIC_M_COMM_ADDR, PIC_OCW2_EOI);

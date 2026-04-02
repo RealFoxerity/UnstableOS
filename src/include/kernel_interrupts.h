@@ -112,6 +112,7 @@ void pic_setup(uint8_t lower_idt_off, uint8_t higher_idt_off); // warning, disab
 void pic_mask_irq(uint8_t irq_num);
 void pic_unmask_irq(uint8_t irq_num);
 __attribute__((no_caller_saved_registers)) void pic_send_eoi(uint8_t irq);
+__attribute__((no_caller_saved_registers)) void pic_send_eoi_all();
 
 void disable_interrupts();
 void enable_interrupts();

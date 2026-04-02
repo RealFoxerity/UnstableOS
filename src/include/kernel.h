@@ -99,7 +99,7 @@ enum syscalls {
     SYSCALL_SIGSUSPEND,
     SYSCALL_SIGQUEUE,
 
-    SYSCALL_WAIT, // waits on any child to exit(), pid_t wait()
+    SYSCALL_WAITPID, // the same as the waitpid() function
 
     SYSCALL_CREATE_THREAD, // create_thread(void (* entry_point)(void*), void * args)
     SYSCALL_EXIT_THREAD, // like exit() but for threads, no exitcode, has to be done via userspace (see libc/src/threads.c)
@@ -136,7 +136,6 @@ void kernel_reset_system(); // kernel_ps2.c
 
 /****** feature macros ******/
 #define SYSCALLS_RESCHEDULE
-#define WAIT_ACTS_AS_WUNTRACED // we don't yet support waitid/waitpid with options :P
 //#define SIGPIPE_ON_READ
 
 // most devices start at sc2 and need lookup tables to convert to sc1

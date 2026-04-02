@@ -12,7 +12,11 @@
 #define WEXITSTATUS(wstatus)  (wstatus  & 0x000FF)
 #define WTERMSIG(wstatus)     ((wstatus & 0xFF000) >> 12)
 
-int waitpid(pid_t pid, int * status, int options);
+#define WCONTINUED  1
+#define WUNTRACED   2
+#define WNOHANG     4
+
+pid_t waitpid(pid_t pid, int * wstatus, int options);
 pid_t wait(int * wstatus);
 
 #endif

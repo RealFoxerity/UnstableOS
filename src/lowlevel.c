@@ -10,10 +10,26 @@ void outb(uint16_t port, uint8_t data) {
         : "a" (data), "Nd" (port)
     );
 }
+void outl(uint16_t port, uint32_t data) {
+    asm volatile (
+        "outl %0, %w1"
+        :
+        : "a" (data), "Nd" (port)
+    );
+}
 uint8_t inb(uint16_t port) {
     uint8_t data;
     asm volatile (
         "in %w1, %b0"
+        : "=a" (data)
+        : "Nd" (port)
+    );
+    return data;
+}
+uint32_t inl(uint16_t port) {
+    uint32_t data;
+    asm volatile (
+        "in %w1, %0"
         : "=a" (data)
         : "Nd" (port)
     );

@@ -40,7 +40,10 @@ void yield() {
 }
 
 pid_t wait(int * wstatus) {
-    pid_t ret = syscall(SYSCALL_WAIT, wstatus);
+    return waitpid(-1, wstatus, 0);
+}
+pid_t waitpid(pid_t pid, int * wstatus, int options) {
+    pid_t ret = syscall(SYSCALL_WAITPID, pid, wstatus, options);
     if (ret < 0) {
         errno = -ret;
         return -1;

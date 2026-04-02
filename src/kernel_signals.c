@@ -254,7 +254,9 @@ static char signal_dispatch_thread(process_t * group, thread_t * signaled, sigin
         kprintf("Warning: Unexpected kernel raised signal to PID %ld TID %ld - %d\n", group->pid, signaled->tid, info->si_signo);
         return 1;
         */
-    } else if (signaled->sa_mask & GET_SIG_MASK(info->si_signo)) {
+    }
+    if (signaled->sa_mask & GET_SIG_MASK(info->si_signo) ||
+            group->sa_handlers[info->si_signo - 1].sa_handler == SIG_IGN) {
         if (queue_up) signal_queue_up(group, info);
         return 0;
     }
@@ -272,6 +274,18 @@ static char signal_dispatch_thread(process_t * group, thread_t * signaled, sigin
 }
 
 static void signal_dispatch_process(process_t * signaled, siginfo_t * sig) {
+    // if possible, wake up a thread that is currently inside waitpid
+    // because otherwise, we have no way to detect SIGSTOP and SIGCONT
+    // (see WUNTRACED and WCONTINUED)
+    // alternatively, fall back to normal thread selection
+    if (sig->si_signo == SIGCHLD && !(sig->si_code & SI_USER)) {
+        for (thread_t * thread = signaled->threads; thread != NULL; thread = thread->next) {
+            if (thread->sa_to_be_handled)        continue;
+            if (thread->status != SCHED_WAITING) continue;
+            if (signal_dispatch_thread(signaled, thread, sig, 0))
+                return;
+        }
+    }
     for (thread_t * thread = signaled->threads; thread != NULL; thread = thread->next) {
         if (thread->sa_to_be_handled) continue; // already planned signal
         if (signal_dispatch_thread(signaled, thread, sig, 0))
