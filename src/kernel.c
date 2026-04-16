@@ -2,29 +2,32 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#include "include/block/memdisk.h"
-#include "include/debug/backtrace.h"
-#include "include/devs.h"
-#include "../libc/src/include/errno.h"
-#include "include/fs/fs.h"
-#include "include/fs/vfs.h"
-#include "include/kernel_exec.h"
-#include "include/kernel_interrupts.h"
-#include "include/kernel_spinlock.h"
-#include "include/lowlevel.h"
-#include "include/multiboot.h"
-#include "../libc/src/include/string.h"
-#include "include/kernel.h"
-#include "include/mm/kernel_memory.h"
-#include "include/kernel_gdt_idt.h"
-#include "include/ps2_controller.h"
-#include "include/rs232.h"
-#include "include/kernel_sched.h"
-#include "include/timer.h"
-#include "../libc/src/include/unistd.h"
-#include "../libc/src/include/fcntl.h"
-#include "include/kernel_tty_io.h"
-#include "include/vga.h"
+#include "block/memdisk.h"
+#include "debug/backtrace.h"
+#include "devs.h"
+#include <errno.h>
+#include "fs/fs.h"
+#include "fs/vfs.h"
+#include "kernel_exec.h"
+#include "kernel_interrupts.h"
+#include "kernel_spinlock.h"
+#include "lowlevel.h"
+#include "multiboot.h"
+#include <string.h>
+#include "kernel.h"
+#include "mm/kernel_memory.h"
+#include "kernel_gdt_idt.h"
+#include "ps2_controller.h"
+#include "rs232.h"
+#include "kernel_sched.h"
+#include "timer.h"
+#include <unistd.h>
+#include <fcntl.h>
+#include "kernel_tty_io.h"
+#include "gfx.h"
+#include "vga.h"
+#include "vbe.h"
+#include "v8086.h"
 
 // clang is insanely annoying, used because uint32_t is smaller than native pointer size (64 bit int) on my machine
 #pragma clang diagnostic ignored "-Wint-to-pointer-cast"
@@ -35,13 +38,17 @@
 #define KERNEL_PANIC_MSG "\n\e[41m\n##############################\nKernel Panic:\n"
 void panic(char * reason) {
     extern spinlock_t vga_spinlock;
-    spinlock_release(&vga_spinlock); // in case panic happened during vga writes
+    vga_spinlock.state = SPINLOCK_UNLOCKED; // in case panic happened during vga writes
+
+    scheduler_lock.state = SPINLOCK_LOCKED; // for future SMP endeavors
 
     disable_interrupts();
     kprintf(KERNEL_PANIC_MSG);
     unwind_stack();
     kprintf("Reason: %s", reason);
+    kalloc_print_heap_objects();
     asm volatile (
+        "cli\n\t"
         "hlt\n\t"
     );
     __builtin_unreachable();
@@ -219,7 +226,9 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     boot_mem_top = (uint32_t)&_kernel_top; // the lowest free address
     void * initrd_start = NULL;
     unsigned long initrd_len = 0;
-    vga_init_graphics();
+
+    vga_init_graphics(); // preliminary setup to get any gfx output
+
     com_init(0, 115200, 8, 1, COM_PARITY_NONE, COM_BUFFER_1);
 
     kprintf("Running " KERNEL_VERSION ", compiled at "__TIMESTAMP__"\n");
@@ -298,11 +307,11 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     construct_descriptor_tables();
     enable_interrupts();
     scheduler_init();
+    if (kernel_mem_top < VBE_LINEAR_FRAMEBUFFER_START + VBE_LINEAR_FRAMEBUFFER_MAX_SIZE)
+        kernel_mem_top = VBE_LINEAR_FRAMEBUFFER_START + VBE_LINEAR_FRAMEBUFFER_MAX_SIZE;
 
     timer_init(0, 1000/KERNEL_TIMER_RESOLUTION_MSEC, TIMER_RATE); // kernel scheduler timer, also enables pic interrupts
     rtc_init();
-
-
 
     tty_alloc_kernel_console();
     ps2_init();
@@ -312,6 +321,10 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     init_superblocks();
 
     kernel_print_cpu_info();
+
+    // assuming that by some miracle the gpu doesn't support vga emulation,
+    // no text will be visible up until this point
+    vbe_gather_info();
 
     if (initrd_start + initrd_len > (void*)IDENT_MAPPING_MAX_ADDR)
         panic("initrd too large");

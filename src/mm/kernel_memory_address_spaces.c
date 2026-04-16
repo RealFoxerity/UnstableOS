@@ -152,7 +152,7 @@ PAGE_DIRECTORY_TYPE * paging_create_new_address_space() {
 
     memcpy(page_directory, KERNEL_ADDRESS_SPACE_VADDR, PAGE_DIRECTORY_ENTRIES*sizeof(PAGE_DIRECTORY_TYPE)); // copying the ENTIRE kernel space, considering there shouldn't be anything extra and we need most of it for interrupts, this should be good enough
 
-    page_directory[PAGE_DIRECTORY_ENTRIES-1] = ((unsigned long)page_directory_paddr&~(PAGE_SIZE_NO_PAE-1)) | PTE_PDE_PAGE_PRESENT | PTE_PDE_PAGE_WRITABLE | PTE_PDE_PAGE_USER_ACCESS; // obv different physical address
+    page_directory[PAGE_DIRECTORY_ENTRIES-1] = ((unsigned long)page_directory_paddr&~(PAGE_SIZE_NO_PAE-1)) | PTE_PDE_PAGE_PRESENT | PTE_PDE_PAGE_WRITABLE; // obv different physical address
 
     spinlock_release(&address_spaces_lock);
     return page_directory;
@@ -166,7 +166,7 @@ void paging_destroy_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr) {
     if (paging_virt_addr_to_phys(pd_vaddr) == kernel_address_space_paddr)
         panic("Tried to destroy the kernel address space");
 
-    spinlock_acquire(&address_spaces_lock);
+    //spinlock_acquire(&address_spaces_lock); cannot lock in scheduler, destroying doesn't need it anyway though
 
     for (int i = 0; i < PAGE_DIRECTORY_ENTRIES - 1; i++) {
         if (!(pd_vaddr[i] & PTE_PDE_PAGE_PRESENT)) continue;
@@ -175,6 +175,19 @@ void paging_destroy_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr) {
             PAGE_TABLE_TYPE * pte = paging_get_pt_from_address_space(pd_vaddr, (void*)(i*PAGE_TABLE_ENTRIES*PAGE_SIZE_NO_PAE));
             for (int j = 0; j < PAGE_TABLE_ENTRIES; j++) {
                 if (!(pte[j] & PTE_PDE_PAGE_PRESENT)) continue;
+
+                // for example the v86 tasks uses these with a different PTE
+                // and so we probably don't want to free them
+                // written in a way so we still can cause panics when freeing low addresses
+                if (i == 0) {
+                    void * kernel_pte = paging_get_pte((void*)(i << 22 | j << 12));
+                    if (kernel_pte != NULL) {
+                        if ((pte[j] & ~(PAGE_SIZE_NO_PAE - 1)) ==
+                            (*(unsigned long*)kernel_pte & ~(PAGE_SIZE_NO_PAE - 1))
+                        ) continue;
+                    }
+                    if (j >= 256 && j < 256 + 64/4) continue; // the address wraparound for v86
+                }
                 pffree((void*)(pte[j] & ~(PAGE_SIZE_NO_PAE - 1)));
             }
             paging_unmap_page(pte);
@@ -183,7 +196,7 @@ void paging_destroy_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr) {
     }
     pffree((void*)(pd_vaddr[PAGE_DIRECTORY_ENTRIES-1] & ~(PAGE_SIZE_NO_PAE-1)));
 
-    spinlock_release(&address_spaces_lock);
+    //spinlock_release(&address_spaces_lock);
 }
 
 void paging_print_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr) {

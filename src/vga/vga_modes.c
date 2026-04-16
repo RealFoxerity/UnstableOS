@@ -2,6 +2,7 @@
 #include "../include/vga/vga_funcs.h"
 #include "../include/vga/vga_modelines.h"
 #include "../include/kernel_spinlock.h"
+#include "gfx.h"
 
 extern spinlock_t vga_spinlock;
 extern unsigned int vga_pixel_offset;
@@ -42,6 +43,7 @@ void vga_set_mode_13() {
 
     vga_reset_sequencer();
     current_vga_mode = CHAINED;
+    current_video_funcs = &vga_funcs;
     spinlock_release(&vga_spinlock);
 }
 
@@ -74,6 +76,7 @@ void vga_set_mode_X() {
 
     vga_reset_sequencer();
     current_vga_mode = UNCHAINED;
+    current_video_funcs = &vga_funcs;
     spinlock_release(&vga_spinlock);
 }
 
@@ -105,6 +108,7 @@ void vga_set_mode_X_wide() {
 
     vga_reset_sequencer();
     current_vga_mode = UNCHAINED;
+    current_video_funcs = &vga_funcs;
     spinlock_release(&vga_spinlock);
 }
 
@@ -133,10 +137,11 @@ void vga_set_mode_12() {
     vga_wreg(VGA_SEQ_DATA_REG, 4, 0b00000110);
 
     for (int i = 0; i < 16; i++)
-        vga_set_palette_entry(i, console_colors[i]);
+        vga_set_palette_entry(i, VGA_RGB32_TO_RGB8(console_colors[i]));
 
     vga_reset_sequencer();
     current_vga_mode = MODE12;
+    current_video_funcs = &vga_funcs;
     spinlock_release(&vga_spinlock);
 }
 
@@ -165,10 +170,11 @@ void vga_set_mode_12_wide() {
     vga_wreg(VGA_SEQ_DATA_REG, 4, 0b00000110);
 
     for (int i = 0; i < 16; i++)
-        vga_set_palette_entry(i, console_colors[i]);
+        vga_set_palette_entry(i, VGA_RGB32_TO_RGB8(console_colors[i]));
 
     vga_reset_sequencer();
     current_vga_mode = MODE12;
+    current_video_funcs = &vga_funcs;
     spinlock_release(&vga_spinlock);
 }
 

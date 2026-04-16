@@ -2,14 +2,6 @@
 #define VGA_H
 #include <stdint.h>
 
-extern unsigned int display_width, display_height;
-
-extern unsigned int console_font_width;
-extern unsigned int console_font_height;
-
-#define display_width_chars (display_width/console_font_width)
-#define display_height_chars (display_height/console_font_height)
-
 #define VGA_PAGE_ADDR ((unsigned char*)0xA0000)
 
 #define VGA_INPUT_STATUS_1_REGISTER 0x3DA 
@@ -40,27 +32,6 @@ extern unsigned int console_font_height;
 
 #define VGA_SEQ_4_CHAIN4 0x8
 
-extern const unsigned char console_colors[16];
-enum console_colors_palette {
-	CONSOLE_COLOR_BLACK,
-	CONSOLE_COLOR_RED,
-	CONSOLE_COLOR_GREEN,
-	CONSOLE_COLOR_YELLOW,
-	CONSOLE_COLOR_BLUE,
-	CONSOLE_COLOR_MAGENTA,
-	CONSOLE_COLOR_CYAN,
-	CONSOLE_COLOR_WHITE,
-	CONSOLE_COLOR_BRIGHT_BLACK,
-	CONSOLE_COLOR_BRIGHT_RED,
-	CONSOLE_COLOR_BRIGHT_GREEN,
-	CONSOLE_COLOR_BRIGHT_YELLOW,
-	CONSOLE_COLOR_BRIGHT_BLUE,
-	CONSOLE_COLOR_BRIGHT_MAGENTA,
-	CONSOLE_COLOR_BRIGHT_CYAN,
-	CONSOLE_COLOR_BRIGHT_WHITE,
-};
-
-
 #include <stdint.h>
 #include <stddef.h>
 
@@ -69,6 +40,8 @@ enum console_colors_palette {
     (((g) & 0b11100000) >> 3) |\
     (((b) & 0b11000000) >> 6)\
 )
+
+#define VGA_RGB32_TO_RGB8(color) (VGA_RGB_TO_RGB8((color) >> 24, (color) >> 16, (color) >> 8))
 
 #include "vga/vga_modelines.h"
 #include "vga/vga_funcs.h"
@@ -94,44 +67,13 @@ void vga_set_mode_12_wide();
 extern const unsigned char vga_font8x8[2048];
 extern unsigned char * vga_font8x16;
 
-void vga_load_font(
-    const unsigned char * console_font_bitmap, unsigned int chars,
-    unsigned int char_width, unsigned int char_height
-);
-
 // all x/y variables are zero-based
 
 // reads from the *shadow framebuffer*
-int vga_read_pixel(unsigned int x, unsigned int y);
-
-// avoid at all costs! use the vga_blit_char*, or vga_write_pixel_buffered along with vga_swap_buffers
-// writes a single pixel directly to screen
-void vga_write_pixel(unsigned int x, unsigned int y, unsigned char color, char use_palette);
+uint32_t vga_read_pixel(unsigned int x, unsigned int y);
 
 // to a shadow framebuffer
-void vga_write_pixel_buffered(unsigned int x, unsigned int y, unsigned char color, char use_palette);
-
-// writes a single text character directly to screen
-// note: use_palette is always true on mode 12
-void vga_blit_char(
-    unsigned int c,
-    unsigned int x, unsigned int y,
-    unsigned char fg_color, unsigned char bg_color,
-	char use_palette,
-    unsigned int size_mult
-);
-
-// to a shadow framebuffer
-void vga_blit_char_buffered(
-    unsigned int c,
-    unsigned int x, unsigned int y,
-    unsigned char fg_color, unsigned char bg_color,
-	char use_palette,
-    unsigned int size_mult
-);
-
-// blits/syncs the entire shadow framebuffer to the display
-void vga_swap_buffers();
+void vga_write_pixel_buffered(unsigned int x, unsigned int y, uint32_t color, char use_palette);
 
 // blits/syncs part of the shadow framebuffer, inclusive
 void vga_swap_region(unsigned int start_x, unsigned int end_x, unsigned int start_y, unsigned int end_y);
@@ -139,13 +81,8 @@ void vga_swap_region(unsigned int start_x, unsigned int end_x, unsigned int star
 // clears both the shadow framebuffer and the display
 // faster than vga_clear_screen_buffered followed by vga_swap_buffers
 void vga_clear_screen();
-// clears *only* the shadow framebuffer
-void vga_clear_screen_buffered();
 
-void vga_fill(unsigned int start_x, unsigned int end_x, unsigned start_y, unsigned int end_y, unsigned char color, char use_palette);
-void vga_fill_buffered(unsigned int start_x, unsigned int end_x, unsigned start_y, unsigned int end_y, unsigned char color, char use_palette);
-
-
+void vga_fill_buffered(unsigned int start_x, unsigned int end_x, unsigned start_y, unsigned int end_y, uint32_t color, char use_palette);
 
 
 //NOTE:
@@ -177,13 +114,13 @@ chained modes are defaulted to memcpy
 
 // adjusts the start of scanline by X pixels relative to previous adjustment
 void vga_hw_shift_pixels(unsigned int pixels);
-// uses the above to "scroll" by X scanlines relative to previous adjustment
-void vga_hw_scroll_scanlines(unsigned int scanline);
-
 
 #define vga_clear_region(x, y, width, height)\
-	vga_move_region(x, y, width, height, display_width, display_height)
+	vga_copy_region(x, y, width, height, display_width, display_height)
 // not safe when x and final_x overlap!
-void vga_move_region(unsigned int x, unsigned int y, unsigned int width, unsigned int height, unsigned int final_x, unsigned int final_y);
+void vga_copy_region(unsigned int x, unsigned int y, unsigned int width, unsigned int height, unsigned int final_x, unsigned int final_y);
+
+#include "gfx.h"
+extern struct gfx_funcs vga_funcs;
 
 #endif

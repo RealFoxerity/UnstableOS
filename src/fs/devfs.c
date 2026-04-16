@@ -95,6 +95,13 @@ static struct devfs_node devfs_files[] = {
             .st_mode = S_IFCHR | S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH,
         }
     },
+    {
+        .name = "fb0",
+        {
+            .st_rdev = GET_DEV(DEV_MAJ_MISC, DEV_MISC_ZERO),
+            .st_mode = S_IFCHR | S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP,
+        }
+    },
 
 };
 

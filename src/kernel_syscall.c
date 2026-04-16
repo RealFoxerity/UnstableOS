@@ -107,7 +107,9 @@ void kernel_syscall_dispatcher(mcontext_t ctx) {
             reschedule();
             break;
         case SYSCALL_CREATE_THREAD:
+            spinlock_acquire(&scheduler_lock);
             kernel_create_thread(current_process, (void*)arg1, (void*)arg2); // theoretically don't have to check bounds since they would just cause a segmentation fault
+            spinlock_release(&scheduler_lock);
             break;
         case SYSCALL_EXIT_THREAD: // returns exitcode
             current_thread->status = SCHED_THREAD_CLEANUP;

@@ -79,7 +79,7 @@ see [caveats.md](./caveats.md) for info
 - [ ] proper (linked) `ucontext_t`
 - [ ] signal alternative stacks
 - [ ] implement priority for realtime signals 
-- [ ] `waitid()`, `waitpid()`
+- [x] `waitid()`, `waitpid()`
 - [ ] `alarm()`
 - [ ] finish implementing sessions and foreground groups for TTY
 - [x] errno in userspace instead of returning negative numbers
@@ -88,8 +88,9 @@ see [caveats.md](./caveats.md) for info
 - [ ] PCI
 - [ ] ACPI
 - [ ] Ethernet (ne2000)
-- [ ] Virtual-8086 mode
-- [ ] VBE linear framebuffer instead of VGA text mode
+- [x] Virtual-8086 mode
+- [x] VBE linear framebuffer instead of VGA text mode
+- [ ] proper VBE reading
 - [ ] SMP - multicore support
 - [x] argv, argc, envp/environ, execve
 - [ ] functional `execve()` and `spawn()` for ring 0 processes
