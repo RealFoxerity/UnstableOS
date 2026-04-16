@@ -55,7 +55,7 @@ struct program load_elf(int elf_fd) { // returns VIRTUAL address of page directo
         if (PH.type == ELF_PHT_LOAD) {
             paging_map_to_address_space(address_space, (void*)(unsigned long)PH.vaddr, PH.size_memory, PTE_PDE_PAGE_USER_ACCESS | (PH.flags & ELF_PHF_WRITABLE ? PTE_PDE_PAGE_WRITABLE : 0));
             paging_memset_to_address_space(address_space, (void*)(unsigned long)PH.vaddr, 0, PH.size_memory);
-            
+
             sys_seek(elf_fd, PH.offset, SEEK_SET);
             for (int j = 0; j < PH.size_file / ELF_COPY_BUFFER_SIZE; j++) {
                 sys_read(elf_fd, copy_buffer, ELF_COPY_BUFFER_SIZE);

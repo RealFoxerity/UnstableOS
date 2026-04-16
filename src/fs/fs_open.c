@@ -138,15 +138,15 @@ int sys_openat(int fd, const char * path, unsigned short flags, unsigned short m
 
 int openat_inode(inode_t * base, const char * path, unsigned short flags, unsigned short mode, inode_t ** out) {
     if (base == NULL) {
-        kprintf("\e[41mWarning: called openat with NULL base inode!\e[0m\n");
+        kprintf("\e[0m\e[41mWarning: called openat with NULL base inode!\e[0m\n");
         return -EINVAL;
     }
     if (current_process->root == NULL) {
-        kprintf("\e[41mWarning: called openat with NULL root inode!\e[0m\n");
+        kprintf("\e[0m\e[41mWarning: called openat with NULL root inode!\e[0m\n");
         return -EINVAL;
     }
     if (current_process->pwd == NULL) {
-        kprintf("\e[41mWarning: called openat with NULL pwd inode!\e[0m\n");
+        kprintf("\e[0m\e[41mWarning: called openat with NULL pwd inode!\e[0m\n");
         return -EINVAL;
     }
     if (path == NULL) return -EINVAL;

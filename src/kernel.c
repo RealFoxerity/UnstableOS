@@ -35,7 +35,7 @@
 
 #define tty_write(buf, count) tty_write(buf, count); com_write(1, buf, count);
 
-#define KERNEL_PANIC_MSG "\n\e[41m\n##############################\nKernel Panic:\n"
+#define KERNEL_PANIC_MSG "\n\e[0m\e[41m\n##############################\nKernel Panic:\n"
 void panic(char * reason) {
     extern spinlock_t vga_spinlock;
     vga_spinlock.state = SPINLOCK_UNLOCKED; // in case panic happened during vga writes
@@ -45,7 +45,7 @@ void panic(char * reason) {
     disable_interrupts();
     kprintf(KERNEL_PANIC_MSG);
     unwind_stack();
-    kprintf("Reason: %s", reason);
+    kprintf("Reason: %s\e[0m", reason); // SGR reset for serial consoles
     //kalloc_print_heap_objects();
     asm volatile (
         "cli\n\t"
