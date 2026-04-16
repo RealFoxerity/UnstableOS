@@ -1,11 +1,12 @@
-#include "include/stdlib.h"
-#include "include/unistd.h"
+#include <stdlib.h>
+#include <unistd.h>
 #include "../../src/include/kernel.h"
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
-#include "include/string.h"
-#include "include/errno.h"
+#include <string.h>
+#include <errno.h>
+#include <sys/wait.h>
 
 static uint32_t ___internal_rand_state = 1;
 

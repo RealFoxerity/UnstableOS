@@ -3,8 +3,6 @@
 
 #include "sys/types.h"
 
-#include "sys/wait.h"
-
 #define RAND_MAX 65536
 #include <stdint.h>
 
@@ -15,13 +13,6 @@ void __attribute__((noreturn)) _Exit(long exit_code);
 void __attribute__((noreturn)) abort();
 
 void yield();
-
-#define assert(cond) {\
-    if (!(cond)) {\
-        printf("Assertion `"#cond"` failed in %s()! [" __FILE__ ":" STR(__LINE__) "]\n", __func__);\
-        abort();\
-    }\
-}
 
 //void malloc_prepare(void * heap_struct_start, void * heap_top);
 

@@ -1,5 +1,5 @@
-#ifndef DIRENT_H
-#define DIRENT_H
+#ifndef _DIRENT_H
+#define _DIRENT_H
 #include <stddef.h>
 #include "stdio.h"
 

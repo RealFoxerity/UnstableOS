@@ -73,8 +73,6 @@ void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, threa
     thread_queue->queue.prev->parent_process = pprocess;
     thread_queue->queue.prev->thread = thread;
 
-    thread_queue->queue.magic_queue_value = __atomic_add_fetch(&thread->magic_queue_value, 1, __ATOMIC_RELAXED);
-
     before_unlock:
     thread->status = new_status;
     spinlock_release(&thread_queue->queue_lock);
@@ -82,4 +80,9 @@ void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, threa
     //kprintf("sleeping on thread id %d of process %d\n", thread->tid, pprocess->pid);
 
     reschedule();
+
+    // signals invalidate any sleeping queues
+    if (current_thread->sa_to_be_handled)
+        thread_queue->queue.magic_queue_value =
+            __atomic_add_fetch(&thread->magic_queue_value, 1, __ATOMIC_RELAXED);
 }

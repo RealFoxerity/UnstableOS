@@ -82,6 +82,9 @@ PAGE_TABLE_TYPE * paging_get_pte(const void * virt_addr); // returns the page ta
 // since pages are at minimum 4 kb and returning an int is useless
 PAGE_TABLE_TYPE * paging_get_pt_from_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr, void * virt_addr);
 
+// check whether the address range is inside the program, is mapped, and whether it is writable (assumes correct address space)
+char paging_check_address_range(const void * addr, size_t n, char writable, char in_kernel);
+
 void print_page_table_entry(const void * pte);
 
 void setup_paging(unsigned long total_free, unsigned long ident_map_end);

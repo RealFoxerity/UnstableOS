@@ -19,6 +19,7 @@ It is not meant as a production OS, there is no testing, there is no fuzzing. I 
 - Mostly POSIX compliant TTY
 - DEC VT102 inspired framebuffer console
 - Lame and lacking custom libc
+- Custom (lame and lacking) shell
 
 List of defined syscalls can be found in [kernel.h](./src/include/kernel.h)
 
@@ -29,7 +30,7 @@ List of defined syscalls can be found in [kernel.h](./src/include/kernel.h)
 - Tar as a filesystem
 - mountable devtmpfs
 - RTC
-- VGA
+- VGA, VBE
 
 ## Building
 ---
@@ -91,6 +92,7 @@ see [caveats.md](./caveats.md) for info
 - [x] Virtual-8086 mode
 - [x] VBE linear framebuffer instead of VGA text mode
 - [ ] proper VBE reading
+- [ ] proper direct VRAM access and ioctls for framebuffer devices
 - [ ] SMP - multicore support
 - [x] argv, argc, envp/environ, execve
 - [ ] functional `execve()` and `spawn()` for ring 0 processes
