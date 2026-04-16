@@ -1,11 +1,12 @@
-#include "../include/fs/fs.h"
-#include "../include/fs/vfs.h"
-#include "../include/kernel_sched.h"
-#include "../include/errno.h"
-#include "../../libc/src/include/string.h"
-#include "../../libc/src/include/sys/stat.h"
-#include "../include/kernel_tty_io.h"
-#include "../include/block/memdisk.h"
+#include "fs/fs.h"
+#include "fs/vfs.h"
+#include "dev_ops.h"
+#include "kernel_sched.h"
+#include "errno.h"
+#include <string.h>
+#include <sys/stat.h>
+#include "kernel_tty_io.h"
+#include "block/memdisk.h"
 
 #include <stddef.h>
 spinlock_t kernel_fd_lock = {0};
@@ -92,8 +93,15 @@ int sys_close(int fd) {
 // (for example the scheduler when destroying and application)
 // so that we don't have to needlessly wait
 int close_file_forced(file_descriptor_t * file) {
+    // to have the correct SIGPIPE behavior
+    // has to be done here, because the inode doesn't carry flags
+    if (S_ISFIFO(file->inode->mode))
+        if (file->flags & O_RDONLY)
+            __atomic_sub_fetch(&file->inode->pipe->readers, 1, __ATOMIC_RELAXED);
+
     inode_t * inode = file->inode; // to not race
     if (__atomic_sub_fetch(&file->instances, 1, __ATOMIC_RELAXED) == 0) close_inode(inode);
+    return 0;
 }
 
 int close_file(file_descriptor_t * file) {
@@ -129,33 +137,9 @@ ssize_t read_file(file_descriptor_t *file, void *buf, size_t count) {
         else
             ret = file->inode->backing_superblock->funcs->read(file, buf, count);
     } else {
-        switch (MAJOR(file->inode->device)) {
-            case DEV_MAJ_TTY:
-                ret = tty_read(file->inode->device, buf, count);
-                break;
-            case DEV_MAJ_MEM:
-                ret = memdisk_read(file, buf, count);
-                break;
-            case DEV_MAJ_MISC:
-                switch (MINOR(file->inode->device)) {
-                    case DEV_MISC_PS2MOUSE:
-                        ret = ps2_mouse_read(buf, count);
-                        break;
-                    case DEV_MISC_NULL:
-                        ret = 0;
-                        break;
-                    case DEV_MISC_ZERO:
-                        memset(buf, 0, count);
-                        ret = count;
-                        break;
-                    default:
-                        ret = -EIO;
-                }
-                break;
-            default:
-                kprintf("unknown dev major to read from (%d)...\n", MAJOR(file->inode->device));
-                ret = -EIO;
-        }
+        if (file->inode->device == GET_DEV(DEV_MAJ_MISC, DEV_MISC_PS2MOUSE))
+            ret = ps2_mouse_read(buf, count);
+        else ret = read_dev(file, buf, count);
     }
     spinlock_release(&file->access_lock);
     return ret;
@@ -192,27 +176,7 @@ ssize_t write_file(file_descriptor_t *file, const void *buf, size_t count) {
         else
             ret = file->inode->backing_superblock->funcs->write(file, buf, count);
     } else {
-        switch (MAJOR(file->inode->device)) {
-            case DEV_MAJ_TTY:
-                ret = tty_write(file->inode->device, buf, count);
-                break;
-            case DEV_MAJ_MEM:
-                ret = memdisk_write(file, buf, count);
-                break;
-            case DEV_MAJ_MISC:
-                switch (MINOR(file->inode->device)) {
-                    case DEV_MISC_NULL:
-                    case DEV_MISC_ZERO:
-                        ret = count;
-                        break;
-                    default:
-                        ret = -EIO;
-                }
-                break;
-            default:
-                kprintf("unknown dev major to write to (%d)...\n", MAJOR(file->inode->device));
-                ret = -EIO;
-        }
+        ret = write_dev(file, buf, count);
     }
 
     spinlock_release(&file->access_lock);
@@ -243,16 +207,7 @@ off_t seek_file(file_descriptor_t * file, off_t offset, int whence) {
         else
             ret = file->inode->backing_superblock->funcs->seek(file, offset, whence);
     } else if (S_ISBLK(file->inode->mode) || S_ISCHR(file->inode->mode)) {
-        switch (MAJOR(file->inode->device)) {
-            case DEV_MAJ_MEM:
-                ret = memdisk_seek(file, offset, whence);
-                break;
-
-            default:
-                kprintf("unknown dev major or not seekable (%d)...\n", MAJOR(file->inode->device));
-            case DEV_MAJ_TTY:
-                ret = -ESPIPE;
-        }
+        ret = seek_dev(file, offset, whence);
     } else {
         ret = -ESPIPE; // assuming file is not seekable
     }
@@ -304,6 +259,10 @@ int sys_dup(int oldfd) {
     current_process->fds[fd] = current_process->fds[oldfd];
     __atomic_add_fetch(&current_process->fds[fd]->instances, 1, __ATOMIC_RELAXED);
 
+    if (S_ISFIFO(current_process->fds[fd]->inode->mode))
+        if (current_process->fds[fd]->flags & O_RDONLY)
+            __atomic_add_fetch(&current_process->fds[fd]->inode->pipe->readers, 1, __ATOMIC_RELAXED);
+
     spinlock_release(&kernel_fd_lock);
 
     return fd;
@@ -322,6 +281,10 @@ int sys_dup2(int oldfd, int newfd) {
 
     current_process->fds[newfd] = current_process->fds[oldfd];
     __atomic_add_fetch(&current_process->fds[oldfd]->instances, 1, __ATOMIC_RELAXED);
+
+    if (S_ISFIFO(current_process->fds[oldfd]->inode->mode))
+        if (current_process->fds[oldfd]->flags & O_RDONLY)
+            __atomic_add_fetch(&current_process->fds[oldfd]->inode->pipe->readers, 1, __ATOMIC_RELAXED);
 
     spinlock_release(&kernel_fd_lock);
 
@@ -386,4 +349,25 @@ int sys_fstatat(int fd, const char * __restrict path, struct stat * __restrict b
     ret = stat_inode(new, buf);
     close_inode(new);
     return ret;
+}
+
+long ioctl_file(file_descriptor_t * file, unsigned long command, void * arg) {
+    int test = check_file(file);
+    if (test != 0) return test;
+
+    if (!(S_ISBLK(file->inode->mode) || S_ISCHR(file->inode->mode)))
+        return -EINVAL;
+
+    spinlock_acquire(&file->access_lock);
+    long ret = ioctl_dev(file, command, arg);
+    spinlock_release(&file->access_lock);
+    return ret;
+}
+
+long sys_ioctl(int fd, unsigned long command, void * arg) {
+    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
+
+    file_descriptor_t * file = current_process->fds[fd];
+
+    return ioctl_file(file, command, arg);
 }

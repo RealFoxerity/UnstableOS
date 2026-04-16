@@ -97,8 +97,8 @@ void unwind_stack_vaddr(void * ebp) {
     kprintf("backtrace:\n");
     size_t depth = 0;
     for (depth = 0;
-        paging_get_pte((void*)(frame)) != NULL &&
-        paging_get_pte((void*)(frame)+1) != NULL &&
+        paging_get_pte(frame) != NULL &&
+        paging_get_pte(frame+1) != NULL &&
         (void*)frame > (void*)LOWEST_PHYS_ADDR_ALLOWABLE; depth ++)
     {
         if (frame->eip == 0) break;
@@ -106,14 +106,9 @@ void unwind_stack_vaddr(void * ebp) {
         kprintf("%10lu %s+%p [%p]\n", depth, symbol.symbol, symbol.addr_offset, frame->eip);
         frame = frame->next_frame;
     }
-    if (frame->eip != NULL) kprintf("%10lu "SYMBOL_FAILED_LOOKUP"+"SYMBOL_FAILED_LOOKUP" ["SYMBOL_FAILED_LOOKUP"]\n", depth);
+    if (paging_get_pte(frame) == NULL || paging_get_pte(frame+1) == NULL || frame->eip != NULL) kprintf("%10lu "SYMBOL_FAILED_LOOKUP"+"SYMBOL_FAILED_LOOKUP" ["SYMBOL_FAILED_LOOKUP"]\n", depth);
 }
 
 void unwind_stack() {
-    void * ebp;
-    asm volatile (
-        "mov %%ebp, %0"
-        : "=r"(ebp)
-    );
-    unwind_stack_vaddr(ebp);
+    unwind_stack_vaddr(__builtin_frame_address(0));
 }

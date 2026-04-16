@@ -29,6 +29,7 @@ enum dev_misc_min {
     DEV_MISC_PS2MOUSE,
     DEV_MISC_ZERO,
     DEV_MISC_NULL,
+    DEV_MISC_RANDOM,
 };
 
 #define __TTY_CONSOLE 16
@@ -60,5 +61,5 @@ enum dev_tty_min {
     DEV_TTY_CONSOLE = 255 // the kernel log
 };
 
-
+void dev_initialize_static_devices();
 #endif

@@ -86,6 +86,8 @@ struct pipe {
     struct thread_queue read_queue, write_queue;
     unsigned char pipe_fifo[PIPE_BUF];
     size_t head, tail;
+
+    size_t readers;
 };
 
 void init_fds();
@@ -133,6 +135,8 @@ int sys_close(int fd);
 ssize_t sys_read(int fd, void * buf, size_t count);
 ssize_t sys_write(int fd, const void * buf, size_t count);
 off_t sys_seek(int fd, off_t off, int whence);
+
+long sys_ioctl(int fd, unsigned long command, void * arg);
 
 #include <dirent.h>
 ssize_t sys_readdir(int fd, struct dirent * dent, size_t dent_size);

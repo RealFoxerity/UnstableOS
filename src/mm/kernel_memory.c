@@ -4,6 +4,8 @@
 #include "../../libc/src/include/stdio.h" // sprintf
 #include "../include/kernel.h"
 #include "../include/mm/kernel_memory.h"
+
+#include "kernel_exec.h"
 #include "../include/vga.h"
 
 #pragma clang diagnostic ignored "-Wint-to-pointer-cast"
@@ -207,7 +209,7 @@ void * paging_map_phys_addr_unspecified(void * phys_addr, unsigned int flags) {
     phys_addr = (void *)((unsigned long)phys_addr & ~(PAGE_SIZE_NO_PAE - 1));
 
     PAGE_TABLE_TYPE * pt;
-    for (int i = 0; i < PAGE_DIRECTORY_ENTRIES - 1; i++) {
+    for (unsigned int i = ((unsigned long)kernel_mem_top >> 22) + 1; i < PAGE_DIRECTORY_ENTRIES - 1; i++) {
         if (!(PDE_ADDR_VIRT[i] & PTE_PDE_PAGE_PRESENT)) { // init space for new page table if missing
             PAGE_TABLE_TYPE * new_page = pfalloc();
             if (new_page == NULL) {
@@ -244,11 +246,37 @@ void * paging_virt_addr_to_phys(void * virt) {
     return (void *)((page_table[page_table_idx] & (~(PAGE_SIZE_NO_PAE-1))) + ((uint32_t)virt & (PAGE_SIZE_NO_PAE-1)));
 }
 
+// check whether the address range is inside the program, is mapped, and whether it is writable (assumes correct address space)
+char paging_check_address_range(const void * addr, size_t n, char writable, char in_kernel) {
+    if (addr == NULL) return 0;
+    n += (unsigned long)addr & (PAGE_SIZE_NO_PAE - 1);
+    addr = (void*)((unsigned long) addr & ~(PAGE_SIZE_NO_PAE - 1));
 
-static inline char is_in_bounds_pae(unsigned long val, unsigned long lower, unsigned long upper) {
-    if (val > lower && val < upper) return 1;
-    if (val + PAGE_SIZE_NO_PAE > lower && val < upper) return 1;
-    return 0;
+    for (const void * iteraddr = addr; iteraddr < addr+n && iteraddr >= addr; iteraddr += PAGE_SIZE_NO_PAE) { // > addr in case we wrap around
+        const PAGE_TABLE_TYPE * pte = paging_get_pte(iteraddr);
+        if (pte == NULL) {
+            if (!(iteraddr >= PROGRAM_HEAP_VADDR && iteraddr < PROGRAM_HEAP_VADDR + PROGRAM_HEAP_SIZE))
+                return 0;
+            // overcommitment, we could rely on page faults, but that would
+            // require all syscalls to have interrupts enabled at all times
+            paging_add_page((void *)iteraddr, PTE_PDE_PAGE_USER_ACCESS | PTE_PDE_PAGE_WRITABLE);
+            continue;
+        }
+
+        if ((PAGE_DIRECTORY_TYPE*)iteraddr >= PTE_ADDR_VIRT_BASE) return 0; // even though this is theoretically a valid kernel operation, probably not intended
+        if (!in_kernel) {
+            if (!(*pte & PTE_PDE_PAGE_USER_ACCESS)) return 0;
+            if (iteraddr <= kernel_mem_top) return 0;
+
+            if (writable && !(*pte & PTE_PDE_PAGE_WRITABLE))
+                if (!fork_cow_page((void*)iteraddr)) return 0;
+            // the intel architecture allows writes into unwritable memory in ring 0 (see bit 16 of cr0),
+            // this would normally be a check inside the kernel too, but due to the way we map the programs in
+            // this would disallow the write() into the new address space
+        }
+
+    }
+    return 1;
 }
 
 void enable_wp() {

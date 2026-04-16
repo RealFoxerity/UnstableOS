@@ -58,6 +58,8 @@ process_t * kernel_task = NULL;
 process_t * current_process = NULL;
 thread_t * current_thread = NULL;
 
+thread_t * idle_task = NULL; // used as a last resort idle task
+
 pid_t last_pid = 0;
 
 void print_registers(const mcontext_t * context) {
@@ -352,6 +354,8 @@ void schedule(mcontext_t * context) {
         PAGE_DIRECTORY_TYPE * v86_as;
         for (thread_t * checked_thread = checked_process->threads; checked_thread != NULL; checked_thread = checked_thread->next) {
             if (checked_thread->instances == 0) panic("Encountered thread with instances 0, UAF?");
+            if (checked_thread == idle_task) continue;
+
             switch (checked_thread->status) {
                 case SCHED_RUNNING:
                     break;
@@ -394,6 +398,12 @@ void schedule(mcontext_t * context) {
             }
         }
     }
-    panic("No viable task exists, corrupted process list?");
-    __builtin_unreachable();
+
+    switch_context(kernel_task, idle_task, context);
+    spinlock_release(&scheduler_lock);
+    current_process = kernel_task;
+    current_thread  = idle_task;
+
+    //panic("No viable task exists, corrupted process list?");
+    //__builtin_unreachable();
 }

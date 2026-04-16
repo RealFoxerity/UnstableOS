@@ -1,18 +1,28 @@
-#include "include/kernel_tty_io.h"
-#include "include/devs.h"
-#include "../libc/src/include/errno.h"
-#include "include/fs/fs.h"
-#include "include/kernel.h"
-#include "include/kernel_sched.h"
-#include "include/kernel_spinlock.h"
-#include "include/mm/kernel_memory.h"
-#include "include/vga.h"
-#include "include/kernel_console.h"
-#include "../libc/src/include/string.h"
-#include "include/rs232.h"
+#include "kernel_tty_io.h"
+#include "devs.h"
+#include "dev_ops.h"
+#include <errno.h>
+#include "fs/fs.h"
+#include "kernel.h"
+#include "kernel_sched.h"
+#include "kernel_spinlock.h"
+#include "mm/kernel_memory.h"
+#include "gfx.h"
+#include "kernel_console.h"
+#include <string.h>
 
 spinlock_t tty_lock = {0};
 tty_t * terminals[TTY_LIMIT_KERNEL] = {0};
+
+static struct dev_operations tty_ops = {
+    .read = tty_read,
+    .write = tty_write,
+    .ioctl = tty_ioctl,
+};
+
+long tty_ioctl(file_descriptor_t * file, unsigned long command, void * arg) {
+
+}
 
 // terminals[0] - terminals[3] = vga framebuffer backed tty devices, lctrl+rctrl+1-4
 
@@ -71,6 +81,7 @@ void tty_register(tty_t * tty, dev_t minor) {
     spinlock_acquire(&tty_lock);
     kassert(!terminals[minor]);
     terminals[minor] = tty;
+    dev_register_ops(GET_DEV(DEV_MAJ_TTY, minor), &tty_ops);
     spinlock_release(&tty_lock);
 }
 
@@ -87,6 +98,9 @@ void tty_alloc_kernel_console() { // for the kernel task, don't call for user pr
         0, 0);
     tty_register(kernel_console, DEV_TTY_0);
     tty_register(kernel_console, DEV_TTY_S0);
+
+    dev_register_ops(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), &tty_ops);
+    dev_register_ops(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CURRENT), &tty_ops);
 }
 
 int tty_queue_getch(struct tty_queue * tq) { // if 256, got SIGALRM
@@ -152,7 +166,6 @@ void tty_flush_input(tty_t * tty) { // flush for reading on new line or EOF in c
 //}
 
 
-long tty_ioctl(dev_t dev, unsigned long cmd, unsigned long arg);
 static size_t tty_translate_line_outgoing(const char * s, size_t n, tty_t * tty);
 
 static inline char tty_remove_char(tty_t * tty, char is_vkill) { // cannon mode, ERASE char, returns 1 when actually removed a char
@@ -368,7 +381,9 @@ static inline char is_valid_tty(dev_t dev) { // checks if the device is a valid 
     return 1;
 }
 
-ssize_t tty_read(dev_t dev, char * s, size_t n) {
+ssize_t tty_read(file_descriptor_t * file, void * s, size_t n) {
+    // assuming now file is a valid pointer
+    dev_t dev = file->inode->device;
     if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE)) dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_S0); // kernel console can only read (which shouldn't happen anyway) from first serial
     if (!is_valid_tty(dev)) return -EINVAL;
 
@@ -388,25 +403,25 @@ ssize_t tty_read(dev_t dev, char * s, size_t n) {
     while (!__atomic_compare_exchange_n(&tty->read_remaining, &(unsigned long){0}, n, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) asm volatile ("pause");
 
     int out = 0;
-    for (char * i = s; i < s + n; i++) {
+    for (char * i = s; i < (char*)s + n; i++) {
         out = tty_queue_getch(&tty->iqueue);
         if (tty->params.lmodes & TTY_L_ICANON) {
             if ((tty->params.control_chars[TCC_VEOF] != _POSIX_VDISABLE && out == tty->params.control_chars[TCC_VEOF]) ||
                 (tty->params.control_chars[TCC_VEOL] != _POSIX_VDISABLE && out == tty->params.control_chars[TCC_VEOL])) {
-                    return i - s;
+                    return i - (char*)s;
                 }
         }
         if (out == 256) { // signal occured - interrupted sleep
             tty->read_remaining = 0;
-            if (i - s == 0)
+            if (i - (char*)s == 0)
                 return -EINTR;
-            return i - s;
+            return i - (char*)s;
         }
         *i = out;
 
         if (tty->params.lmodes & TTY_L_ICANON && out == '\n') {
             tty->read_remaining = 0;
-            return i-s + 1;
+            return i - (char*)s + 1;
         }
     }
     tty->read_remaining = 0;
@@ -414,7 +429,9 @@ ssize_t tty_read(dev_t dev, char * s, size_t n) {
 }
 
 
-ssize_t tty_write(dev_t dev, const char * s, size_t n) { // outputs data - writes data into write queue
+ssize_t tty_write(file_descriptor_t * file, const void * s, size_t n) { // outputs data - writes data into write queue
+    // likewise assuming now file is a valid pointer
+    dev_t dev = file->inode->device;
     if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE)) dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_0);
     if (n == 0) return 0;
 

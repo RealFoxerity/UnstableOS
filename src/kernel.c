@@ -46,7 +46,7 @@ void panic(char * reason) {
     kprintf(KERNEL_PANIC_MSG);
     unwind_stack();
     kprintf("Reason: %s", reason);
-    kalloc_print_heap_objects();
+    //kalloc_print_heap_objects();
     asm volatile (
         "cli\n\t"
         "hlt\n\t"
@@ -220,6 +220,15 @@ void * kernel_mem_top = NULL; // the top of all kernel memory (identity map, hea
 time_t system_time_sec = 0;
 time_t uptime_clicks = 0; // incremented by the RTC
 
+
+static void idle_func(void * _) {
+    while (1) {
+        asm volatile ("hlt;");
+        reschedule();
+    }
+}
+
+
 void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     disable_interrupts();
 
@@ -320,6 +329,8 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     init_inodes();
     init_superblocks();
 
+    dev_initialize_static_devices();
+
     kernel_print_cpu_info();
 
     // assuming that by some miracle the gpu doesn't support vga emulation,
@@ -362,6 +373,10 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     }
 
     enable_interrupts();
+
+
+    idle_task = kernel_create_thread(current_process, idle_func, NULL);
+    current_thread->status = SCHED_UNINTERR_SLEEP;
     while (1) {
         // kernel thread serves as the idle task
         asm volatile("hlt;");

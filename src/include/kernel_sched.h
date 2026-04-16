@@ -202,6 +202,8 @@ extern process_t * current_process;
 extern thread_t * current_thread;
 extern process_t * kernel_task;
 
+extern thread_t * idle_task;
+
 extern spinlock_t scheduler_lock;
 
 extern pid_t last_pid;

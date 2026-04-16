@@ -136,7 +136,19 @@ void kernel_reset_system(); // kernel_ps2.c
 
 /****** feature macros ******/
 #define HEAP_POISONING // fills freed chunks with 0x41 and allocated with 0x62
-#define SYSCALLS_RESCHEDULE
+
+/*
+numerous reasons to reschedule:
+avoid kernel starvation by a syscall spamming thread
+make signals to a *process* forced
+
+since we are already in ring 0, the penalty for calling reschedule is almost zero
+
+however, in a thread that uses syscall very frequently (e.g. writing to a framebuffer)
+this would make it extremely slow
+if not selected, reschedule only happens on cleanup and non-running thread states (sleep)
+*/
+//#define SYSCALLS_RESCHEDULE
 //#define SIGPIPE_ON_READ
 
 // most devices start at sc2 and need lookup tables to convert to sc1

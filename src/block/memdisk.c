@@ -1,15 +1,22 @@
-#include "../include/kernel.h"
-#include "../include/mm/kernel_memory.h"
-#include "../include/devs.h"
-#include "../include/fs/fs.h"
-#include "../include/block/memdisk.h"
-#include "../include/errno.h"
-#include "../../libc/src/include/string.h"
+#include "kernel.h"
+#include "mm/kernel_memory.h"
+#include "devs.h"
+#include "dev_ops.h"
+#include "fs/fs.h"
+#include "block/memdisk.h"
+#include <errno.h>
+#include <string.h>
 #include <stddef.h>
 #include <stdint.h>
 
 spinlock_t memdisk_lock = {0};
 memdisk_t memdisks[MEMDISK_LIMIT_KERNEL] = {0};
+
+static struct dev_operations memdisk_ops = {
+    .read = memdisk_read,
+    .write = memdisk_write,
+    .seek = memdisk_seek
+};
 
 static int get_free_memdisk() { // call with locked memdisk_lock
     int selected = -1;
@@ -37,10 +44,12 @@ long memdisk_deinit(dev_t dev) { // TODO: rewrite with some better locking, this
     if (mem->busy) {
         spinlock_release(&memdisk_lock);
         return -EBUSY;
-    } else {
-        mem->used = 0;
     }
+
+    mem->used = 0;
     if (mem->is_allocated) paging_unmap(mem->start_addr, mem->size);
+
+    dev_ops_remove(dev);
 
     spinlock_release(&memdisk_lock);
 
@@ -59,6 +68,9 @@ dev_t memdisk_alloc() { // allocates a memdisk of DEFAULT_MEMDISK_SIZE size
     mem->is_allocated = 1;
     mem->start_addr = MEMDISKS_BASE + new_memdisk * DEFAULT_MEMDISK_SIZE;
     mem->size = DEFAULT_MEMDISK_SIZE;
+
+    dev_register_ops(GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0 + new_memdisk), &memdisk_ops);
+
     spinlock_release(&memdisk_lock);
     kprintf("Allocated a new memdisk of size %u maj %d min %d\n", DEFAULT_MEMDISK_SIZE, DEV_MAJ_MEM, DEV_MEM_MEMDISK0 + new_memdisk);
     return GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0 + new_memdisk);
@@ -74,6 +86,9 @@ dev_t memdisk_from_range(void * vaddr, size_t n) {
 
     memdisks[new_memdisk].start_addr = vaddr;
     memdisks[new_memdisk].size = n;
+
+    dev_register_ops(GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0 + new_memdisk), &memdisk_ops);
+
     spinlock_release(&memdisk_lock);
     kprintf("Mapped a new memdisk vaddr 0x%p - 0x%p maj %d min %d\n", vaddr, vaddr+n, DEV_MAJ_MEM, DEV_MEM_MEMDISK0 + new_memdisk);
     return GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0 + new_memdisk);
@@ -175,12 +190,13 @@ off_t memdisk_seek(file_descriptor_t * fd, off_t off, int whence) { // offsets o
 
             return fd->off = fd->off + off;
         case SEEK_END:
+            if (off == 0) return fd->off = memdisk->size;
             if (off >= 0) {
-                if (fd->off + off > fd->off && off < 0) return -EINVAL; // underflow - negative offset
                 if (fd->off + off < fd->off && off > 0) return -E2BIG; // overflow
                 return fd->off = memdisk->size + off;
             }
-            else if (off < 0 && -off <= fd->off) return fd->off = fd->off - off;
+
+            if (-off <= fd->off) return fd->off = fd->off - off;
             return -EINVAL; // negative offset
         default:
             return -EINVAL;

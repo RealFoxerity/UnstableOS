@@ -2,7 +2,6 @@
 #define KERNEL_TTY_IO_H
 #include "kernel_spinlock.h"
 #include "kernel_sched.h"
-#include "kernel_ioctl.h"
 #include "devs.h"
 
 #define EMPTY(tq) ((tq)->head == (tq)->tail)
@@ -129,10 +128,9 @@ void tty_alloc_kernel_console();
 int tty_queue_getch(struct tty_queue * tq); // if 256, recieved SIGALRM
 int tty_queue_putch(struct tty_queue * tq, char c);
 
-long tty_ioctl(dev_t dev, unsigned long cmd, unsigned long arg);
-
-ssize_t tty_write(dev_t dev, const char * s, size_t n);
-ssize_t tty_read(dev_t dev, char * s, size_t n);
+ssize_t tty_write(file_descriptor_t * file, const void * s, size_t n);
+ssize_t tty_read(file_descriptor_t * file, void * s, size_t n);
+long tty_ioctl(file_descriptor_t * file, unsigned long command, void * arg);
 
 long tty_write_to_tty(const char * s, size_t n, dev_t dev);
 

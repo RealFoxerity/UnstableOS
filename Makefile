@@ -61,6 +61,6 @@ PHONY: build/memdisk.tar
 build/memdisk.tar: utils
 	mkdir -p build/initmd/bin build/initmd/dev
 	cp utils/*/build/* build/initmd/bin/
-	cp build/initmd/bin/test build/initmd/init
+	cp build/initmd/bin/ysh build/initmd/init
 	cp -r utils build/initmd
 	tar -C build/initmd -cf build/memdisk.tar init utils bin dev

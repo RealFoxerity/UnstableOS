@@ -1,6 +1,8 @@
 // functions for manipulating an address space without going into it
 #include <stdint.h>
 #include <stddef.h>
+
+#include "kernel_sched.h"
 #include "../../libc/src/include/string.h"
 #include "../include/kernel.h"
 #include "../include/mm/kernel_memory.h"

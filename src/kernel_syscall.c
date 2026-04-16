@@ -18,42 +18,6 @@
 
 extern void clear_screen_fatal(); // kernel_interrupts.c
 
-extern uint8_t console_x, console_y;
-
-static char check_address_range(const void * addr, size_t n, char writable, char in_kernel) { // check whether the address range is inside the program, is mapped, and whether it is writable (assumes correct address space)
-    if (addr == NULL) return 0;
-    n += (unsigned long)addr & (PAGE_SIZE_NO_PAE - 1);
-    addr = (void*)((unsigned long) addr & ~(PAGE_SIZE_NO_PAE - 1));
-
-    for (const void * iteraddr = addr; iteraddr < addr+n && iteraddr >= addr; iteraddr += PAGE_SIZE_NO_PAE) { // > addr in case we wrap around
-        const PAGE_TABLE_TYPE * pte = paging_get_pte(iteraddr);
-        if (pte == NULL) {
-            if (!(iteraddr >= PROGRAM_HEAP_VADDR && iteraddr < PROGRAM_HEAP_VADDR + PROGRAM_HEAP_SIZE))
-                return 0;
-            else {
-                // overcommitment, we could rely on page faults, but that would
-                // require all syscalls to have interrupts enabled at all times
-                paging_add_page((void *)iteraddr, PTE_PDE_PAGE_USER_ACCESS | PTE_PDE_PAGE_WRITABLE);
-                continue;
-            }
-        }
-
-        if ((PAGE_DIRECTORY_TYPE*)iteraddr >= PTE_ADDR_VIRT_BASE) return 0; // even though this is theoretically a valid kernel operation, probably not intended
-        if (!in_kernel) {
-            if (!(*pte & PTE_PDE_PAGE_USER_ACCESS)) return 0;
-            if (iteraddr <= kernel_mem_top) return 0;
-
-            if (writable && !(*pte & PTE_PDE_PAGE_WRITABLE))
-                if (!fork_cow_page((void*)iteraddr)) return 0;
-            // the intel architecture allows writes into unwritable memory in ring 0 (see bit 16 of cr0),
-            // this would normally be a check inside the kernel too, but due to the way we map the programs in
-            // this would disallow the write() into the new address space
-        }
-
-    }
-    return 1;
-}
-
 #define SYSCALL_PANIC_TEXT " #### RING 2 INDUCED PANIC; HALTING #### "
 
 
@@ -136,7 +100,7 @@ void kernel_syscall_dispatcher(mcontext_t ctx) {
             break;
 
         case SYSCALL_WRITE:
-            if (!check_address_range((const void*)arg2, arg3, 0, in_kernel)) {
+            if (!paging_check_address_range((const void*)arg2, arg3, 0, in_kernel)) {
                 return_value = -EFAULT;
                 break;
             }
@@ -144,7 +108,7 @@ void kernel_syscall_dispatcher(mcontext_t ctx) {
             return_value =  sys_write(arg1, (const void*)arg2, arg3);
             break;
         case SYSCALL_READ:
-            if (!check_address_range((void*)arg2, arg3, 1, in_kernel)) {
+            if (!paging_check_address_range((void*)arg2, arg3, 1, in_kernel)) {
                 return_value = -EFAULT;
                 break;
             }
@@ -152,7 +116,7 @@ void kernel_syscall_dispatcher(mcontext_t ctx) {
             return_value = sys_read(arg1, (void*)arg2, arg3);
             break;
         case SYSCALL_PIPE:
-            if (!check_address_range((int *)arg1, 2*sizeof(int), 1, in_kernel)) {
+            if (!paging_check_address_range((int *)arg1, 2*sizeof(int), 1, in_kernel)) {
                 return_value = -EFAULT;
                 break;
             }
@@ -171,7 +135,7 @@ void kernel_syscall_dispatcher(mcontext_t ctx) {
             return_value = sys_seek(arg1, arg2, arg3);
             break;
         case SYSCALL_READDIR:
-            if (!check_address_range((void*)arg2, arg3, 1, in_kernel)) {
+            if (!paging_check_address_range((void*)arg2, arg3, 1, in_kernel)) {
                 return_value = -EFAULT;
                 break;
             }
@@ -259,7 +223,7 @@ void kernel_syscall_dispatcher(mcontext_t ctx) {
             return_value = sys_getpgid((pid_t)arg1);
             break;
         case SYSCALL_MOUNT:
-            if (!check_address_range((const void*)arg1, 1, 0, in_kernel)) {
+            if (!paging_check_address_range((const void*)arg1, 1, 0, in_kernel)) {
                 return_value = -EFAULT;
                 break;
             }
@@ -299,7 +263,7 @@ void kernel_syscall_dispatcher(mcontext_t ctx) {
             break;
         case SYSCALL_WAITPID:
             if ((int*)arg2 != NULL) {
-                if (!check_address_range((int*)arg2, sizeof(int), 1, in_kernel)) {
+                if (!paging_check_address_range((int*)arg2, sizeof(int), 1, in_kernel)) {
                     return_value = -EFAULT;
                     break;
                 }
@@ -307,7 +271,7 @@ void kernel_syscall_dispatcher(mcontext_t ctx) {
             return_value = sys_waitpid(arg1, (int*)arg2, arg3);
             break;
         case SYSCALL_FSTAT:
-            if (!check_address_range((void*)arg2, sizeof(struct stat), 1, in_kernel)) {
+            if (!paging_check_address_range((void*)arg2, sizeof(struct stat), 1, in_kernel)) {
                 return_value = -EFAULT;
                 break;
             }
@@ -316,7 +280,7 @@ void kernel_syscall_dispatcher(mcontext_t ctx) {
             break;
 
         case SYSCALL_FSTATAT:
-            if (!check_address_range((void*)arg2, sizeof(struct stat), 0, in_kernel)) {
+            if (!paging_check_address_range((void*)arg2, sizeof(struct stat), 0, in_kernel)) {
                 return_value = -EFAULT;
                 break;
             }
@@ -324,11 +288,11 @@ void kernel_syscall_dispatcher(mcontext_t ctx) {
             return_value = sys_fstatat(arg1, (const char*) arg2, (struct stat *)arg3, arg4);
             break;
         case SYSCALL_NANOSLEEP:
-            if (!check_address_range((void*)arg1, sizeof(struct timespec), 0, in_kernel)) {
+            if (!paging_check_address_range((void*)arg1, sizeof(struct timespec), 0, in_kernel)) {
                 return_value = -EFAULT;
                 break;
             }
-            if ((struct timespec *)arg2 != NULL && !check_address_range((void*)arg1, sizeof(struct timespec), 1, in_kernel)) {
+            if ((struct timespec *)arg2 != NULL && !paging_check_address_range((void*)arg1, sizeof(struct timespec), 1, in_kernel)) {
                 return_value = -EFAULT;
                 break;
             }
@@ -336,18 +300,18 @@ void kernel_syscall_dispatcher(mcontext_t ctx) {
             return_value = sys_nanosleep(current_process, current_thread, *(struct timespec*)arg1, (struct timespec*)arg2);
             break;
         case SYSCALL_TIME:
-            if (!check_address_range((void*)arg1, sizeof(time_t), 1, in_kernel)) {
+            if (!paging_check_address_range((void*)arg1, sizeof(time_t), 1, in_kernel)) {
                 return_value = -EFAULT;
                 break;
             }
             *(time_t*)arg1 = system_time_sec;
             break;
         case SYSCALL_TIMES:
-            if (!check_address_range((void*)arg1, sizeof(struct tms), 1, in_kernel)) {
+            if (!paging_check_address_range((void*)arg1, sizeof(struct tms), 1, in_kernel)) {
                 return_value = -EFAULT;
                 break;
             }
-            if (!check_address_range((void*)arg2, sizeof(clock_t), 1, in_kernel)) {
+            if (!paging_check_address_range((void*)arg2, sizeof(clock_t), 1, in_kernel)) {
                 return_value = -EFAULT;
                 break;
             }
@@ -366,11 +330,11 @@ void kernel_syscall_dispatcher(mcontext_t ctx) {
             return_value = sys_tgkill(arg1, arg2, arg3);
             break;
         case SYSCALL_SIGACTION:
-            if (!check_address_range((void*)arg2, sizeof(struct sigaction), 0, in_kernel)) {
+            if (!paging_check_address_range((void*)arg2, sizeof(struct sigaction), 0, in_kernel)) {
                 return_value = -EFAULT;
                 break;
             }
-            if ((struct sigaction *)arg3 != NULL && !check_address_range((void*)arg3, sizeof(struct sigaction), 1, in_kernel)) {
+            if ((struct sigaction *)arg3 != NULL && !paging_check_address_range((void*)arg3, sizeof(struct sigaction), 1, in_kernel)) {
                 return_value = -EFAULT;
                 break;
             }
@@ -380,18 +344,18 @@ void kernel_syscall_dispatcher(mcontext_t ctx) {
             sys_sigreturn(&ctx);
             break;
         case SYSCALL_SIGPROCMASK:
-            if (!check_address_range((void*)arg2, sizeof(sigset_t), 0, in_kernel)) {
+            if (!paging_check_address_range((void*)arg2, sizeof(sigset_t), 0, in_kernel)) {
                 return_value = -EFAULT;
                 break;
             }
-            if ((struct sigaction *)arg3 != NULL && !check_address_range((void*)arg3, sizeof(sigset_t), 1, in_kernel)) {
+            if ((struct sigaction *)arg3 != NULL && !paging_check_address_range((void*)arg3, sizeof(sigset_t), 1, in_kernel)) {
                 return_value = -EFAULT;
                 break;
             }
             return_value = sys_sigprocmask(arg1, (const sigset_t *)arg2, (sigset_t *)arg3);
             break;
         case SYSCALL_SIGPENDING:
-            if (!check_address_range((void*)arg1, sizeof(sigset_t), 1, in_kernel)) {
+            if (!paging_check_address_range((void*)arg1, sizeof(sigset_t), 1, in_kernel)) {
                 return_value = -EFAULT;
                 break;
             }
@@ -399,7 +363,7 @@ void kernel_syscall_dispatcher(mcontext_t ctx) {
             return_value = 0;
             break;
         case SYSCALL_SIGSUSPEND:
-            if (!check_address_range((void*)arg1, sizeof(sigset_t), 1, in_kernel)) {
+            if (!paging_check_address_range((void*)arg1, sizeof(sigset_t), 1, in_kernel)) {
                 return_value = -EFAULT;
                 break;
             }
@@ -429,17 +393,14 @@ void kernel_syscall_dispatcher(mcontext_t ctx) {
     current_thread->in_critical_section = 0;
 
     #ifdef SYSCALLS_RESCHEDULE
-    /*
-    numerous reasons to reschedule:
-    avoid kernel starvation by a syscall spamming thread
-    make cleanup happen quicker
-    make signals forced
-
-    since we are already in ring 0, the penalty for calling reschedule is almost zero
-    */
     reschedule();
     #else
     if (current_process->do_cleanup) reschedule();
+    if (current_process->is_stopped) reschedule();
+
+    // sleep, waiting, ...
+    // every syscall should be rescheduling on its own, but just in case
+    if (current_thread->status != SCHED_RUNNING) reschedule();
     #endif
 
     asm volatile ("cli;");
