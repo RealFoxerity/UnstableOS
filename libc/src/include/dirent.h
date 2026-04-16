@@ -1,7 +1,7 @@
 #ifndef _DIRENT_H
 #define _DIRENT_H
 #include <stddef.h>
-#include "stdio.h"
+#include <stdio.h>
 
 #define IFTODT(mode) (mode >> 12)
 #define DTTOIF(dirtype) (dirtype << 12)
