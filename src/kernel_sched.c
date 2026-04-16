@@ -72,8 +72,12 @@ void scheduler_print_processes() {
     while (printed != NULL) {
         printed_thread = printed->threads;
         while (printed_thread != NULL) {
-            kprintf("pid %8lu, tid %lu, cr3 %p, eip %p, kernel esp %p, process esp %p, state %d, command %s\n",
-            printed->pid, printed_thread->tid, printed->address_space_paddr, printed_thread->context.iret_frame.ip, printed_thread->context.esp, printed_thread->context.iret_frame.sp, printed_thread->status,
+            kprintf("thread %p pid %8lu, tid %lu, cr3 %p, eip %p, kernel esp %p, process esp %p, state %d, command %s\n",
+            printed_thread,
+            printed->pid, printed_thread->tid,
+            printed->address_space_paddr,
+            printed_thread->context.iret_frame.ip,
+            printed_thread->context.esp, printed_thread->context.iret_frame.sp, printed_thread->status,
             printed->argc > 0?(printed->argv != NULL ? (printed->argv[0] != NULL ? printed->argv[0]:"(nil)"):"(nil)"):"(nil)");
 
             printed_thread = printed_thread->next;
@@ -210,12 +214,25 @@ static void inline switch_context(process_t * pprocess, thread_t * thread, mcont
     if (paging_get_address_space_paddr() != thread->cr3_state)  // to prevent TLB flush performance hit
         paging_apply_address_space(thread->cr3_state);
 
+    if (thread->context.iret_frame.flags & IA_32_EFL_SYSTEM_VM8086) {
+        // Virtual-8086 always pushes and pops everything (because the values don't make sense in PE mode
+        thread->v86_context.esp = thread->kernel_stack - thread->kernel_stack_size;
+        memcpy(thread->v86_context.esp, &thread->v86_context.iret_frame, sizeof(struct v86_interr_frame));
+
+        memcpy(context, &thread->v86_context, sizeof(v86_mcontext_t)-sizeof(struct v86_interr_frame));
+        return; // iret is enough to set everything
+    }
+
     // iret requires ESP and SS when returning to a different (less) privileged CPL, however not when returning to 0
-    // we are copying into the target processes stack because we need to pop esp even when not switching privilage levels
+    // we are copying into the target processes stack because we need to pop esp even when not switching privilege levels
     if ((thread->context.iret_frame.cs & ~3) == GDT_KERNEL_CODE << 3) { // ring 0 code segment
         memcpy(thread->context.esp, &thread->context.iret_frame, sizeof(struct interr_frame) - 2 * sizeof(void *)); // ring 0 already contains the iret frame from last interrupt since it did not switch stacks (to tss kernel stack)
     } else {
-        thread->context.esp -= sizeof(struct interr_frame); // consequently, ring 0+ doesn't have anything there so we need to make room
+        // since the iret frame for ring 3 is larger by ESP and SS, we need to make room
+        // copying into provided context.esp isn't exactly reliable
+        // because if we were on that stack and are executing this, we would corrupt the stack
+        // so assuming we aren't using the entire kernel stack, this should be safe
+        thread->context.esp = thread->kernel_stack - thread->kernel_stack_size;
         memcpy(thread->context.esp, &thread->context.iret_frame, sizeof(struct interr_frame));
     }
 
@@ -253,7 +270,15 @@ void schedule(mcontext_t * context) {
     };
 
 
-    if (current_thread != NULL) memcpy(&current_thread->context, context, sizeof(mcontext_t) - (((context->iret_frame.cs & ~3) == GDT_KERNEL_CODE << 3) ? 2*sizeof(void *) : 0)); // ring 3 -> ring 0 causes SS and SP to be pushed
+    if (current_thread != NULL) {
+        if (context->iret_frame.flags & IA_32_EFL_SYSTEM_VM8086) {
+            memcpy(&current_thread->v86_context, context, sizeof(v86_mcontext_t));
+        } else if (context->iret_frame.cs & 3) { // ring 3 -> ring 0 causes SS and SP to be pushed
+            memcpy(&current_thread->context, context, sizeof(mcontext_t));
+        } else {
+            memcpy(&current_thread->context, context, sizeof(mcontext_t) - 2 * sizeof(void *));
+        }
+    }
     if (current_thread != NULL) current_thread->cr3_state = paging_get_address_space_paddr();
     //tss_set_stack(kernel_ts_stack_top); shouldn't be needed
 
@@ -324,6 +349,7 @@ void schedule(mcontext_t * context) {
         signal_retry_process(checked_process);
 
         partial_cleanup:
+        PAGE_DIRECTORY_TYPE * v86_as;
         for (thread_t * checked_thread = checked_process->threads; checked_thread != NULL; checked_thread = checked_thread->next) {
             if (checked_thread->instances == 0) panic("Encountered thread with instances 0, UAF?");
             switch (checked_thread->status) {
@@ -350,10 +376,19 @@ void schedule(mcontext_t * context) {
                 case SCHED_UNINTERR_SLEEP:
                 case SCHED_WAITING:
                     break;
+                case SCHED_V86_THREAD_CLEANUP:
+                    paging_apply_address_space(kernel_address_space_paddr);
+                    v86_as = paging_map_phys_addr_unspecified(checked_thread->cr3_state, PTE_PDE_PAGE_WRITABLE);
+                    kassert(v86_as);
+                    paging_destroy_address_space(v86_as);
+                    paging_unmap_page(v86_as);
+                    checked_thread->status = SCHED_THREAD_CLEANUP; // for the thread cleanup "failure"
                 case SCHED_THREAD_CLEANUP:
+                    if (checked_thread == current_thread) break;
                     if (checked_thread->in_critical_section)
                         panic("Thread marked for cleanup in critical section, corrupted process list?");
-                    kernel_destroy_thread(checked_process, checked_thread);
+                    if (!kernel_destroy_thread(checked_process, checked_thread))
+                        break; // deallocating now isn't possible
                     if (checked_process->threads == NULL) goto cleanup_process;
                     goto scheduler_start;
             }

@@ -13,7 +13,8 @@ enum dev_maj {
     DEV_MAJ_MEM,
     DEV_MAJ_BLOCK,
     DEV_MAJ_TTY,
-    DEV_MAJ_MISC
+    DEV_MAJ_MISC,
+    DEV_MAJ_FB // minor here being the id of the framebuffer
 };
 
 #define MEMDISK_LIMIT_KERNEL 4

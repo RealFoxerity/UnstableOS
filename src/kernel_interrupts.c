@@ -11,7 +11,7 @@
 #include "../libc/src/include/string.h"
 #include <stdint.h>
 
-// TODO: fix console stuff
+// TODO: rewrite everything to a single dispatcher that correctly fixes all segments
 
 #pragma clang diagnostic ignored "-Wexcessive-regsave" // compiling with -mregular-regs-only anyway
 #pragma clang diagnostic ignored "-Wc99-designator"
@@ -29,12 +29,14 @@ const char reserved_idt_interr_has_error[RES_INTERR_EXCEPTION_COUNT] = {
 
 extern uint8_t console_x, console_y;
 
+extern spinlock_t vga_spinlock;
 void clear_screen_fatal() {
+    vga_spinlock.state = SPINLOCK_UNLOCKED;
     vga_clear_screen();
     for (int i = 0; i < display_width; i += console_font_width*4) {
         for (int j = 0; j < display_height; j += console_font_height*4) {
             // 19 = double exclamation
-            vga_blit_char_buffered(19,
+            gfx_blit_char_buffered(19,
                 i, j,
                 CONSOLE_COLOR_RED,
                 CONSOLE_COLOR_BRIGHT_RED,
@@ -42,7 +44,8 @@ void clear_screen_fatal() {
                 4);
         }
     }
-    vga_swap_buffers();
+    gfx_swap_buffers();
+    kprintf("\e[H");
 }
 
 void print_segment_selector_error(unsigned long error) {
@@ -80,9 +83,9 @@ static inline void print_eflags(uint32_t eflags) {
     if (eflags & IA_32_EFL_DIRECTION) kprintf("DF ");
     if (eflags & IA_32_EFL_STATUS_OVERFLOW) kprintf("OF ");
     if (eflags & IA_32_EFL_SYSTEM_IO_PRIV) kprintf("IOPF ");
-    if (eflags & IA_32_EFL_SYSTEM_NESTED_TASK) kprintf("NF ");
+    if (eflags & IA_32_EFL_SYSTEM_NESTED_TASK) kprintf("NT ");
     if (eflags & IA_32_EFL_SYSTEM_RESUME) kprintf("RF ");
-    if (eflags & IA_32_EFL_SYSTEM_VM8086) kprintf("VF ");
+    if (eflags & IA_32_EFL_SYSTEM_VM8086) kprintf("VM ");
     if (eflags & IA_32_EFL_SYSTEM_ALIGN_CHECK) kprintf("ACF ");
     if (eflags & IA_32_EFL_VIRT_INTER) kprintf("VIF ");
     if (eflags & IA_32_EFL_VIRT_INTER_PEND) kprintf("VIP ");
@@ -116,10 +119,31 @@ void divide_error_handler(mcontext_t * ctx) {
     signal_dispatch_sa(current_process, current_thread);
     memcpy(ctx, &current_thread->context, sizeof(mcontext_t) - (ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *));
 }
+
+// when doing v86, the segments are wrong for normal protected (32bit) mode
+// so they get zeroed out (a bad thing) which inevitably causes GPF
+// 0x23 here being the number for the user's data segment
+// why the user segment? the kernel can still use it
+// and it makes it easier to return from interrupts
+// we use a flat model, so it doesn't matter anyway
+__attribute__((naked)) void fix_segments() {
+    asm volatile (
+        "pushl %eax;"
+        "mov $0x23, %ax;"
+        "mov %ax, %ds;"
+        "mov %ax, %es;"
+        "mov %ax, %fs;"
+        "mov %ax, %gs;"
+        "popl %eax;"
+        "ret;"
+    );
+}
+
 // we need to change the ctx for signal dispatching to work
 __attribute__((naked, no_caller_saved_registers)) static void interr_divide_error(struct interr_frame * interrupt_frame) {
     asm volatile (
         "cld;"
+        "call fix_segments;"
         "pusha;"
         "pushl %esp;"
         "call divide_error_handler;"
@@ -131,6 +155,7 @@ __attribute__((naked, no_caller_saved_registers)) static void interr_divide_erro
 }
 
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_debug_trap(struct interr_frame * interrupt_frame) {
+    fix_segments();
     kprintf("\n\n\e[41m#### ISR: DEBUG caught! ####\e[0m\n\n");
     unwind_stack_vaddr(*(void**)__builtin_frame_address(0));
     //panic("Debug");
@@ -140,6 +165,7 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_debug_t
 #define NMI_CHANNEL_ABORT " #### ISR: PANIC - BUS ERROR - NMI CHANNEL; HALTING #### "
 #define NMI_WATCHDOG_ABORT " #### ISR: PANIC - WATCHDOG TIMER RAN OUT; HALTING #### "
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_nmi(struct interr_frame * interrupt_frame) {
+    fix_segments();
     uint8_t portA = inb(NMI_INTERR_CONTROL_PORT_A);
     uint8_t portB = inb(NMI_INTERR_CONTROL_PORT_B);
     if (portB & NMI_CONTROL_B_PARITY_CHECK || portB & NMI_CONTROL_B_CHANNEL_CHECK) {
@@ -159,12 +185,15 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_nmi(str
     kprintf("\n\n\e[41m#### ISR: NMI caught! ####\e[0m\n\n");
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_breakpoint(struct interr_frame * interrupt_frame) {
+    fix_segments();
     kprintf("\n\n\e[41m#### ISR: Breakpoint caught! ####\e[0m\n\n");
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_overflow(struct interr_frame * interrupt_frame) {
+    fix_segments();
     kprintf("\n\n\e[41m#### ISR: Integer overflow (INTO) caught! ####\e[0m\n\n");
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_bound_range_ex(struct interr_frame * interrupt_frame) {
+    fix_segments();
     kprintf("\n\n\e[41m#### ISR: Bound index outside of range! ####\e[0m\n\n");
 }
 
@@ -191,6 +220,7 @@ void invalid_opcode_handler(mcontext_t * ctx) {
 __attribute__((naked, no_caller_saved_registers)) static void interr_invalid_opcode(struct interr_frame * interrupt_frame) {
     asm volatile (
         "cld;"
+        "call fix_segments;"
         "pusha;"
         "pushl %esp;"
         "call invalid_opcode_handler;"
@@ -202,9 +232,11 @@ __attribute__((naked, no_caller_saved_registers)) static void interr_invalid_opc
 }
 
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_dev_not_avail(struct interr_frame * interrupt_frame) {
+    fix_segments();
     kprintf("\n\n\e[41m#### ISR: FPU Coprocessor not present or not ready! ####\e[0m\n\n");
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_double_fault_abort(struct interr_frame * interrupt_frame, unsigned long error) {
+    fix_segments();
     clear_screen_fatal();
 
     kprintf("\e[41m#### ISR: CRITICAL - CAUGHT A DOUBLE FAULT! ####\e[0m\n");
@@ -231,9 +263,11 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_double_
     */
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_coprocessor_segment_overrun(struct interr_frame * interrupt_frame) {
+    fix_segments();
     kprintf("\n\n\e[41m#### ISR: FPU coprocessor memory segment overran! ####\e[0m\n\n");
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_invalid_tss(struct interr_frame * interrupt_frame, unsigned long error) {
+    fix_segments();
     kprintf("\n\n\e[41m#### ISR: TASK SWITCH ENCOUTERED INVALID TSS ENTRY! ####\n");
     print_segment_selector_error(error);
     print_interr_frame(interrupt_frame);
@@ -242,6 +276,7 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_invalid
     panic("System fault");
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_segment_not_present(struct interr_frame * interrupt_frame, unsigned long error) {
+    fix_segments();
     kprintf("\n\n\e[41m#### ISR: REFERENCED MEMORY SEGMENT IS NOT PRESENT! ####\n");
     print_segment_selector_error(error);
     print_interr_frame(interrupt_frame);
@@ -250,6 +285,7 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_segment
     panic("System fault");
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_stack_segment_fault(struct interr_frame * interrupt_frame, unsigned long error) {
+    fix_segments();
     kprintf("\n\n\e[41m#### ISR: REFERENCE STACK ADDRESS OUTSIDE STACK SEGMENT! ####\n");
     print_segment_selector_error(error);
     print_interr_frame(interrupt_frame);
@@ -260,6 +296,8 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_stack_s
 extern struct idt_gate * idt_descriptor_entries;
 
 __attribute__((no_caller_saved_registers)) void gp_print_info(struct interr_frame * interrupt_frame, unsigned long error) {
+    if (!(interrupt_frame->cs & 3))
+        clear_screen_fatal();
     kprintf("\n\e[41m\n#### ISR: Segmentation fault - Protection violation! ####\n");
     kprintf("SEL ERR:\t");
     print_segment_selector_error(error);
@@ -270,7 +308,6 @@ __attribute__((no_caller_saved_registers)) void gp_print_info(struct interr_fram
 
 void general_protection_handler(mcontext_t * ctx) {
     if (!(ctx->iret_frame.cs & 3)) {
-        clear_screen_fatal();
         panic("Kernel task cannot be recovered from a segmentation fault");
         __builtin_unreachable();
     }
@@ -283,9 +320,17 @@ void general_protection_handler(mcontext_t * ctx) {
     signal_dispatch_sa(current_process, current_thread);
     memcpy(ctx, &current_thread->context, sizeof(mcontext_t) - (ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *));
 }
+
+#include "v8086.h"
 __attribute__((naked, no_caller_saved_registers)) static void interr_general_protection(struct interr_frame * interrupt_frame, unsigned long error) {
     asm volatile (
         "cld;"
+        "call fix_segments;"
+        "pushl 0xC(%esp);" // eflags from the interrupt frame
+        "andl $0x20000, (%esp);" // vm8086 flag
+        "jnz v86;"
+
+        "addl $0x4, %esp;"
         "pushl %esp;"
         "addl $0x4, (%esp);"
         "call gp_print_info;"
@@ -297,6 +342,21 @@ __attribute__((naked, no_caller_saved_registers)) static void interr_general_pro
         "popa;"
         "call reschedule;" // in case this would be a termination
         "iret;"
+
+        "v86:"
+        "addl $0x4, %esp;"
+        "pushl %eax;"
+        "movl 0x4(%esp), %eax;" // the error value
+        "movl %eax, -0x20(%esp);" // after where the pusha and push %esp would end
+        "popl %eax;"
+        "addl $0x4, %esp;"
+        "pusha;"
+        "pushl %esp;" // the ctx argument
+        "sub $0x4, %esp;" // readjust so that error is "inside the stack"
+        "call v86_monitor;"
+        "addl $0x8, %esp;" // get rid of arguments
+        "popa;"
+        "iret;"
     );
 }
 /*
@@ -305,6 +365,7 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_x87_flo
 }
 */
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_alignment_check(struct interr_frame * interrupt_frame, unsigned long error) {
+    fix_segments();
     kprintf("\n\n\e[41m#### ISR: Caught unaligned memory access! ####\n");
     print_segment_selector_error(error);
     print_interr_frame(interrupt_frame);
@@ -314,6 +375,7 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_alignme
 
 #define CHECK_MACHINE_ERROR " #### ISR: PANIC - INTERNAL HW ERROR - CHECK MACHINE; HALTING #### "
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_machine_check_abort(struct interr_frame * interrupt_frame, unsigned long error) {
+    fix_segments();
     clear_screen_fatal();
     kprintf("\e[%d;0f", display_height_chars/2);
     panic(CHECK_MACHINE_ERROR);
@@ -328,10 +390,12 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_machine
 
 
 __attribute__((interrupt, no_caller_saved_registers)) void general_fault_handler_error(struct interr_frame * interrupt_frame, unsigned long error) { // ul to shut clang
+    fix_segments();
     kprintf("\e[41mPANIC: UNREGISTERED CPU FAULT, ERR CODE %lx\e[0m\n", error);
 }
 
 __attribute__((interrupt, no_caller_saved_registers)) void general_fault_handler_no_error(struct interr_frame * interrupt_frame) { // ul to shut clang
+    fix_segments();
     kprintf("\e[41mPANIC: UNREGISTERED CPU FAULT, ERR CODE\e[0m\n");
 }
 
@@ -465,12 +529,14 @@ __attribute__((no_caller_saved_registers)) void pic_send_eoi(uint8_t irq) {
 }
 
 __attribute__((no_caller_saved_registers)) void pic_send_eoi_all() {
+    fix_segments();
     outb(PIC_M_COMM_ADDR, PIC_OCW2_EOI);
     outb(PIC_S_COMM_ADDR, PIC_OCW2_EOI);
 }
 
 
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_default(struct interr_frame * interrupt_frame) {
+    fix_segments();
     outb(PIC_M_COMM_ADDR, PIC_OCW2_EOI);
     outb(PIC_S_COMM_ADDR, PIC_OCW2_EOI);
 }
@@ -478,6 +544,7 @@ __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_default(st
 __attribute__((naked, no_caller_saved_registers)) void interr_pic_pit(struct interr_frame * interrupt_frame) {
     asm volatile(
         "cld\n\t"
+        "call fix_segments\n\t"
         "pusha\n\t"
         //"pushl %ebp\n\t" // handled by pusha
         "movl %esp, %ebp\n\t"
@@ -507,37 +574,45 @@ __attribute__((naked, no_caller_saved_registers)) void interr_pic_pit(struct int
 
 
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_keyboard(struct interr_frame * interrupt_frame) {
+    fix_segments();
     ps2_driver(1);
 }
 
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_mouse(struct interr_frame * interrupt_frame) {
+    fix_segments();
     ps2_driver(2);
 }
 
 extern void com_recv_byte(char com);
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_com2(struct interr_frame * interrupt_frame) {
+    fix_segments();
     com_recv_byte(1);
 }
 
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_com1(struct interr_frame * interrupt_frame) {
+    fix_segments();
     com_recv_byte(0);
 }
 
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_lpt2(struct interr_frame * interrupt_frame) {
+    fix_segments();
     pic_send_eoi(PIC_INTERR_LPT2);
 }
 
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_floppy(struct interr_frame * interrupt_frame) {
+    fix_segments();
     pic_send_eoi(PIC_INTERR_FLOPPY);
 }
 
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_lpt1(struct interr_frame * interrupt_frame) {
+    fix_segments();
     if (pic_is_spurious(PIC_INTERR_LPT1)) return;
 
     pic_send_eoi(PIC_INTERR_LPT1);
 }
 
 __attribute__((interrupt, no_caller_saved_registers)) void interr_cmos_rtc(struct interr_frame * interrupt_frame) {
+    fix_segments();
     enum rtc_interrupt_bitmasks called_ints = rtc_get_last_interrupt_type();
 
     if (called_ints & RTC_INT_PERIODIC) {

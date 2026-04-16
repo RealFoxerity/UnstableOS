@@ -498,7 +498,10 @@ struct signal_stack_state {
     siginfo_t  __info;
 };
 
+#include "lowlevel.h"
 void signal_dispatch_sa(process_t * group, thread_t * thread) {
+    if (thread->context.iret_frame.flags & IA_32_EFL_SYSTEM_VM8086)
+        panic("Tried to send a signal to a Virtual-8086 task!");
     if (thread->sa_to_be_handled == 0) return;
 
     // default actions don't need to hijack the thread;

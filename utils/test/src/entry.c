@@ -58,6 +58,7 @@ char ** extract_args(char * args_start) {
 
     char ** args = malloc((arg_counter+1) * sizeof(char *));
     if (args == NULL) return NULL;
+    args[arg_counter] = NULL;
 
     seen_space = 1;
     arg_counter = 0;

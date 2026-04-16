@@ -88,6 +88,7 @@ thread_t * kernel_create_thread(process_t * parent_process, void (* entry_point)
 char kernel_destroy_thread(process_t * parent_process, thread_t * thread) {
     if (thread->in_critical_section
     || thread->status == SCHED_UNINTERR_SLEEP) return 0;
+    if (thread == current_thread) return 0; // we would break the current kernel heap
 
     kfree(thread->kernel_stack - thread->kernel_stack_size);
 
@@ -124,6 +125,7 @@ char kernel_destroy_thread(process_t * parent_process, thread_t * thread) {
         paging_unmap_page(mapped_as);
     }
     */
+
     UNLINK_DOUBLE_LINKED_LIST(thread, parent_process->threads);
 
     if (__atomic_sub_fetch(&thread->instances, 1, __ATOMIC_RELAXED) == 0) kfree(thread);

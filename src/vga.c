@@ -292,26 +292,6 @@ static void vga_setup_attribute_controller() {
     outb(VGA_AC_REG, 0x20);
 }
 
-// the default xterm colors
-const unsigned char console_colors[16] = {
-    VGA_RGB_TO_RGB8(0, 0, 0),
-    VGA_RGB_TO_RGB8(128, 0, 0),
-    VGA_RGB_TO_RGB8(0, 128, 0),
-    VGA_RGB_TO_RGB8(128, 128, 0),
-    VGA_RGB_TO_RGB8(0, 0, 128),
-    VGA_RGB_TO_RGB8(128, 0, 128),
-    VGA_RGB_TO_RGB8(0, 128, 128),
-    VGA_RGB_TO_RGB8(192, 192, 192),
-    VGA_RGB_TO_RGB8(128, 128, 128),
-    VGA_RGB_TO_RGB8(255, 0, 0),
-    VGA_RGB_TO_RGB8(0, 255, 0),
-    VGA_RGB_TO_RGB8(255, 255, 0),
-    VGA_RGB_TO_RGB8(0, 0, 255),
-    VGA_RGB_TO_RGB8(255, 0, 255),
-    VGA_RGB_TO_RGB8(0, 255, 255),
-    VGA_RGB_TO_RGB8(255, 255, 255)
-};
-
 /*
 unsigned char vga_rgb_to_rgb8(unsigned char r, unsigned char g, unsigned char b) {
     r &= 0b11100000;
@@ -413,7 +393,7 @@ void vga_init_graphics() {
     // switch to mode 12 - 640x480x4 for a nice console size
     vga_set_mode_12();
 
-    vga_load_font(vga_font8x8, 256, 8, 8);
+    load_font(vga_font8x8, 256, 8, 8);
 
     vga_clear_screen();
 }

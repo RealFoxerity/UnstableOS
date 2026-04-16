@@ -65,8 +65,27 @@ enum cpuid_funcs {
     CPUID_VENDOR_FULL_3 = 0x80000004,
 };
 
+
+#define X86_CONVENTIONAL_MEMORY_START 0x500
+#define X86_SEGMENT_SIZE 0xFFFF
+// for far jumping/far access across segments, segment:offset is used
+// these 2 functions create a simple segment/offset pair
+// segment here being just the top 4/20 bits
+#define V86_FAR_SEG(laddr) (((laddr) >> 4) & 0xF000)
+#define V86_FAR_OFF(laddr) ((laddr) & X86_SEGMENT_SIZE)
+
+#define V86_FAR_MAKE(seg, off) (((seg) << 16) | off)
+// x86 achieved 20 bits of addressing by <<4 of the segment and using that as the base
+#define V86_FAR2LIN(seg, off) ((void *)(((unsigned long)(seg) & 0xFFFF) << 4) + ((unsigned long)(off) & 0xFFFF))
+
+
+
 void outb(uint16_t port, uint8_t data);
 uint8_t inb(uint16_t port);
+
+void outw(uint16_t port, uint16_t data);
+uint16_t inw(uint16_t port);
+
 void outl(uint16_t port, uint32_t data);
 uint32_t inl(uint16_t port);
 void io_wait();

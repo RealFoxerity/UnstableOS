@@ -5,7 +5,7 @@
 #include "include/kernel.h"
 #include "include/kernel_tty_io.h"
 #include "include/keyboard.h"
-#include "include/vga.h"
+#include "gfx.h"
 #include "../libc/src/include/string.h"
 #include "../libc/src/include/ctype.h"
 #include "include/kernel_console.h"
@@ -23,8 +23,8 @@ char console_cursor_blinking = 0;
 
 unsigned char console_tab_width = 8;
 
-enum console_colors_palette console_color_fg = CONSOLE_COLOR_WHITE;
-enum console_colors_palette console_color_bg = CONSOLE_COLOR_BLACK;
+enum console_colors_palette console_color_fg         = CONSOLE_COLOR_WHITE;
+enum console_colors_palette console_color_bg         = CONSOLE_COLOR_BLACK;
 enum console_colors_palette console_default_color_fg = CONSOLE_COLOR_WHITE;
 enum console_colors_palette console_default_color_bg = CONSOLE_COLOR_BLACK;
 
@@ -47,7 +47,6 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
     cursor blink off/on
     clear screen type J/0J 1J 2J 3J, K/0K 1K 2K
     scroll commands S T
-    partially the nonstandard \e[=#h modesettings
     */
     switch (ansi_sequence[1]) { // 1 char escapes
         case 'm':
@@ -58,14 +57,18 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
             return;
         case 'J':
             erase_cursor_screen_end:
-            vga_fill(0, display_width - 1,
+            current_video_funcs->fill_buffered(0, display_width - 1,
                 (console_y+1)*console_font_width*FONT_MULTIPLIER, display_height,
                 console_color_bg, 1);
+            current_video_funcs->swap_region(0, display_width - 1,
+                (console_y+1)*console_font_width*FONT_MULTIPLIER, display_height);
         case 'K':
             erase_cursor_line_end:
-            vga_fill(console_x*console_font_width*FONT_MULTIPLIER, display_width - 1,
+            current_video_funcs->fill_buffered(console_x*console_font_width*FONT_MULTIPLIER, display_width - 1,
                     console_y*console_font_height*FONT_MULTIPLIER, (console_y+1)*console_font_height*FONT_MULTIPLIER - 1,
                     console_color_bg, 1);
+            current_video_funcs->swap_region(console_x*console_font_width*FONT_MULTIPLIER, display_width - 1,
+                    console_y*console_font_height*FONT_MULTIPLIER, (console_y+1)*console_font_height*FONT_MULTIPLIER - 1);
             return;
         case 's':
             console_saved_x = console_x;
@@ -119,44 +122,6 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
         return;
     }
 
-    // modesettings, see https://gist.github.com/ConnerWill/d4b6c776b509add763e17f9f113fd25b
-    if (sscanf(ansi_sequence, "[=%u%c", &id, &csi) == 2) {
-        switch (csi) {
-            case 'l':
-                vga_set_mode_12();
-            default:
-                return;
-            case 'h': break;
-        }
-
-        // because we don't have most of them defined,
-        // i took some liberty with the unused ones
-        switch (id) {
-            case 13:
-            case 19:
-                console_x = console_y = 0;
-                vga_set_mode_13();
-                return;
-            case 18:
-                console_x = console_y = 0;
-                vga_set_mode_12();
-                return;
-            case 20:
-                console_x = console_y = 0;
-                vga_set_mode_X();
-                return;
-            case 21:
-                console_x = console_y = 0;
-                vga_set_mode_X_wide();
-                return;
-            case 28:
-                console_x = console_y = 0;
-                vga_set_mode_12_wide();
-                return;
-        }
-        return;
-    }
-
     if (sscanf(ansi_sequence, "[%d%c", &id, &csi) != 2) goto ansi2params;
 
     enum console_colors_palette temp;
@@ -164,11 +129,11 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
         // scroll up
         case 'S':
             kprintf("scroll up\n");
-            vga_move_region(0, id*console_font_height*FONT_MULTIPLIER, display_width, display_height, 0, 0);
+            current_video_funcs->copy_region_unbuffered(0, id*console_font_height*FONT_MULTIPLIER, display_width, display_height, 0, 0);
             return;
         // scroll down
         case 'T':
-            vga_move_region(0, 0, display_width, display_height, 0, id*console_font_height*FONT_MULTIPLIER);
+            current_video_funcs->copy_region_unbuffered(0, 0, display_width, display_height, 0, id*console_font_height*FONT_MULTIPLIER);
             return;
         // graphics rendition modes
         case 'm':
@@ -191,13 +156,13 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
                     console_color_fg = id - 30;
                     return;
                 case 39:
-                    console_color_fg = console_default_color_bg;
+                    console_color_fg = console_default_color_fg;
                     return;
                 case 40 ... 47:
                     console_color_bg = id - 40;
                     return;
                 case 49:
-                    console_color_bg = console_color_bg;
+                    console_color_bg = console_default_color_bg;
                     return;
                 case 90 ... 97:
                     console_color_fg = id - 90 + 8;
@@ -221,19 +186,20 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
                                     console_x*console_font_width*FONT_MULTIPLIER :
                                     display_width - 1
                             ); x++) {
-                            vga_write_pixel_buffered(x, y, console_color_bg, 1);
+                            current_video_funcs->write_pixel_buffered(x, y, console_color_bg, 1);
                         }
                     }
-                    vga_swap_buffers();
+                    gfx_swap_buffers();
                     return;
                 case 3:
                     // erase scrollback (in our case do nothing)
                     break;
                 case 2:
                     // entire screen
-                    vga_fill(0, display_width - 1,
+                    current_video_funcs->fill_buffered(0, display_width - 1,
                         0, display_height - 1,
                         console_color_bg, 1);
+                    gfx_swap_buffers();
                     return;
             }
             return;
@@ -243,15 +209,19 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
                 case 0: goto erase_cursor_line_end;
                 case 1:
                     // erase from cursor to beginning of line
-                    vga_fill(0, console_x * console_font_width * FONT_MULTIPLIER,
+                    current_video_funcs->fill_buffered(0, console_x * console_font_width * FONT_MULTIPLIER,
                         console_y*console_font_height*FONT_MULTIPLIER, (console_y+1)*console_font_height*FONT_MULTIPLIER - 1,
                         console_color_bg, 1);
+                    current_video_funcs->swap_region(0, console_x * console_font_width * FONT_MULTIPLIER,
+                        console_y*console_font_height*FONT_MULTIPLIER, (console_y+1)*console_font_height*FONT_MULTIPLIER - 1);
                     return;
                 case 2:
                     // erase entire line
-                    vga_fill(0, display_width - 1,
+                    current_video_funcs->fill_buffered(0, display_width - 1,
                         console_y*console_font_height*FONT_MULTIPLIER, (console_y+1)*console_font_height*FONT_MULTIPLIER - 1,
                         console_color_bg, 1);
+                    current_video_funcs->swap_region(0, display_width - 1,
+                        console_y*console_font_height*FONT_MULTIPLIER, (console_y+1)*console_font_height*FONT_MULTIPLIER - 1);
                     return;
             }
             return;
@@ -377,10 +347,12 @@ void console_write(const char * s, size_t len) {
             console_y ++;
             if (console_y >= display_height_chars / FONT_MULTIPLIER) {
                 console_y = display_height_chars / FONT_MULTIPLIER - 1;
-                vga_hw_scroll_scanlines(console_font_height*FONT_MULTIPLIER);
-                vga_fill(0, display_width - 1,
+                gfx_hw_scroll_scanlines(console_font_height*FONT_MULTIPLIER);
+                current_video_funcs->fill_buffered(0, display_width - 1,
                     display_height - console_font_height*FONT_MULTIPLIER, display_height - 1,
                     console_default_color_bg, 1);
+                current_video_funcs->swap_region(0, display_width - 1,
+                    display_height - console_font_height*FONT_MULTIPLIER, display_height - 1);
             }
             continue;
         }
@@ -392,7 +364,7 @@ void console_write(const char * s, size_t len) {
             continue;
         }
         //vga_put_char(s[i], vga_color, vga_x, vga_y);
-        vga_blit_char(s[i], console_x*console_font_width*FONT_MULTIPLIER,
+        gfx_blit_char(s[i], console_x*console_font_width*FONT_MULTIPLIER,
                             console_y*console_font_height*FONT_MULTIPLIER,
                     console_color_fg, console_color_bg, 1, FONT_MULTIPLIER);
         console_x ++;

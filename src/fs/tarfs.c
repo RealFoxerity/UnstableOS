@@ -200,6 +200,7 @@ static char tar_add_cached_path(struct tar_node * root, const char * path, ustar
 }
 
 static void tar_free_node(struct tar_node * node) {
+    if (node == NULL) return;
     if (node->inner != NULL) {
         tar_free_node(node->inner);
     }
@@ -244,19 +245,25 @@ int tar_load_fs(superblock_t * sb) {
 
             nullblock_count ++;
             if (nullblock_count == 2) {
-                if (curr_offset != tarfs_size - 1)
-                    kprintf("Warning: Tar archive ends prematurely by %lu bytes!\n", tarfs_size - curr_offset);
+                if (curr_offset != tarfs_size)
+                    kprintf("Info: %lu bytes of unused padding after USTAR initramfs\n", tarfs_size - curr_offset);
                 break;
             }
             continue;
             definitely_broken:
-            kprintf("Tar archive corrupted/not in USTar format!\n");
+            kfree(path);
+            tar_free_node(sb->data);
+            kprintf("Tar archive corrupted/not in USTAR format!\n");
             return -1;
         }
         memcpy(path, hdr.file_name, sizeof(hdr.file_name));
         memcpy(path + sizeof(hdr.file_name), hdr.filename_prefix, sizeof(hdr.filename_prefix));
-
         size_t file_length = oct2int(hdr.file_size, sizeof(hdr.file_size));
+        if (curr_offset + file_length > tarfs_size) {
+            kprintf("Warning: USTAR entry %s truncated by %lu bytes, skipping remaining!\n",
+                path, curr_offset + file_length - tarfs_size);
+            break;
+        }
         size_t archive_length = file_length;
         if (file_length % 512 != 0) // all tar records are padded to 512 byte
             archive_length += 512 - (file_length%512);

@@ -116,7 +116,7 @@ long com_write(unsigned char com, const char * data, unsigned long len) {
     if (com_states[com] == COM_UNINITIALIZED) return 0;
 
     for (unsigned long i = 0; i < len; i++) {
-        while (!com_ready_to_write(com)); 
+        while (!com_ready_to_write(com));
         outb(com_addresses[com], data[i]); 
     }
     return len;
@@ -154,7 +154,9 @@ void com_recv_byte(char com) { // called by interrupt
         return;
     }
     if (com_driver_thread == NULL) {
+        spinlock_acquire(&scheduler_lock);
         com_driver_thread = kernel_create_thread(kernel_task, (void (*)(void*))com_driver_loop, NULL);
+        spinlock_release(&scheduler_lock);
     }
     // so that we can do interruptible spinlocks
     switch (com) {

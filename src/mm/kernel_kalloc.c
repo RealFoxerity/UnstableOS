@@ -21,6 +21,7 @@ enum kalloc_flags {
 struct heap_header { // aligning so that we try to avoid alignment check
     char magic[3];
     uint8_t flags;
+    void * last_access; // who last performed free/alloc on this and related structures, useful when debugging
     alignas(KALLOC_ALIGNMENT) struct heap_header * prev_chunk;
     alignas(KALLOC_ALIGNMENT) struct heap_header * next_chunk;
 };
@@ -55,6 +56,7 @@ void * __attribute__((malloc, malloc(kfree))) kalloc(size_t size) {
 
         if (current_heap_object->next_chunk == NULL) panic("Encountered heap object with corrupted next_chunk (null)!");
         if (current_heap_object->flags & KALLOC_LAST_CHUNK) {
+            // try to extend the heap
             if ((void*)current_heap_object->next_chunk < kernel_heap_top) {
                 paging_add_page(current_heap_object->next_chunk, PTE_PDE_PAGE_WRITABLE);
                 current_heap_object->next_chunk = (void*)current_heap_object->next_chunk + PAGE_SIZE_NO_PAE;
@@ -65,20 +67,31 @@ void * __attribute__((malloc, malloc(kfree))) kalloc(size_t size) {
         }
         current_heap_object = current_heap_object->next_chunk;
     }
+
     current_heap_object->flags |= KALLOC_CHUNK_USED;
 
     struct heap_header * next_heap_object = (void *)current_heap_object + sizeof(struct heap_header) + size;
     *next_heap_object = (struct heap_header) {
         .flags = 0 | (current_heap_object->flags & KALLOC_LAST_CHUNK),
         .prev_chunk = current_heap_object,
-        .next_chunk = current_heap_object->next_chunk
+        .next_chunk = current_heap_object->next_chunk,
+        .last_access = __builtin_return_address(0)
     };
     memcpy(next_heap_object->magic, KALLOC_MAGIC, 3);
 
     if (current_heap_object->flags & KALLOC_LAST_CHUNK) current_heap_object->flags ^= KALLOC_LAST_CHUNK;
     current_heap_object->next_chunk = next_heap_object;
 
+    if (!(next_heap_object->flags & KALLOC_LAST_CHUNK))
+        next_heap_object->next_chunk->prev_chunk = next_heap_object;
+
+    current_heap_object->last_access = __builtin_return_address(0);
+
     spinlock_release(&kalloc_lock);
+
+#ifdef HEAP_POISONING
+    memset((void*)current_heap_object + sizeof(struct heap_header), 'b', size);
+#endif
 
     return (void*)current_heap_object + sizeof(struct heap_header);
 }
@@ -88,6 +101,9 @@ void kfree(void * p) {
     spinlock_acquire(&kalloc_lock);
 
     struct heap_header * current_heap_object = (struct heap_header * ) (p - sizeof(struct heap_header));
+#ifdef HEAP_POISONING
+    memset(p, 'A', (void *)current_heap_object->next_chunk - p);
+#endif
 
     if (memcmp(current_heap_object->magic, KALLOC_MAGIC, 3) != 0) panic("Tried to free a non-heap object (pointer)!");
 
@@ -96,13 +112,16 @@ void kfree(void * p) {
     if (!(current_heap_object->flags & KALLOC_CHUNK_USED)) panic("Tried to double free a heap object!");
 
     current_heap_object->flags &= ~KALLOC_CHUNK_USED;
+    current_heap_object->last_access = __builtin_return_address(0);
 
     if (current_heap_object->flags & KALLOC_FIRST_CHUNK) {
         if (current_heap_object->flags & KALLOC_LAST_CHUNK) goto end;
         if (current_heap_object->next_chunk->flags & KALLOC_CHUNK_USED) goto end;
         current_heap_object->flags |= current_heap_object->next_chunk->flags & KALLOC_LAST_CHUNK;
         current_heap_object->next_chunk = current_heap_object->next_chunk->next_chunk;
-        
+
+        current_heap_object->next_chunk->next_chunk->last_access = current_heap_object->last_access;
+
         if (!(current_heap_object->flags & KALLOC_LAST_CHUNK))
             current_heap_object->next_chunk->prev_chunk = current_heap_object; // last heap object doesn't point to an actual heap object, rather to the heap end
         goto end;
@@ -110,21 +129,33 @@ void kfree(void * p) {
         if (current_heap_object->prev_chunk->flags & KALLOC_CHUNK_USED) goto end;
         current_heap_object->prev_chunk->next_chunk = current_heap_object->next_chunk;
         current_heap_object->prev_chunk->flags |= KALLOC_LAST_CHUNK;
+
+        current_heap_object->next_chunk->last_access = current_heap_object->last_access;
+        current_heap_object->prev_chunk->last_access = current_heap_object->last_access;
+
         goto end;
     } else {
         if (!(current_heap_object->next_chunk->flags & KALLOC_CHUNK_USED)) {
             current_heap_object->flags |= current_heap_object->next_chunk->flags & KALLOC_LAST_CHUNK;
 
             current_heap_object->next_chunk = current_heap_object->next_chunk->next_chunk;
+
             if (current_heap_object->flags & KALLOC_LAST_CHUNK) goto end;
 
             current_heap_object->next_chunk->prev_chunk = current_heap_object;
+
+            current_heap_object->next_chunk->last_access = current_heap_object->last_access;
         }
         if (!(current_heap_object->prev_chunk->flags & KALLOC_CHUNK_USED)) {
             current_heap_object->prev_chunk->flags |= current_heap_object->flags & KALLOC_LAST_CHUNK;
 
             current_heap_object->prev_chunk->next_chunk = current_heap_object->next_chunk;
+
+            current_heap_object->prev_chunk->last_access = current_heap_object->last_access;
+
             if (current_heap_object->flags & KALLOC_LAST_CHUNK) goto end;
+
+            current_heap_object->next_chunk->last_access = current_heap_object->last_access;
 
             current_heap_object->next_chunk->prev_chunk = current_heap_object->prev_chunk;
         }
@@ -136,7 +167,11 @@ void kfree(void * p) {
 
 
 static void print_chunk_info(struct heap_header * header) {
-    kprintf("kalloc: Heap 0x%p - 0x%p, size %lx, prev: 0x%p, ", header, header->next_chunk, (unsigned long)header->next_chunk - (unsigned long)header - sizeof(struct heap_header), header->prev_chunk);
+    kprintf("kalloc: 0x%p - 0x%p (%lx), prev: 0x%p, a.by: %p, ",
+        header, header->next_chunk,
+        (unsigned long)header->next_chunk - (unsigned long)header - sizeof(struct heap_header),
+        header->prev_chunk,
+        header->last_access);
     if (header->flags & KALLOC_CHUNK_USED) kprintf("U, ");
     if (header->flags & KALLOC_FIRST_CHUNK) kprintf("FC, ");
     if (header->flags & KALLOC_LAST_CHUNK) kprintf("LC, ");
@@ -145,13 +180,19 @@ static void print_chunk_info(struct heap_header * header) {
 
 void kalloc_print_heap_objects() {
     spinlock_acquire(&kalloc_lock);
+    size_t used_mem = 0;
     struct heap_header * current_heap_object = kernel_heap_base;
 
     while (!(current_heap_object->flags & KALLOC_LAST_CHUNK)) {
         print_chunk_info(current_heap_object);
+        if (current_heap_object->next_chunk->flags & KALLOC_CHUNK_USED)
+            used_mem += (unsigned long)current_heap_object->next_chunk -
+            (unsigned long)current_heap_object -
+            sizeof(struct heap_header);
         current_heap_object = current_heap_object->next_chunk;
     }
     print_chunk_info(current_heap_object);
+    kprintf("kalloc: Total usage: %lu/0x%lx\n", used_mem, used_mem);
     spinlock_release(&kalloc_lock);
 }
 

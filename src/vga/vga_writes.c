@@ -1,20 +1,31 @@
 #include "../include/vga.h"
 #include "../include/kernel_spinlock.h"
 #include "../../libc/src/include/string.h"
+#include "gfx.h"
 
-#define SHADOW_FRAMEBUFFER_SIZE (800*600) // largest one we support
+struct gfx_funcs vga_funcs = {
+    .clear_screen = vga_clear_screen,
+    .swap_region = vga_swap_region,
+    .write_pixel_buffered = vga_write_pixel_buffered,
+    .fill_buffered = vga_fill_buffered,
+    .copy_region_unbuffered = vga_copy_region,
+    .read_pixel = vga_read_pixel,
+    .hw_shift_pixels = vga_hw_shift_pixels,
+};
+
+#define SHADOW_FRAMEBUFFER_SIZE (640*480) // largest VGA one we support
+// we could support 800x600, but that requires a dot clock that most real cards don't have
 
 // empty areas of memory we wouldn't be managing
 //unsigned char * shadow_framebuffer = (unsigned char *)0x00007E00; // turns out this is where grub stores multiboot structures
 unsigned char * vga_font8x16 = (unsigned char *)0x00005000;
 
-// note: this is 480KB!
+// note: this is 307KB!
 // normal compilers place this into uninitialized memory
 // thus this buffer is 0 bytes inside the elf file
 unsigned char shadow_framebuffer[SHADOW_FRAMEBUFFER_SIZE];
 
 unsigned int vga_pixel_offset = 0;
-
 
 spinlock_t vga_spinlock = {0}; // to not race on I/O activity
 
@@ -27,9 +38,12 @@ static inline void vga_set_plane(int plane) {
 }
 
 
-int vga_read_pixel(unsigned int x, unsigned int y) {
+uint32_t vga_read_pixel(unsigned int x, unsigned int y) {
     if (x >= display_width || y >= display_height) return 0;
-    return shadow_framebuffer[y * display_width + x];
+
+    return (shadow_framebuffer[y * display_width + x] & 0b11100000 << 0) |
+           (shadow_framebuffer[y * display_width + x] & 0b00011100 << 3) |
+           (shadow_framebuffer[y * display_width + x] & 0b00000011 << 6);
 }
 
 struct mode12_planes {
@@ -40,6 +54,7 @@ struct mode12_planes {
         unsigned char planes[4];
     };
 };
+
 static struct mode12_planes mode12_construct_pixel_from_shadow(int x, int y) {
     struct mode12_planes planes = {0};
     x -= x%8;
@@ -56,105 +71,26 @@ static struct mode12_planes mode12_construct_pixel_from_shadow(int x, int y) {
     return planes;
 } 
 
-void vga_write_pixel_buffered(unsigned int x, unsigned int y, unsigned char color, char use_palette) {
+void vga_write_pixel_buffered(unsigned int x, unsigned int y, uint32_t color, char use_palette) {
     if (x >= display_width || y >= display_height) return;
 
-    if (use_palette && current_vga_mode != MODE12)
+    if (current_vga_mode == MODE12) {
+        shadow_framebuffer[y * display_width + x] = color;
+        return;
+    }
+
+    if (use_palette)
         color = console_colors[color & 0xF];
 
-    shadow_framebuffer[y * display_width + x] = color;
+    shadow_framebuffer[y * display_width + x] = VGA_RGB32_TO_RGB8(color);
 }
 
 // /4 for planes
 #define VGA_UNCHAINED_GET_PAGE_INDEX(x, y) ((y)*(display_width/4) + (x)/4)
-void vga_write_pixel(unsigned int x, unsigned int y, unsigned char color, char use_palette) {
-    if (x >= display_width || y >= display_height) return;
-    
-    if (use_palette && current_vga_mode != MODE12)
-        color = console_colors[color & 0xF];
-
-    //for (int i = 0; i < 10000000; i++);
-    vga_write_pixel_buffered(x, y, color, 0);
-    vga_swap_region(x, x, y, y);
-}
-
-unsigned int console_font_width = 8;
-unsigned int console_font_height = 8;
-static const unsigned char * console_font = NULL;
-static unsigned int console_font_chars = 0;
-void vga_load_font(
-    const unsigned char * console_font_bitmap, unsigned int chars,
-    unsigned int char_width, unsigned int char_height
-) {
-    if (char_width == 0 || char_height == 0) return;
-    console_font_width = char_width;
-    console_font_height = char_height;
-
-    console_font = console_font_bitmap;
-    console_font_chars = chars;
-}
-
-void vga_blit_char_buffered(
-    unsigned int c,
-    unsigned int x, unsigned int y,
-    unsigned char fg_color, unsigned char bg_color,
-	char use_palette,
-    unsigned int size_mult
-) {
-    if (size_mult == 0) return;
-    if (c >= console_font_chars) return;
-    if (x >= display_width || y >= display_height) return;
-
-    if (use_palette && current_vga_mode != MODE12) {
-        fg_color = console_colors[fg_color & 0xF];
-        bg_color = console_colors[bg_color & 0xF];
-    }
-
-    // mode 12 already uses palette by default
-    for (unsigned int fy = 0; fy < console_font_height * size_mult; fy++) {
-        if (fy >= display_height) break;
-        for (unsigned int fx = 0; fx < console_font_width * size_mult; fx++) {
-            if (fx >= display_width) break;
-            if (
-                console_font[c * console_font_height + fy/size_mult] &
-                (1 << (7 - fx/size_mult))
-            )
-                shadow_framebuffer[(fy + y) * display_width + fx + x] = fg_color;
-            else
-                shadow_framebuffer[(fy + y) * display_width + fx + x] = bg_color;
-        }
-    }
-}
-
-void vga_blit_char(
-    unsigned int c,
-    unsigned int x, unsigned int y,
-    unsigned char fg_color, unsigned char bg_color,
-    char use_palette,
-    unsigned int size_mult
-) {
-    if (size_mult == 0) return;
-    if (c >= console_font_chars) return;
-    if (x >= display_width || y >= display_height) return;
-
-    if (use_palette && current_vga_mode != MODE12) {
-        fg_color = console_colors[fg_color & 0xF];
-        bg_color = console_colors[bg_color & 0xF];
-    }
-
-    // keep the shadow framebuffer consistent
-    // since we change the palette colors, setting 1 would change them yet again
-    vga_blit_char_buffered(c, x, y, fg_color, bg_color, 0, size_mult);
-    vga_swap_region(x, x+console_font_width, y, y+console_font_height);
-}
-
-void vga_clear_screen_buffered() {
-    memset(shadow_framebuffer, 0, SHADOW_FRAMEBUFFER_SIZE);
-}
 
 void vga_clear_screen() {
     spinlock_acquire_interruptible(&vga_spinlock);
-    vga_clear_screen_buffered();
+    memset(shadow_framebuffer, 0, display_height * display_width);
     // select all planes to speed up clear
     vga_wreg(VGA_SEQ_DATA_REG, 2, 0xF);
     
@@ -232,11 +168,7 @@ void vga_swap_region(unsigned int start_x, unsigned int end_x, unsigned int star
     spinlock_release(&vga_spinlock);
 }
 
-void vga_swap_buffers() {
-    vga_swap_region(0, display_width-1, 0, display_height-1);
-}
-
-void vga_fill_buffered(unsigned int start_x, unsigned int end_x, unsigned start_y, unsigned int end_y, unsigned char color, char use_palette) {
+void vga_fill_buffered(unsigned int start_x, unsigned int end_x, unsigned start_y, unsigned int end_y, uint32_t color, char use_palette) {
     if (start_x >= display_width) start_x = display_width - 1;
     if (start_y >= display_height) start_y = display_height - 1;
     if (end_x >= display_width) end_x = display_width - 1;
@@ -247,21 +179,9 @@ void vga_fill_buffered(unsigned int start_x, unsigned int end_x, unsigned start_
 
     for (unsigned int x = start_x; x <= end_x; x++) {
         for (unsigned int y = start_y; y <= end_y; y++) {
-            shadow_framebuffer[y*display_width + x] = color;
+            shadow_framebuffer[y*display_width + x] = VGA_RGB32_TO_RGB8(color);
         }
     }
-}
-
-void vga_fill(unsigned int start_x, unsigned int end_x, unsigned start_y, unsigned int end_y, unsigned char color, char use_palette) {
-    if (start_x >= display_width) start_x = display_width - 1;
-    if (start_y >= display_height) start_y = display_height - 1;
-    if (end_x >= display_width) end_x = display_width - 1;
-    if (end_y >= display_height) end_y = display_height - 1;
-
-    if (use_palette && current_vga_mode != MODE12)
-        color = console_colors[color & 0xF];
-    vga_fill_buffered(start_x, end_x, start_y, end_y, color, 0);
-    vga_swap_region(start_x, end_x, start_y, end_y);
 }
 
 void vga_hw_shift_pixels(unsigned int pixels) {
@@ -272,9 +192,9 @@ void vga_hw_shift_pixels(unsigned int pixels) {
         memset(shadow_framebuffer + display_width*display_height - pixels, 0, pixels);
     }
 
-    // due to the way 
+    // due to the way chained modes work, it's not possible to use the hw registers
     if (current_vga_mode == CHAINED) {
-        vga_swap_buffers();
+        vga_swap_region(0, display_width - 1, 0, display_height - 1);
         return;
     }
 
@@ -299,12 +219,7 @@ void vga_hw_shift_pixels(unsigned int pixels) {
     #endif
 }
 
-void vga_hw_scroll_scanlines(unsigned int scanlines) {
-    vga_hw_shift_pixels(scanlines * display_width);
-}
-
-
-void vga_move_region(unsigned int x, unsigned int y, unsigned int width, unsigned int height, unsigned int final_x, unsigned int final_y) {
+void vga_copy_region(unsigned int x, unsigned int y, unsigned int width, unsigned int height, unsigned int final_x, unsigned int final_y) {
     if (x >= display_width || y >= display_height) return;
 
     if (x + width > display_width)
@@ -330,12 +245,12 @@ void vga_move_region(unsigned int x, unsigned int y, unsigned int width, unsigne
     if (final_y > y + height || final_y < y) {
         for (int i = 0; i < final_height; i++) {
             memcpy(shadow_framebuffer + (final_y+i)*display_width + final_x, shadow_framebuffer + (y+i)*display_width + x, final_width);
-            memset(shadow_framebuffer + (y+i)*display_width + x, 0, width);
+            //memset(shadow_framebuffer + (y+i)*display_width + x, 0, width);
         }
     } else {
         for (int i = final_height - 1; i >= 0; i--) {
             memcpy(shadow_framebuffer + (final_y+i)*display_width + final_x, shadow_framebuffer + (y+i)*display_width + x, final_width);
-            memset(shadow_framebuffer + (y+i)*display_width + x, 0, width);
+            //memset(shadow_framebuffer + (y+i)*display_width + x, 0, width);
         }
     }
 

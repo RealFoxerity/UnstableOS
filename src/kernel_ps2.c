@@ -859,7 +859,9 @@ void ps2_driver(char device_num) {
     }
 
     if (__builtin_expect(ps2_driver_state == PS2_INITIALIZED, 0)) {
+        spinlock_acquire(&scheduler_lock);
         ps2_driver_thread = kernel_create_thread(kernel_task, (void (*)(void *))ps2_driver_loop, NULL);
+        spinlock_release(&scheduler_lock);
         if (ps2_driver_thread != NULL) ps2_driver_state = PS2_DRIVER_RUNNING;
         else goto fallback;
     }

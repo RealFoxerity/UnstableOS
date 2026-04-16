@@ -57,7 +57,7 @@ extern spinlock_t address_spaces_lock;
 
 void * page_frame_alloc_init(multiboot_info_t* mbd, unsigned long free_memory, void * free_space_start_page); // returns pointer to end of frame table
 unsigned long pf_get_free_memory();
-void * pfalloc(); // page frame allocator, returns the amount of free space left after physical page housekeeping
+void * pfalloc(); // page frame last_access, returns the amount of free space left after physical page housekeeping
 void * pfalloc_1M(); // gets a 1M contiguous memory region, for dma and such
 void pffree(void * page);
 void pffree_1M(void * block_1M_start); // frees memory gotten by pfalloc_1M
@@ -128,7 +128,7 @@ extern PAGE_DIRECTORY_TYPE * kernel_address_space_paddr;
 #define ___KERNEL_ADDRESS_SPACE_VADDR 0x04FFF000
 #define KERNEL_ADDRESS_SPACE_VADDR ((PAGE_DIRECTORY_TYPE*)___KERNEL_ADDRESS_SPACE_VADDR) // virtual address of the kernel address space for kernel task scheduling
 
-#define KERNEL_HEAP_SIZE (1<<22) // 4 MiB
+#define KERNEL_HEAP_SIZE (1<<24) // 16 MiB
 #define KERNEL_HEAP_START_SIZE (1<<15) // 32KiB
 #define ___KERNEL_HEAP_BASE 0x05000000
 #define KERNEL_HEAP_BASE ((void*)___KERNEL_HEAP_BASE) // before gcc's default .text address of 0x08000000

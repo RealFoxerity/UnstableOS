@@ -49,18 +49,24 @@ enum pstatus_t {
     SCHED_WAITING, // process called wait()
 
     SCHED_THREAD_CLEANUP, // thread called thread_exit()
+    SCHED_V86_THREAD_CLEANUP
 } typedef pstatus_t;
 
 #define FD_LIMIT_PROCESS OPEN_MAX
 
 struct sem_t;
-
+#include "v8086.h"
 #define sa_to_be_handled sa_info_to_be_handled.si_signo
 struct thread_t {
     size_t instances; // so that queues don't do UAF when a thread terminates
     size_t tid;
     PAGE_DIRECTORY_TYPE * cr3_state; // if a kernel routine switched address spaces and was then preempted
-    mcontext_t context;
+
+    union {
+        mcontext_t context;
+        v86_mcontext_t v86_context;
+    };
+
     pstatus_t status;
 
     void * kernel_stack;

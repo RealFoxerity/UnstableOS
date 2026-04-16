@@ -26,9 +26,11 @@ void page_fault_send_sigsegv(long was_not_mapped, mcontext_t * ctx) {
     kprintf("returning to %p\n", ctx->iret_frame.ip);
 }
 
+extern __attribute__((naked)) void fix_segments();
 __attribute__((naked, no_caller_saved_registers)) void interr_page_fault(struct interr_frame * interrupt_frame, unsigned long error) {
     asm volatile (
         "cld;"
+        "call fix_segments;"
         "cli;"
         "pushl %esp;" // the interr_frame argument
         "addl $0x4, (%esp);"
@@ -118,7 +120,8 @@ __attribute__((no_caller_saved_registers)) int page_fault_handler(unsigned long 
     } else if (error.W) { // fork() CoW
         if (fork_cow_page(fault_address)) return 1;
     }
-
+    extern spinlock_t vga_spinlock;
+    vga_spinlock.state = SPINLOCK_UNLOCKED;
     kprintf("\n\e[41m\n#### ISR: Segmentation fault - Invalid memory reference! ####\nTried to reference address %p\n", fault_address);
     print_page_fault_error(error);
     print_interr_frame(iret_frame);
@@ -127,6 +130,7 @@ __attribute__((no_caller_saved_registers)) int page_fault_handler(unsigned long 
     unwind_stack_vaddr(*(void**)__builtin_frame_address(0));
 
     if (!error.U) { // kernel space caused the page fault
+        //kalloc_print_heap_objects();
         panic("Kernel task cannot be recovered from a segmentation fault");
         __builtin_unreachable();
     }

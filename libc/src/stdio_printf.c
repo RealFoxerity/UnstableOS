@@ -39,7 +39,7 @@ size_t fmt_handler_printf(const char * s, va_list * args) { // caller has to cal
     if (precision > PRINTF_MAX_FORMAT_OUT) precision = PRINTF_MAX_FORMAT_OUT;
 
     padding_delta = (unsigned long)s - padding_delta;
-
+    size_t curr_fmt_len;
     switch (*s) {
         case '%':
             fmt_buf[0] = '%';
@@ -50,19 +50,13 @@ size_t fmt_handler_printf(const char * s, va_list * args) { // caller has to cal
             dec:
             if (*s == 'u') itoaud(va_arg(*args, uint32_t), fmt_buf);
             else itoad(va_arg(*args, uint32_t), fmt_buf);
-            size_t curr_fmt_len = strlen(fmt_buf);
+            int_prec:
+            curr_fmt_len = strlen(fmt_buf);
             if (curr_fmt_len < precision) {
                 precision -= curr_fmt_len;
                 memmove(fmt_buf+precision, fmt_buf, curr_fmt_len+1);
                 memset(fmt_buf, '0', precision);
             }
-            break;
-        case 'h':
-            if (!(*(s+1) == 'x' || (*(s+1) == 'h' && *(s+2) == 'x'))) goto inv_spec;
-            if (*(s+1) == 'h') ctoax(va_arg(*args, int), fmt_buf); // int because minimum argument is always int
-            else stoax(va_arg(*args, int), fmt_buf);
-            fmt_buf[*(s+1) == 'h'?2:4] = '\0';
-            padding_delta += ((*(s+1) == 'h')?2:1);
             break;
         case 'p':
             temp_ptr = va_arg(*args, void*);
@@ -99,6 +93,38 @@ size_t fmt_handler_printf(const char * s, va_list * args) { // caller has to cal
                         case 'd':
                         case 'u':
                             goto dec; // TODO: bigger ints?
+                        default: goto inv_spec;
+                    }
+                    break;
+                default: goto inv_spec;
+            }
+            break;
+        case 'h':
+            s++;
+            padding_delta++;
+            switch (*s) {
+                case 'x':
+                    stoax((unsigned short)va_arg(*args, uint32_t), fmt_buf);
+                    fmt_buf[4] = '\0';
+                    break;
+                case 'u':
+                case 'd':
+                    if (*s == 'u') itoaud((unsigned short)va_arg(*args, uint32_t), fmt_buf);
+                    else            itoad((short)va_arg(*args, uint32_t), fmt_buf);
+                    goto int_prec;
+                case 'h':
+                    s++;
+                    padding_delta++;
+                    switch (*s) {
+                        case 'x':
+                            ctoax((unsigned char)va_arg(*args, uint32_t), fmt_buf);
+                            fmt_buf[2] = '\0';
+                            break;
+                        case 'u':
+                        case 'd':
+                            if (*s == 'u') itoaud((unsigned char)va_arg(*args, uint32_t), fmt_buf);
+                            else            itoad((char)va_arg(*args, uint32_t), fmt_buf);
+                            goto int_prec;
                         default: goto inv_spec;
                     }
                     break;
