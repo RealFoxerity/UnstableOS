@@ -18,10 +18,8 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
     kassert(current_process);
     kassert(current_process->pid != 0 && current_process->ring != 0); // technically we could replace the kernel, but i'd rather not
 
-    spinlock_acquire(&scheduler_lock);
     char * stack_state = NULL;
     ssize_t stack_state_sz = exec_safe_argv_dup(argv, envp, PROGRAM_STACK_VADDR, &stack_state);
-    spinlock_release(&scheduler_lock);
     if (stack_state_sz < 0) return stack_state_sz;
 
     int elf_fd = sys_open(path, O_RDONLY, 0);

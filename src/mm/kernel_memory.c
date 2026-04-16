@@ -279,7 +279,12 @@ char paging_check_address_range(const void * addr, size_t n, char writable, char
     return 1;
 }
 
+// amount of tasks requiring wp to be disabled, will be decremented at init to 0
+static unsigned long wp_disable_level = 1;
 void enable_wp() {
+    // still some processes rely on WP being disabled, enabling it would case page faults
+    if (__atomic_sub_fetch(&wp_disable_level, 1, __ATOMIC_SEQ_CST) > 0) return;
+
     asm volatile (
         "mov %cr0, %eax\n\t"
         "or $0x00010000, %eax\n\t" // wp bit (16)
@@ -287,6 +292,7 @@ void enable_wp() {
     );
 }
 void disable_wp() {
+    __atomic_add_fetch(&wp_disable_level, 1, __ATOMIC_SEQ_CST);
     asm volatile (
         "mov %cr0, %eax\n\t"
         "and $0xFFFEFFFF, %eax\n\t"

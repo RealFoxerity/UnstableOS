@@ -83,7 +83,7 @@ int main(int argc, char ** argv) {
             print_buffer(print_buf, 16);
         }
 
-        memcpy(print_buf + print_buf_size, buf + read_bytes - parsed_bytes, print_buf_size + parsed_bytes);
+        memcpy(print_buf + print_buf_size, buf + read_bytes - parsed_bytes, parsed_bytes);
         print_buf_size += parsed_bytes;
     }
 

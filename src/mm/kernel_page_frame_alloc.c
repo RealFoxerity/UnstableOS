@@ -7,6 +7,8 @@
 
 // TODO: implement locking!
 
+spinlock_t pfalloc_lock = {0};
+
 #define kprintf(fmt, ...) kprintf("PF: "fmt, ##__VA_ARGS__)
 
 #define PFALLOC_UNUSED 0
@@ -128,10 +130,12 @@ void * pfalloc_ref_inc(void * page) {
 }
 
 void * pfalloc() {
+    spinlock_acquire(&pfalloc_lock);
     if (page_frame_table_entries > RESERVED_PAGE_FRAMES_END) {
         for (int i = RESERVED_PAGE_FRAMES_END; i < page_frame_table_entries; i++) {
             if (page_frame_table[i] == PFALLOC_UNUSED) {
                 page_frame_table[i] = 1;
+                spinlock_release(&pfalloc_lock);
                 return page_frame_table_start_addr + i*PAGE_SIZE_NO_PAE;
             }
         }
@@ -139,14 +143,17 @@ void * pfalloc() {
     for (int i = page_frame_table_entries - 1; i >= 0; i--) {
         if (page_frame_table[i] == PFALLOC_UNUSED) {
             page_frame_table[i] = 1;
+            spinlock_release(&pfalloc_lock);
             return page_frame_table_start_addr + i*PAGE_SIZE_NO_PAE;
         }
     }
+    spinlock_release(&pfalloc_lock);
     return NULL;
 }
 
 #define PAGE_COUNT_1M 256 // 256*4096 = 1M
 void * pfalloc_1M() {
+    spinlock_acquire(&pfalloc_lock);
     for (int i = 0; i < page_frame_table_entries; i++) {
         next_iter:
         if (page_frame_table[i] == PFALLOC_UNUSED) {
@@ -162,9 +169,11 @@ void * pfalloc_1M() {
             for (int j = 0; j < PAGE_COUNT_1M; j++) {
                 page_frame_table[i+j] = 1;
             }
+            spinlock_release(&pfalloc_lock);
             return page_frame_table_start_addr + i*PAGE_SIZE_NO_PAE;
         }
     }
+    spinlock_release(&pfalloc_lock);
     return NULL;
 }
 

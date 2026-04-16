@@ -837,6 +837,9 @@ static __attribute__((noreturn)) void ps2_driver_loop() {
             else
                 ps2_keyboard_driver_internal(pending_device);
 
+            // tty spinlocks are interruptible, so they will enable interrupts
+            // if we don't do cli, we could deadlock between pic_unmask and spinlock_release
+            asm volatile ("cli;");
             pic_send_eoi(PIC_INTERR_KEYBOARD);
             pic_send_eoi(PIC_INTERR_PS2_MOUSE);
             pic_unmask_irq(PIC_INTERR_KEYBOARD);

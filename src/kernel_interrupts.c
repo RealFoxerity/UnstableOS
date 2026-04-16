@@ -108,7 +108,7 @@ void print_interr_frame(struct interr_frame * interr_frame) {
 }
 
 void divide_error_handler(mcontext_t * ctx) {
-    kprintf("\n\n\e[41m#### ISR: FPE caught! ####\e[0m\n\n");
+    kprintf("\n\n\e[0m\e[41m#### ISR: FPE caught! ####\e[0m\n\n");
     unwind_stack_vaddr(*(void**)__builtin_frame_address(0));
 
     memcpy(&current_thread->context, ctx, sizeof(mcontext_t) - (ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *));
@@ -156,7 +156,7 @@ __attribute__((naked, no_caller_saved_registers)) static void interr_divide_erro
 
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_debug_trap(struct interr_frame * interrupt_frame) {
     fix_segments();
-    kprintf("\n\n\e[41m#### ISR: DEBUG caught! ####\e[0m\n\n");
+    kprintf("\n\n\e[0m\e[41m#### ISR: DEBUG caught! ####\e[0m\n\n");
     unwind_stack_vaddr(*(void**)__builtin_frame_address(0));
     //panic("Debug");
 }
@@ -182,23 +182,23 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_nmi(str
         __builtin_unreachable();
     }
 
-    kprintf("\n\n\e[41m#### ISR: NMI caught! ####\e[0m\n\n");
+    kprintf("\n\n\e[0m\e[41m#### ISR: NMI caught! ####\e[0m\n\n");
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_breakpoint(struct interr_frame * interrupt_frame) {
     fix_segments();
-    kprintf("\n\n\e[41m#### ISR: Breakpoint caught! ####\e[0m\n\n");
+    kprintf("\n\n\e[0m\e[41m#### ISR: Breakpoint caught! ####\e[0m\n\n");
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_overflow(struct interr_frame * interrupt_frame) {
     fix_segments();
-    kprintf("\n\n\e[41m#### ISR: Integer overflow (INTO) caught! ####\e[0m\n\n");
+    kprintf("\n\n\e[0m\e[41m#### ISR: Integer overflow (INTO) caught! ####\e[0m\n\n");
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_bound_range_ex(struct interr_frame * interrupt_frame) {
     fix_segments();
-    kprintf("\n\n\e[41m#### ISR: Bound index outside of range! ####\e[0m\n\n");
+    kprintf("\n\n\e[0m\e[41m#### ISR: Bound index outside of range! ####\e[0m\n\n");
 }
 
 void invalid_opcode_handler(mcontext_t * ctx) {
-    kprintf("\n\e[41m\n#### ISR: Tried to execute invalid opcode at %p! ####", ctx->iret_frame.ip);
+    kprintf("\n\e[0m\e[41m\n#### ISR: Tried to execute invalid opcode at %p! ####", ctx->iret_frame.ip);
     print_interr_frame(&ctx->iret_frame);
 
     scheduler_print_process(current_process);
@@ -233,13 +233,13 @@ __attribute__((naked, no_caller_saved_registers)) static void interr_invalid_opc
 
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_dev_not_avail(struct interr_frame * interrupt_frame) {
     fix_segments();
-    kprintf("\n\n\e[41m#### ISR: FPU Coprocessor not present or not ready! ####\e[0m\n\n");
+    kprintf("\n\n\e[0m\e[41m#### ISR: FPU Coprocessor not present or not ready! ####\e[0m\n\n");
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_double_fault_abort(struct interr_frame * interrupt_frame, unsigned long error) {
     fix_segments();
     clear_screen_fatal();
 
-    kprintf("\e[41m#### ISR: CRITICAL - CAUGHT A DOUBLE FAULT! ####\e[0m\n");
+    kprintf("\e[0m\e[41m#### ISR: CRITICAL - CAUGHT A DOUBLE FAULT! ####\e[0m\n");
     print_interr_frame(interrupt_frame);
     scheduler_print_process(current_process);
     unwind_stack_vaddr(*(void**)__builtin_frame_address(0));
@@ -264,11 +264,11 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_double_
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_coprocessor_segment_overrun(struct interr_frame * interrupt_frame) {
     fix_segments();
-    kprintf("\n\n\e[41m#### ISR: FPU coprocessor memory segment overran! ####\e[0m\n\n");
+    kprintf("\n\n\e[0m\e[41m#### ISR: FPU coprocessor memory segment overran! ####\e[0m\n\n");
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_invalid_tss(struct interr_frame * interrupt_frame, unsigned long error) {
     fix_segments();
-    kprintf("\n\n\e[41m#### ISR: TASK SWITCH ENCOUTERED INVALID TSS ENTRY! ####\n");
+    kprintf("\n\n\e[0m\e[41m#### ISR: TASK SWITCH ENCOUTERED INVALID TSS ENTRY! ####\n");
     print_segment_selector_error(error);
     print_interr_frame(interrupt_frame);
     unwind_stack_vaddr(*(void**)__builtin_frame_address(0));
@@ -277,7 +277,7 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_invalid
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_segment_not_present(struct interr_frame * interrupt_frame, unsigned long error) {
     fix_segments();
-    kprintf("\n\n\e[41m#### ISR: REFERENCED MEMORY SEGMENT IS NOT PRESENT! ####\n");
+    kprintf("\n\n\e[0m\e[41m#### ISR: REFERENCED MEMORY SEGMENT IS NOT PRESENT! ####\n");
     print_segment_selector_error(error);
     print_interr_frame(interrupt_frame);
     unwind_stack_vaddr(*(void**)__builtin_frame_address(0));
@@ -286,7 +286,7 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_segment
 }
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_stack_segment_fault(struct interr_frame * interrupt_frame, unsigned long error) {
     fix_segments();
-    kprintf("\n\n\e[41m#### ISR: REFERENCE STACK ADDRESS OUTSIDE STACK SEGMENT! ####\n");
+    kprintf("\n\n\e[0m\e[41m#### ISR: REFERENCE STACK ADDRESS OUTSIDE STACK SEGMENT! ####\n");
     print_segment_selector_error(error);
     print_interr_frame(interrupt_frame);
     unwind_stack_vaddr(*(void**)__builtin_frame_address(0));
@@ -298,7 +298,7 @@ extern struct idt_gate * idt_descriptor_entries;
 __attribute__((no_caller_saved_registers)) void gp_print_info(struct interr_frame * interrupt_frame, unsigned long error) {
     if (!(interrupt_frame->cs & 3))
         clear_screen_fatal();
-    kprintf("\n\e[41m\n#### ISR: Segmentation fault - Protection violation! ####\n");
+    kprintf("\n\e[0m\e[41m\n#### ISR: Segmentation fault - Protection violation! ####\n");
     kprintf("SEL ERR:\t");
     print_segment_selector_error(error);
     print_interr_frame(interrupt_frame);
@@ -361,12 +361,12 @@ __attribute__((naked, no_caller_saved_registers)) static void interr_general_pro
 }
 /*
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_x87_float_error(struct interr_frame * interrupt_frame, unsigned long error) {
-    kprintf("\n\n\e[41m#### ISR: x87 FPE! ####\e[0m\n\n");
+    kprintf("\n\n\e[0m\e[41m#### ISR: x87 FPE! ####\e[0m\n\n");
 }
 */
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_alignment_check(struct interr_frame * interrupt_frame, unsigned long error) {
     fix_segments();
-    kprintf("\n\n\e[41m#### ISR: Caught unaligned memory access! ####\n");
+    kprintf("\n\n\e[0m\e[41m#### ISR: Caught unaligned memory access! ####\n");
     print_segment_selector_error(error);
     print_interr_frame(interrupt_frame);
     unwind_stack_vaddr(*(void**)__builtin_frame_address(0));
@@ -391,12 +391,12 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_machine
 
 __attribute__((interrupt, no_caller_saved_registers)) void general_fault_handler_error(struct interr_frame * interrupt_frame, unsigned long error) { // ul to shut clang
     fix_segments();
-    kprintf("\e[41mPANIC: UNREGISTERED CPU FAULT, ERR CODE %lx\e[0m\n", error);
+    kprintf("\e[0m\e[41mPANIC: UNREGISTERED CPU FAULT, ERR CODE %lx\e[0m\n", error);
 }
 
 __attribute__((interrupt, no_caller_saved_registers)) void general_fault_handler_no_error(struct interr_frame * interrupt_frame) { // ul to shut clang
     fix_segments();
-    kprintf("\e[41mPANIC: UNREGISTERED CPU FAULT, ERR CODE\e[0m\n");
+    kprintf("\e[0m\e[41mPANIC: UNREGISTERED CPU FAULT, ERR CODE\e[0m\n");
 }
 
 
