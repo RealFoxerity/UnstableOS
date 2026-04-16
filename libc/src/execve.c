@@ -1,10 +1,11 @@
-#include "include/string.h"
-#include "include/unistd.h"
-#include "include/stdlib.h"
+#include <string.h>
+#include <unistd.h>
+#include <stdlib.h>
 #include "../../src/include/kernel.h"
-#include "include/stdio.h"
-#include "include/sys/stat.h"
-#include "include/errno.h"
+#include <stdio.h>
+#include <sys/stat.h>
+#include <errno.h>
+#include <assert.h>
 
 extern char ** environ;
 int exec(const char * path) {
