@@ -30,9 +30,9 @@ const char reserved_idt_interr_has_error[RES_INTERR_EXCEPTION_COUNT] = {
 
 extern uint8_t console_x, console_y;
 
-extern spinlock_t vga_spinlock;
+extern spinlock_t gfx_spinlock;
 void clear_screen_fatal() {
-    vga_spinlock.state = SPINLOCK_UNLOCKED;
+    gfx_spinlock.state = SPINLOCK_UNLOCKED;
     vga_clear_screen();
     for (int i = 0; i < display_width; i += console_font_width*4) {
         for (int j = 0; j < display_height; j += console_font_height*4) {

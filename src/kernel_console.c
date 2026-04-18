@@ -56,10 +56,19 @@ struct character_cell * console_buffer = NULL;
 spinlock_t console_buffer_lock = {0};
 
 char cursor_busy = 0;
+char cursor_currently_visible = 0;
 
 void console_cursor_hide() {
-    if (!cursor_busy) {
+    if (!cursor_busy && cursor_currently_visible) {
+        // because we run these from the RTC interrupt, we could be in the VGA draw routine -> deadlock
+        // it would be much better to have a separate thread for blinking
+        // but this since the cursor isn't that important, we can just skip drawing
+        extern spinlock_t gfx_spinlock;
+        if (gfx_spinlock.state == SPINLOCK_LOCKED) return;
+
         cursor_busy = 1;
+        cursor_currently_visible = 0;
+
         if (current_process == NULL || console_buffer == NULL) {
             gfx_blit_char(
                ' ',
@@ -94,8 +103,13 @@ void console_cursor_hide() {
     }
 }
 void console_cursor_show() {
-    if (!cursor_busy) {
+    if (!cursor_busy && !cursor_currently_visible) {
+
+        extern spinlock_t gfx_spinlock;
+        if (gfx_spinlock.state == SPINLOCK_LOCKED) return;
+
         cursor_busy = 1;
+        cursor_currently_visible = 1;
 
         gfx_blit_char(
             CONSOLE_CURSOR_CHAR,
@@ -745,7 +759,10 @@ void console_write(const char * s, size_t len) {
                 }
                 console_buffer[console_y * console_buffer_w + console_x].c = 0;
                 spinlock_release(&console_buffer_lock);
-                gfx_blit_char(' ', console_x, console_y, 0, 0, 1, FONT_MULTIPLIER);
+                gfx_blit_char(' ',
+                    console_x * console_font_width * FONT_MULTIPLIER,
+                    console_y * console_font_height * FONT_MULTIPLIER,
+                    0, 0, 1, FONT_MULTIPLIER);
                 continue;
             }
             while (console_buffer[console_y * console_buffer_w + console_x - 1].c == CHAR_CELL_RELATED) {
@@ -757,7 +774,10 @@ void console_write(const char * s, size_t len) {
                     console_x --;
                 }
                 console_buffer[console_y * console_buffer_w + console_x].c = 0;
-                gfx_blit_char(' ', console_x, console_y, 0, 0, 1, FONT_MULTIPLIER);
+                gfx_blit_char(' ',
+                    console_x * console_font_width * FONT_MULTIPLIER,
+                    console_y * console_font_height * FONT_MULTIPLIER,
+                    0, 0, 1, FONT_MULTIPLIER);
             }
             spinlock_release(&console_buffer_lock);
             ///*if (s[i] == 0x7F)*/ vga_put_char(0, vga_color, vga_x, vga_y); // assuming cursor is in front of text

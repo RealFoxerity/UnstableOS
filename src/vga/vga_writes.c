@@ -27,7 +27,7 @@ unsigned char shadow_framebuffer[SHADOW_FRAMEBUFFER_SIZE];
 
 unsigned int vga_pixel_offset = 0;
 
-spinlock_t vga_spinlock = {0}; // to not race on I/O activity
+extern spinlock_t gfx_spinlock;
 
 static inline void vga_set_plane(int plane) {
     static int last_plane = 0;
@@ -89,27 +89,13 @@ void vga_write_pixel_buffered(unsigned int x, unsigned int y, uint32_t color, ch
 #define VGA_UNCHAINED_GET_PAGE_INDEX(x, y) ((y)*(display_width/4) + (x)/4)
 
 void vga_clear_screen() {
-    spinlock_acquire_interruptible(&vga_spinlock);
+    spinlock_acquire_interruptible(&gfx_spinlock);
     memset(shadow_framebuffer, 0, display_height * display_width);
     // select all planes to speed up clear
     vga_wreg(VGA_SEQ_DATA_REG, 2, 0xF);
     
-    switch (current_vga_mode) {
-        case CHAINED:
-            memset(VGA_PAGE_ADDR + vga_pixel_offset, 0, display_width*display_height);
-            break;
-        case UNCHAINED:
-            // 4 planes
-            memset(VGA_PAGE_ADDR + vga_pixel_offset/4, 0, display_width*display_height/4);
-            break;
-        case MODE12:
-            // 8 pixels per byte
-            memset(VGA_PAGE_ADDR + vga_pixel_offset/8, 0, display_width*display_height/8);
-            break;
-        default:
-            break;
-    }
-    spinlock_release(&vga_spinlock);
+    memset(VGA_PAGE_ADDR, 0, VGA_VRAM_SIZE);
+    spinlock_release(&gfx_spinlock);
 }
 
 void vga_swap_region(unsigned int start_x, unsigned int end_x, unsigned int start_y, unsigned int end_y) {
@@ -132,7 +118,7 @@ void vga_swap_region(unsigned int start_x, unsigned int end_x, unsigned int star
 
     struct mode12_planes planes;
 
-    spinlock_acquire_interruptible(&vga_spinlock);
+    spinlock_acquire_interruptible(&gfx_spinlock);
 
     switch (current_vga_mode) {
         case CHAINED:
@@ -165,7 +151,7 @@ void vga_swap_region(unsigned int start_x, unsigned int end_x, unsigned int star
             }
             break;
     }
-    spinlock_release(&vga_spinlock);
+    spinlock_release(&gfx_spinlock);
 }
 
 void vga_fill_buffered(unsigned int start_x, unsigned int end_x, unsigned start_y, unsigned int end_y, uint32_t color, char use_palette) {
@@ -199,7 +185,7 @@ void vga_hw_shift_pixels(unsigned int pixels) {
     }
 
     #ifndef VGA_NO_HW_SHIFT
-    spinlock_acquire_interruptible(&vga_spinlock);
+    spinlock_acquire_interruptible(&gfx_spinlock);
     vga_pixel_offset += pixels;
 
     switch (current_vga_mode) {
@@ -213,7 +199,7 @@ void vga_hw_shift_pixels(unsigned int pixels) {
             vga_wreg(VGA_CRTC_DATA_REG, 0xC, (vga_pixel_offset)/4 >> 8);
             break;
     }
-    spinlock_release(&vga_spinlock);
+    spinlock_release(&gfx_spinlock);
     #else
     vga_swap_buffers();
     #endif

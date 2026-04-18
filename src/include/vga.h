@@ -3,7 +3,7 @@
 #include <stdint.h>
 
 #define VGA_PAGE_ADDR ((unsigned char*)0xA0000)
-
+#define VGA_VRAM_SIZE (1<<16)
 #define VGA_INPUT_STATUS_1_REGISTER 0x3DA 
 
 #define VGA_CRTC_IDX_REG 0x3D4

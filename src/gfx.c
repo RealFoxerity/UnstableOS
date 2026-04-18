@@ -1,4 +1,5 @@
 #include "gfx.h"
+#include "kernel_spinlock.h"
 #include <stddef.h>
 
 unsigned int console_font_width = 8;
@@ -10,6 +11,8 @@ static const unsigned char * console_font = NULL;
 static unsigned int console_font_chars = 0;
 
 #define COMPONENT_TO_RGB32(r, g, b) (((r) << 24) | ((g) << 16) | ((b) << 8))
+
+spinlock_t gfx_spinlock = {0}; // to not race on I/O activity
 
 // the default xterm colors
 const uint32_t console_colors[16] = {

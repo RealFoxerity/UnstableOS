@@ -68,22 +68,22 @@ void * page_frame_alloc_init(multiboot_info_t* mbd, unsigned long free_memory, v
 //static void refill_pft_cache() { // todo: add next X free pages cache
 //
 //}
-extern spinlock_t vga_spinlock;
+extern spinlock_t gfx_spinlock;
 
 void * pfalloc_dup_page(void * page) {
     if (page < page_frame_table_start_addr) {
-        vga_spinlock.state = SPINLOCK_UNLOCKED;
+        gfx_spinlock.state = SPINLOCK_UNLOCKED;
         kprintf("Warning: Tried to duplicate a frame outside (below) of managed range!\n");
         return NULL;
     }
     if (page > page_frame_table_start_addr + page_frame_table_entries*PAGE_SIZE_NO_PAE) {
-        vga_spinlock.state = SPINLOCK_UNLOCKED;
+        gfx_spinlock.state = SPINLOCK_UNLOCKED;
         kprintf("Warning: Tried to duplicate a frame outside (above) of managed range!\n");
         return NULL;
     }
     int page_index = ((unsigned long)page - (unsigned long)page_frame_table_start_addr)/PAGE_SIZE_NO_PAE;
     if (page_frame_table[page_index] == PFALLOC_UNUSED) {
-        vga_spinlock.state = SPINLOCK_UNLOCKED;
+        gfx_spinlock.state = SPINLOCK_UNLOCKED;
         kprintf("Warning: Tried to duplicate a freed frame!\n");
         return NULL;
     }
@@ -105,18 +105,18 @@ void * pfalloc_dup_page(void * page) {
 
 void * pfalloc_ref_inc(void * page) {
     if (page < page_frame_table_start_addr) {
-        vga_spinlock.state = SPINLOCK_UNLOCKED;
+        gfx_spinlock.state = SPINLOCK_UNLOCKED;
         kprintf("Warning: Tried to increment reference counter for a frame outside (below) of managed range!\n");
         return NULL;
     }
     if (page > page_frame_table_start_addr + page_frame_table_entries*PAGE_SIZE_NO_PAE) {
-        vga_spinlock.state = SPINLOCK_UNLOCKED;
+        gfx_spinlock.state = SPINLOCK_UNLOCKED;
         kprintf("Warning: Tried to increment reference counter for a frame outside (above) of managed range!\n");
         return NULL;
     }
     int page_index = ((unsigned long)page - (unsigned long)page_frame_table_start_addr)/PAGE_SIZE_NO_PAE;
     if (page_frame_table[page_index] == PFALLOC_UNUSED) {
-        vga_spinlock.state = SPINLOCK_UNLOCKED;
+        gfx_spinlock.state = SPINLOCK_UNLOCKED;
         kprintf("Warning: Tried to increment reference counter for a freed frame!\n");
         return NULL;
     }
@@ -179,18 +179,18 @@ void * pfalloc_1M() {
 
 void pffree(void *page) {
     if (page < page_frame_table_start_addr) {
-        vga_spinlock.state = SPINLOCK_UNLOCKED;
+        gfx_spinlock.state = SPINLOCK_UNLOCKED;
         kprintf("Warning: Tried to free page frame outside (below) of managed range paddr %p!\n", page);
         return;
     }
     if (page > page_frame_table_start_addr + page_frame_table_entries*PAGE_SIZE_NO_PAE) {
-        vga_spinlock.state = SPINLOCK_UNLOCKED;
+        gfx_spinlock.state = SPINLOCK_UNLOCKED;
         kprintf("Warning: Tried to free page frame outside (above) of managed range paddr %p!\n", page);
         return;
     }
     int page_index = ((unsigned long)page - (unsigned long)page_frame_table_start_addr)/PAGE_SIZE_NO_PAE;
     if (page_frame_table[page_index] == PFALLOC_UNUSED) {
-        vga_spinlock.state = SPINLOCK_UNLOCKED;
+        gfx_spinlock.state = SPINLOCK_UNLOCKED;
         kprintf("Warning: Tried to double free a paddr %p!\n", page);
         return;
     }
@@ -199,19 +199,19 @@ void pffree(void *page) {
 
 void pffree_1M(void * block_1M_start) {
     if (block_1M_start < page_frame_table_start_addr) {
-        vga_spinlock.state = SPINLOCK_UNLOCKED;
+        gfx_spinlock.state = SPINLOCK_UNLOCKED;
         kprintf("Warning: Tried to free 1M block outside (below) of managed range paddr %p!\n", block_1M_start);
         return;
     }
     if (block_1M_start > page_frame_table_start_addr + page_frame_table_entries*PAGE_SIZE_NO_PAE) {
-        vga_spinlock.state = SPINLOCK_UNLOCKED;
+        gfx_spinlock.state = SPINLOCK_UNLOCKED;
         kprintf("Warning: Tried to free 1M block outside (above) of managed range paddr %p!\n", block_1M_start);
         return;
     }
     int page_index = ((unsigned long)block_1M_start - (unsigned long)page_frame_table_start_addr)/PAGE_SIZE_NO_PAE;
     for (int i = 0; i < PAGE_COUNT_1M; i++) {
         if (page_frame_table[page_index+i] == PFALLOC_UNUSED) {
-            vga_spinlock.state = SPINLOCK_UNLOCKED;
+            gfx_spinlock.state = SPINLOCK_UNLOCKED;
             kprintf("Warning: Tried to double free element %d of 1M block paddr %p\n", page_index+i, block_1M_start);
         }
         __atomic_sub_fetch(&page_frame_table[page_index+i], 1, __ATOMIC_RELAXED);
