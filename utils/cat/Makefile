@@ -10,7 +10,7 @@ CRTEND	:=$(shell $(CC) $(CFLAGS) -print-file-name=crtend.o)
 LDFLAGS	:=
 LIBC	:= ../../libc/build/libc.a
 
-OBJS	:= $(CRT0) $(CRTI) $(CRTBEGIN) src/entry.o $(CRTEND) $(CRTN)
+OBJS	:= $(CRT0) $(CRTI) $(CRTBEGIN) src/cat.o $(CRTEND) $(CRTN)
 
 all: $(OBJS)
 	mkdir -p build
@@ -19,4 +19,4 @@ all: $(OBJS)
 .PHONY: clean
 clean:
 	rm -f build/*
-	rm src/entry.o
+	rm src/cat.o
