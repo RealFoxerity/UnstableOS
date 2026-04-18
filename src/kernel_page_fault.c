@@ -120,8 +120,8 @@ __attribute__((no_caller_saved_registers)) int page_fault_handler(unsigned long 
     } else if (error.W) { // fork() CoW
         if (fork_cow_page(fault_address)) return 1;
     }
-    extern spinlock_t vga_spinlock;
-    vga_spinlock.state = SPINLOCK_UNLOCKED;
+    extern spinlock_t gfx_spinlock;
+    gfx_spinlock.state = SPINLOCK_UNLOCKED;
     kprintf("\n\e[0m\e[41m\n#### ISR: Segmentation fault - Invalid memory reference! ####\nTried to reference address %p\n", fault_address);
     print_page_fault_error(error);
     print_interr_frame(iret_frame);

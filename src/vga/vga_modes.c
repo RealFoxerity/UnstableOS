@@ -4,12 +4,12 @@
 #include "../include/kernel_spinlock.h"
 #include "gfx.h"
 
-extern spinlock_t vga_spinlock;
+extern spinlock_t gfx_spinlock;
 extern unsigned int vga_pixel_offset;
 
 // linear framebuffer, 320x200 (double scanned) 256 colors
 void vga_set_mode_13() {
-    spinlock_acquire(&vga_spinlock);
+    spinlock_acquire(&gfx_spinlock);
 
     // we can't use 320x240 in mode 13, page is not long enough
     vga_pixels_per_address = 4;
@@ -44,12 +44,12 @@ void vga_set_mode_13() {
     vga_reset_sequencer();
     current_vga_mode = CHAINED;
     current_video_funcs = &vga_funcs;
-    spinlock_release(&vga_spinlock);
+    spinlock_release(&gfx_spinlock);
 }
 
 // planar framebuffer, 320x240 (double scanned) 256 colors
 void vga_set_mode_X() {
-    spinlock_acquire(&vga_spinlock);
+    spinlock_acquire(&gfx_spinlock);
 
     // we can use 320x240 since mode X and 12 do planes
     vga_pixels_per_address = 4;
@@ -77,12 +77,12 @@ void vga_set_mode_X() {
     vga_reset_sequencer();
     current_vga_mode = UNCHAINED;
     current_video_funcs = &vga_funcs;
-    spinlock_release(&vga_spinlock);
+    spinlock_release(&gfx_spinlock);
 }
 
 // planar framebuffer, 360x240 (double scanned) 256 colors
 void vga_set_mode_X_wide() {
-    spinlock_acquire(&vga_spinlock);
+    spinlock_acquire(&gfx_spinlock);
 
     vga_pixels_per_address = 4;
     vga_scan_doubling = 1;
@@ -109,12 +109,12 @@ void vga_set_mode_X_wide() {
     vga_reset_sequencer();
     current_vga_mode = UNCHAINED;
     current_video_funcs = &vga_funcs;
-    spinlock_release(&vga_spinlock);
+    spinlock_release(&gfx_spinlock);
 }
 
 // planar framebuffer, 640x480 16 colors
 void vga_set_mode_12() {
-    spinlock_acquire(&vga_spinlock);
+    spinlock_acquire(&gfx_spinlock);
 
     vga_pixels_per_address = 8;
     vga_scan_doubling = 0;
@@ -142,12 +142,12 @@ void vga_set_mode_12() {
     vga_reset_sequencer();
     current_vga_mode = MODE12;
     current_video_funcs = &vga_funcs;
-    spinlock_release(&vga_spinlock);
+    spinlock_release(&gfx_spinlock);
 }
 
 // planar framebuffer, 720x480 16 colors
 void vga_set_mode_12_wide() {
-    spinlock_acquire(&vga_spinlock);
+    spinlock_acquire(&gfx_spinlock);
 
     vga_pixels_per_address = 8;
     vga_scan_doubling = 0;
@@ -175,7 +175,7 @@ void vga_set_mode_12_wide() {
     vga_reset_sequencer();
     current_vga_mode = MODE12;
     current_video_funcs = &vga_funcs;
-    spinlock_release(&vga_spinlock);
+    spinlock_release(&gfx_spinlock);
 }
 
 /* like 90% of VGA cards don't have the required clock :P

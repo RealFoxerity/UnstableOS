@@ -37,8 +37,8 @@
 
 #define KERNEL_PANIC_MSG "\n\e[0m\e[41m\n##############################\nKernel Panic:\n"
 void panic(char * reason) {
-    extern spinlock_t vga_spinlock;
-    vga_spinlock.state = SPINLOCK_UNLOCKED; // in case panic happened during vga writes
+    extern spinlock_t gfx_spinlock;
+    gfx_spinlock.state = SPINLOCK_UNLOCKED; // in case panic happened during vga writes
 
     scheduler_lock.state = SPINLOCK_LOCKED; // for future SMP endeavors
 
@@ -53,17 +53,6 @@ void panic(char * reason) {
     );
     __builtin_unreachable();
 }
-
-
-struct interrupt_gate_descriptor {
-    uint16_t offset;
-    uint16_t segment_selector;
-    uint8_t interrupt_stack_table_offset;
-    uint8_t flags_gt_dpl_p;
-    uint16_t offset2;
-    uint32_t offset3;
-    uint32_t reserved;
-} __attribute__((packed))__;
 
 void kernel_entry_addr_log() {
     kprintf("Kernel loaded at physical address from 0x%p to 0x%p\n", &_kernel_base, &_kernel_top);
@@ -128,8 +117,6 @@ void kernel_print_cpu_info() {
     vendor_id[12] = 0;
 
     kprintf("CPU info:\nRunning %s\nMax CPUID func 0x%lx, ext 0x%lx\n", vendor_id, largest_supported, largest_supported_ext);
-
-// not checking max supported CPUID, because a) if we boot with grub, this becomes 0 for some reason, and b) what we are testing is below the minimal supported anyway
 
     unsigned long cpu_signature, cpu_feature_flags_1, cpu_feature_flags_2, cpu_additional_features;
     asm volatile (
@@ -331,11 +318,11 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
 
     dev_initialize_static_devices();
 
-    kernel_print_cpu_info();
-
     // assuming that by some miracle the gpu doesn't support vga emulation,
     // no text will be visible up until this point
     vbe_gather_info();
+
+    kernel_print_cpu_info();
 
     if (initrd_start + initrd_len > (void*)IDENT_MAPPING_MAX_ADDR)
         panic("initrd too large");
