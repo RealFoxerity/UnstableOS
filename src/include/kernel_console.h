@@ -5,5 +5,6 @@
 #include <stdint.h>
 
 void console_write(const char * s, size_t len);
+void console_blink_cursor();
 
 #endif
