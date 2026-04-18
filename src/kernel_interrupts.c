@@ -9,6 +9,7 @@
 #include "include/vga.h"
 #include "../libc/src/include/errno.h"
 #include "../libc/src/include/string.h"
+#include "kernel_console.h" // for the console cursor blinking
 #include <stdint.h>
 
 // TODO: rewrite everything to a single dispatcher that correctly fixes all segments
@@ -625,6 +626,8 @@ __attribute__((interrupt, no_caller_saved_registers)) void interr_cmos_rtc(struc
         }
         uptime_clicks ++;
         sleep_sched_tick();
+
+        console_blink_cursor();
     }
     if (called_ints & RTC_INT_ALARM) {
         kprintf("Recieved RTC alarm interrupt\n");

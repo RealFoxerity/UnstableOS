@@ -10,18 +10,8 @@
 #include "../libc/src/include/ctype.h"
 #include "include/kernel_console.h"
 
-// TODO: you can use backspace on chars that aren't there :P
+#include "stdlib.h"
 
-int console_x = 0; // signed to make bounds checking easier
-int console_y = 0;
-
-int console_saved_x = 0;
-int console_saved_y = 0;
-
-char console_cursor_shown = 0;
-char console_cursor_blinking = 0;
-
-unsigned char console_tab_width = 8;
 
 enum console_colors_palette console_color_fg         = CONSOLE_COLOR_WHITE;
 enum console_colors_palette console_color_bg         = CONSOLE_COLOR_BLACK;
@@ -30,12 +20,261 @@ enum console_colors_palette console_default_color_bg = CONSOLE_COLOR_BLACK;
 
 char console_reversed_colors = 0;
 
+// if this, then delete chars until (and including) encountering normal character
+#define CHAR_CELL_RELATED (-1)
+struct character_cell {
+    char c;
+    enum console_colors_palette fg;
+    enum console_colors_palette bg;
+};
+
+int console_x = 0; // signed to make bounds checking easier
+int console_y = 0;
+
+int console_saved_x = 0;
+int console_saved_y = 0;
+
+#define CONSOLE_CURSOR_CHAR ' '
+#define CONSOLE_CURSOR_BG CONSOLE_COLOR_WHITE
+#define CONSOLE_CURSOR_FG CONSOLE_COLOR_BLACK
+
+char console_cursor_shown = 1;
+char console_cursor_blinking = 1;
+
+int console_cursor_x = 0;
+int console_cursor_y = 0;
+
+unsigned char console_tab_width = 8;
+
 #define MAX_ANSI_SEQUENCE 16
 
 #define FONT_MULTIPLIER 1
 
-void console_move_cursor(uint8_t x, uint8_t y) {
+int console_buffer_w = 0;
+int console_buffer_h = 0;
+struct character_cell * console_buffer = NULL;
+spinlock_t console_buffer_lock = {0};
 
+char cursor_busy = 0;
+
+void console_cursor_hide() {
+    if (!cursor_busy) {
+        cursor_busy = 1;
+        if (current_process == NULL || console_buffer == NULL) {
+            gfx_blit_char(
+               ' ',
+               console_cursor_x * console_font_width * FONT_MULTIPLIER,
+               console_cursor_y * console_font_height * FONT_MULTIPLIER,
+               console_default_color_fg, console_default_color_bg,
+               1, FONT_MULTIPLIER);
+            return;
+        }
+
+
+        spinlock_acquire(&console_buffer_lock);
+
+        if (console_cursor_y >= console_buffer_h ||
+            console_cursor_x >= console_buffer_w ||
+            console_cursor_y < 0 ||
+            console_cursor_x < 0
+        ) {
+            spinlock_release(&console_buffer_lock);
+            return;
+        }
+
+        struct character_cell restored = console_buffer[console_cursor_y * console_buffer_w + console_cursor_x];
+        gfx_blit_char(
+           restored.c,
+           console_cursor_x * console_font_width * FONT_MULTIPLIER,
+           console_cursor_y * console_font_height * FONT_MULTIPLIER,
+           restored.fg, restored.bg,
+           1, FONT_MULTIPLIER);
+        spinlock_release(&console_buffer_lock);
+        cursor_busy = 0;
+    }
+}
+void console_cursor_show() {
+    if (!cursor_busy) {
+        cursor_busy = 1;
+
+        gfx_blit_char(
+            CONSOLE_CURSOR_CHAR,
+            console_cursor_x * console_font_width * FONT_MULTIPLIER,
+            console_cursor_y * console_font_height * FONT_MULTIPLIER,
+            CONSOLE_CURSOR_FG, CONSOLE_CURSOR_BG,
+            1, FONT_MULTIPLIER);
+        cursor_busy = 0;
+    }
+}
+
+// called from the RTC handler
+#define CONSOLE_CURSOR_REFRESH_TICKS 256
+void console_blink_cursor() {
+    if (uptime_clicks % CONSOLE_CURSOR_REFRESH_TICKS) return;
+    if (!console_cursor_shown) {
+        console_cursor_hide();
+        return;
+    }
+
+    static char status = 0;
+
+    if (console_cursor_blinking) {
+        status = !status;
+        if (status) console_cursor_hide();
+        else console_cursor_show();
+    } else {
+        console_cursor_show();
+    }
+}
+
+void console_move_cursor(int x, int y) {
+    console_cursor_hide();
+    cursor_busy = 1;
+
+    console_cursor_y = y;
+    console_cursor_x = x;
+
+    cursor_busy = 0;
+}
+void console_redraw_range(int startx, int endx, int starty, int endy) {
+    spinlock_acquire(&console_buffer_lock);
+
+    if (startx >= console_buffer_w ||
+        starty >= console_buffer_h) {
+        spinlock_release(&console_buffer_lock);
+        return;
+    }
+
+    if (endx >= console_buffer_w) endx = console_buffer_w - 1;
+    if (endy >= console_buffer_h) endy = console_buffer_h - 1;
+
+    for (unsigned int y = starty; y <= endy; y++) {
+        for (unsigned int x = startx; x <= endx; x++) {
+            //if (!isprint(console_buffer[y * console_buffer_w + x].c)) continue;
+
+            gfx_blit_char(
+                console_buffer[y * console_buffer_w + x].c,
+                x * console_font_width * FONT_MULTIPLIER, y * console_font_height * FONT_MULTIPLIER,
+                console_buffer[y * console_buffer_w + x].fg,
+                console_buffer[y * console_buffer_w + x].bg,
+                1,
+                FONT_MULTIPLIER
+            );
+        }
+    }
+
+    spinlock_release(&console_buffer_lock);
+}
+
+static void console_set_char(int x, int y, char c) {
+    if (x >= display_width_chars / FONT_MULTIPLIER) return;
+    if (y >= display_height_chars/ FONT_MULTIPLIER) return;
+
+    static char panicked_here = 0;
+    char redraw = 0;
+
+    if (isprint(c)) {
+        gfx_blit_char(c, console_x*console_font_width*FONT_MULTIPLIER,
+                console_y*console_font_height*FONT_MULTIPLIER,
+        console_color_fg, console_color_bg, 1, FONT_MULTIPLIER);
+    }
+
+    if (current_process == NULL || panicked_here) return; // scheduler not initialized -> early boot -> no heap
+
+    spinlock_acquire_interruptible(&console_buffer_lock);
+
+    if (console_buffer == NULL) { // early boot
+        console_buffer =
+            kalloc(sizeof(struct character_cell) *
+                display_width_chars * display_height_chars /
+                FONT_MULTIPLIER / FONT_MULTIPLIER);
+        if (console_buffer == NULL) {
+            panicked_here = 1; // so we don't deadlock on panic with spinlock_acquire
+            panic("Failed to allocate console canvas!\n");
+        }
+        memset(console_buffer, 0, sizeof(struct character_cell) *
+                display_width_chars * display_height_chars /
+                FONT_MULTIPLIER / FONT_MULTIPLIER);
+
+        console_buffer_w = display_width_chars / FONT_MULTIPLIER;
+        console_buffer_h = display_height_chars / FONT_MULTIPLIER;
+
+    } else if (console_buffer_w != display_width_chars / FONT_MULTIPLIER || // resolution changed
+        console_buffer_h != display_height_chars / FONT_MULTIPLIER
+    ) {
+        struct character_cell * console_buffer_2 =
+            kalloc(sizeof(struct character_cell) *
+                display_width_chars * display_height_chars /
+                FONT_MULTIPLIER / FONT_MULTIPLIER);
+        if (console_buffer_2 == NULL) {
+            panicked_here = 1; // so we don't deadlock on panic with spinlock_acquire
+            panic("Failed to allocate console canvas!\n");
+        }
+
+        memset(console_buffer_2, 0, sizeof(struct character_cell) *
+                display_width_chars * display_height_chars /
+                FONT_MULTIPLIER / FONT_MULTIPLIER);
+
+        int end_y = console_buffer_h - display_height_chars / FONT_MULTIPLIER;
+        if (end_y < 0) end_y = 0;
+
+        int new_line_length = console_buffer_w;
+        if (new_line_length > display_width_chars / FONT_MULTIPLIER)
+            new_line_length = display_width_chars / FONT_MULTIPLIER;
+
+        for (
+            int cy = console_buffer_h - 1;
+                cy >= end_y;
+                cy--
+        ) {
+            memcpy(console_buffer_2 + cy * display_width_chars / FONT_MULTIPLIER,
+                   console_buffer + cy * console_buffer_w,
+                   new_line_length * sizeof(struct character_cell)
+            );
+        }
+
+
+        kfree(console_buffer);
+        console_buffer = console_buffer_2;
+        console_buffer_w = display_width_chars / FONT_MULTIPLIER;
+        console_buffer_h = display_height_chars / FONT_MULTIPLIER;
+        redraw = 1;
+    }
+
+    if (x >= console_buffer_w || y >= console_buffer_h) {
+        spinlock_release(&console_buffer_lock);
+        return;
+    }
+
+    console_buffer[y * console_buffer_w + x] = (struct character_cell) {
+        .c = c,
+        .fg = console_color_fg,
+        .bg = console_color_bg
+    };
+
+    spinlock_release(&console_buffer_lock);
+
+    if (redraw)
+        console_redraw_range(0, console_buffer_w - 1, 0, console_buffer_h - 1);
+}
+
+static void console_scroll(int lines) {
+    console_cursor_hide();
+    cursor_busy = 1;
+    gfx_hw_scroll_scanlines(console_font_height*FONT_MULTIPLIER);
+    if (current_process == NULL || console_buffer == NULL) return; // scheduler not initialized -> early boot -> no heap
+
+    spinlock_acquire(&console_buffer_lock);
+    memcpy(console_buffer,
+        console_buffer + lines * console_buffer_w,
+        (console_buffer_h - lines) * console_buffer_w * sizeof(struct character_cell)
+    );
+    memset(console_buffer + (console_buffer_h - lines) * console_buffer_w,
+        0,
+        lines * console_buffer_w * sizeof(struct character_cell)
+    );
+    spinlock_release(&console_buffer_lock);
+    cursor_busy = 0;
 }
 
 static void handle_ansi_escapes(const char * ansi_sequence) {
@@ -57,13 +296,45 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
             return;
         case 'J':
             erase_cursor_screen_end:
+
+            if (current_process && console_buffer != NULL) {
+                spinlock_acquire(&console_buffer_lock);
+                if (console_y >= console_buffer_h) console_y = console_buffer_h - 1;
+                if (console_x >= console_buffer_w) console_x = console_buffer_w - 1;
+
+                if (console_y < 0) console_y = 0;
+                if (console_x < 0) console_x = 0;
+
+                memset(console_buffer + console_y * console_buffer_w + console_x,
+                    0,
+                    (console_buffer_w - console_x) * sizeof(struct character_cell) +
+                    (console_buffer_h - console_y - 1) * console_buffer_w * sizeof(struct character_cell)
+                );
+                spinlock_release(&console_buffer_lock);
+            }
+
             current_video_funcs->fill_buffered(0, display_width - 1,
-                (console_y+1)*console_font_width*FONT_MULTIPLIER, display_height,
+                (console_y+1)*console_font_width*FONT_MULTIPLIER, display_height - 1,
                 console_color_bg, 1);
             current_video_funcs->swap_region(0, display_width - 1,
-                (console_y+1)*console_font_width*FONT_MULTIPLIER, display_height);
+                (console_y+1)*console_font_width*FONT_MULTIPLIER, display_height - 1);
         case 'K':
             erase_cursor_line_end:
+            if (current_process && console_buffer != NULL) {
+                spinlock_acquire(&console_buffer_lock);
+                if (console_y >= console_buffer_h) console_y = console_buffer_h - 1;
+                if (console_x >= console_buffer_w) console_x = console_buffer_w - 1;
+
+                if (console_y < 0) console_y = 0;
+                if (console_x < 0) console_x = 0;
+
+                memset(console_buffer + console_y * console_buffer_w + console_x,
+                    0,
+                    (console_buffer_w - console_x) * sizeof(struct character_cell)
+                );
+                spinlock_release(&console_buffer_lock);
+            }
+
             current_video_funcs->fill_buffered(console_x*console_font_width*FONT_MULTIPLIER, display_width - 1,
                     console_y*console_font_height*FONT_MULTIPLIER, (console_y+1)*console_font_height*FONT_MULTIPLIER - 1,
                     console_color_bg, 1);
@@ -73,12 +344,8 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
         case 's':
             console_saved_x = console_x;
             console_saved_y = console_y;
-            return;;
+            return;
         case 'u':
-            if (console_saved_x >= display_width_chars/FONT_MULTIPLIER)
-                console_saved_x = display_width_chars/FONT_MULTIPLIER - 1;
-            if (console_saved_y >= display_height_chars/FONT_MULTIPLIER)
-                console_saved_y = display_height_chars/FONT_MULTIPLIER;
             console_x = console_saved_x % (display_width_chars/FONT_MULTIPLIER);
             console_y = console_saved_y % (display_height_chars/FONT_MULTIPLIER);
             return;
@@ -86,20 +353,16 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
             console_x = console_y = 0;
             return;
         case 'A':
-            console_y --;
-            if (console_y < 0) console_y = 0;
+            if (console_y > 0) console_y --;
             return;
         case 'B':
-            console_y ++;
-            if (console_y > display_height_chars/FONT_MULTIPLIER) console_y = display_height_chars/FONT_MULTIPLIER - 1;
+            if (console_y < display_height_chars/FONT_MULTIPLIER - 1) console_y ++;
             return;
         case 'C':
-            console_x ++;
-            if (console_x > display_width_chars/FONT_MULTIPLIER) console_x = display_width_chars/FONT_MULTIPLIER - 1;
+            if (console_x < display_width_chars/FONT_MULTIPLIER - 1) console_x ++;
             return;
         case 'D':
-            console_x --;
-            if (console_x < 0) console_x = 0;
+            if (console_x > 0) console_x --;
             return;
     }
 
@@ -118,6 +381,16 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
                     default:
                         return;
                 }
+            case 25:
+                switch (csi) {
+                case 'h':
+                        console_cursor_shown = 1;
+                        return;
+                case 'l':
+                        console_cursor_shown = 0;
+                default:
+                        return;
+                }
         }
         return;
     }
@@ -128,12 +401,75 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
     switch (csi) {
         // scroll up
         case 'S':
-            kprintf("scroll up\n");
+            // cannot hw scroll because we'd uncover previous data
+            // we could then zerofill but at that point might as well just copy
+            if (current_process && console_buffer != NULL) {
+                spinlock_acquire(&console_buffer_lock);
+                if (id > console_buffer_h) id = console_buffer_h;
+
+                memcpy(console_buffer,
+                    console_buffer + id * console_buffer_w,
+                        (console_buffer_h - id) * console_buffer_w * sizeof(struct character_cell)
+                    );
+                memset(console_buffer + (console_buffer_h - id) * console_buffer_w,
+                    0,
+                    id * console_buffer_w * sizeof(struct character_cell)
+                );
+                spinlock_release(&console_buffer_lock);
+            }
             current_video_funcs->copy_region_unbuffered(0, id*console_font_height*FONT_MULTIPLIER, display_width, display_height, 0, 0);
+            current_video_funcs->fill_buffered(
+                0, display_width - 1,
+                (console_buffer_h-id)*console_font_height*FONT_MULTIPLIER, id*console_font_height*FONT_MULTIPLIER - 1,
+                0, 0
+            );
+            current_video_funcs->swap_region(
+                0, display_width - 1,
+                (console_buffer_h-id)*console_font_height*FONT_MULTIPLIER, id*console_font_height*FONT_MULTIPLIER - 1
+            );
             return;
         // scroll down
         case 'T':
+            if (current_process && console_buffer != NULL) {
+                spinlock_acquire(&console_buffer_lock);
+                if (id > console_buffer_h) id = console_buffer_h;
+
+                if (console_y >= console_buffer_h) console_y = console_buffer_h - 1;
+
+                memmove(console_buffer + id * console_buffer_w,
+                    console_buffer,
+                        (console_buffer_h - id) * console_buffer_w * sizeof(struct character_cell)
+                    );
+                memset(console_buffer,
+                    0,
+                    id * console_buffer_w * sizeof(struct character_cell)
+                );
+
+                if (console_y < console_buffer_h) {
+                    memset(console_buffer + (console_y + 1) * console_buffer_w,
+                        0,
+                        (console_buffer_h - console_y - 1) * console_buffer_w * sizeof(struct character_cell)
+                    );
+                }
+                spinlock_release(&console_buffer_lock);
+            }
+
             current_video_funcs->copy_region_unbuffered(0, 0, display_width, display_height, 0, id*console_font_height*FONT_MULTIPLIER);
+            current_video_funcs->fill_buffered(
+                0, display_width - 1,
+                0, id*console_font_height*FONT_MULTIPLIER - 1,
+                0, 0
+            );
+            current_video_funcs->fill_buffered(
+                0, display_width - 1,
+                (console_y + 1)*console_font_height*FONT_MULTIPLIER, display_height - 1,
+                0, 0
+            );
+
+            current_video_funcs->swap_region(0, display_width - 1,
+                0, id*console_font_height*FONT_MULTIPLIER - 1);
+            current_video_funcs->swap_region(0, display_width - 1,
+                (console_y + 1)*console_font_width*FONT_MULTIPLIER, display_height - 1);
             return;
         // graphics rendition modes
         case 'm':
@@ -179,23 +515,44 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
                 case 0: goto erase_cursor_screen_end;
                 case 1:
                     // erase from beginning to cursor, TODO: maybe use vga_fill?
-                    for (int y = 0; y <= console_y * console_font_height*FONT_MULTIPLIER; y++) {
-                        for (int x = 0;
-                            x <= (
-                                    (y == console_y*console_font_height*FONT_MULTIPLIER) ?
-                                    console_x*console_font_width*FONT_MULTIPLIER :
-                                    display_width - 1
-                            ); x++) {
-                            current_video_funcs->write_pixel_buffered(x, y, console_color_bg, 1);
-                        }
+                    if (current_process && console_buffer != NULL) {
+                        spinlock_acquire(&console_buffer_lock);
+                        if (console_y >= console_buffer_h) console_y = console_buffer_h - 1;
+                        if (console_x >= console_buffer_w) console_x = console_buffer_w - 1;
+
+                        if (console_y < 0) console_y = 0;
+                        if (console_x < 0) console_x = 0;
+
+                        memset(console_buffer,
+                            0,
+                            console_y * console_buffer_w * sizeof(struct character_cell) +
+                            console_x * sizeof(struct character_cell)
+                        );
+                        spinlock_release(&console_buffer_lock);
                     }
-                    gfx_swap_buffers();
+                    current_video_funcs->fill_buffered(
+                        0, display_width - 1,
+                        0, (console_y - 1) * console_font_height * FONT_MULTIPLIER - 1,
+                        0, 0);
+                    current_video_funcs->fill_buffered(
+                        0, console_x * console_font_width * FONT_MULTIPLIER - 1,
+                        console_y * console_font_height * FONT_MULTIPLIER, (console_y + 1) * console_font_height * FONT_MULTIPLIER - 1,
+                        0, 0);
+
+                    current_video_funcs->swap_region(
+                        0, display_width - 1,
+                        0, (console_y + 1) * console_font_height * FONT_MULTIPLIER - 1);
                     return;
                 case 3:
                     // erase scrollback (in our case do nothing)
                     break;
                 case 2:
                     // entire screen
+                    if (current_process && console_buffer != NULL) {
+                        spinlock_acquire(&console_buffer_lock);
+                        memset(console_buffer, 0, console_buffer_w * console_buffer_h * sizeof(struct character_cell));
+                        spinlock_release(&console_buffer_lock);
+                    }
                     current_video_funcs->fill_buffered(0, display_width - 1,
                         0, display_height - 1,
                         console_color_bg, 1);
@@ -209,6 +566,20 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
                 case 0: goto erase_cursor_line_end;
                 case 1:
                     // erase from cursor to beginning of line
+                    if (current_process && console_buffer != NULL) {
+                        spinlock_acquire(&console_buffer_lock);
+                        if (console_y >= console_buffer_h) console_y = console_buffer_h - 1;
+                        if (console_x >= console_buffer_w) console_x = console_buffer_w - 1;
+
+                        if (console_y < 0) console_y = 0;
+                        if (console_x < 0) console_x = 0;
+
+                        memset(console_buffer + console_y * console_buffer_w,
+                            0,
+                            console_x * sizeof(struct character_cell)
+                        );
+                        spinlock_release(&console_buffer_lock);
+                    }
                     current_video_funcs->fill_buffered(0, console_x * console_font_width * FONT_MULTIPLIER,
                         console_y*console_font_height*FONT_MULTIPLIER, (console_y+1)*console_font_height*FONT_MULTIPLIER - 1,
                         console_color_bg, 1);
@@ -217,6 +588,17 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
                     return;
                 case 2:
                     // erase entire line
+                    if (current_process && console_buffer != NULL) {
+                        spinlock_acquire(&console_buffer_lock);
+                        if (console_y >= console_buffer_h) console_y = console_buffer_h - 1;
+                        if (console_x >= console_buffer_w) console_x = console_buffer_w - 1;
+
+                        memset(console_buffer + console_y * console_buffer_w,
+                            0,
+                            console_buffer_w * sizeof(struct character_cell)
+                        );
+                        spinlock_release(&console_buffer_lock);
+                    }
                     current_video_funcs->fill_buffered(0, display_width - 1,
                         console_y*console_font_height*FONT_MULTIPLIER, (console_y+1)*console_font_height*FONT_MULTIPLIER - 1,
                         console_color_bg, 1);
@@ -229,33 +611,37 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
         case 'F':
             console_x = 0;
         case 'A':
-            console_y -= id;
-            if (console_y < 0) console_y = 0;
+            if (console_y > id) console_y -= id;
+            else console_y = 0;
             return;
         case 'E':
             console_x = 0;
         case 'a':
         case 'B':
-            console_y += id;
-            if (console_y > display_height_chars/FONT_MULTIPLIER) console_y = display_height_chars/FONT_MULTIPLIER - 1;
+            if (console_y + id > display_height_chars/FONT_MULTIPLIER - 1)
+                console_y = display_height_chars/FONT_MULTIPLIER - 1;
+            else console_y += id;
             return;
         case 'k':
         case 'C':
-            console_x += id;
-            if (console_x > display_width_chars/FONT_MULTIPLIER) console_x = display_width_chars/FONT_MULTIPLIER - 1;
+            if (console_x + id > display_width_chars/FONT_MULTIPLIER - 1)
+                console_x = display_width_chars/FONT_MULTIPLIER - 1;
+            else console_x += id;
             return;
         case 'j':
         case 'D':
-            console_x -= id;
-            if (console_x < 0) console_x = 0;
+            if (console_x > id) console_x -= id;
+            else console_x = 0;
             return;
         case 'G':
-            console_x = id;
-            if (console_x > display_width_chars/FONT_MULTIPLIER) console_x = display_width_chars/FONT_MULTIPLIER - 1;
+            if (id > display_width_chars/FONT_MULTIPLIER - 1)
+                console_x = display_width_chars/FONT_MULTIPLIER - 1;
+            else console_x = id;
             return;
         case 'd':
-            console_y = id;
-            if (console_y > display_height_chars/FONT_MULTIPLIER) console_y = display_height_chars/FONT_MULTIPLIER - 1;
+            if (id > display_height_chars/FONT_MULTIPLIER - 1)
+                console_y = display_height_chars/FONT_MULTIPLIER - 1;
+            else console_y = id;
             return;
         default:
             return;
@@ -268,10 +654,12 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
         // absolute cursor positioning
         case 'H':
         case 'f':
-            console_y = id;
-            console_x = id2;
-            if (console_y > display_height_chars/FONT_MULTIPLIER) console_y = display_height_chars/FONT_MULTIPLIER - 1;
-            if (console_x > display_width_chars/FONT_MULTIPLIER) console_x = display_width_chars/FONT_MULTIPLIER - 1;
+            if (id > display_height_chars/FONT_MULTIPLIER - 1)
+                console_y = display_height_chars/FONT_MULTIPLIER - 1;
+            else console_y = id;
+            if (id2 > display_width_chars/FONT_MULTIPLIER - 1)
+                console_x = display_width_chars/FONT_MULTIPLIER - 1;
+            else console_x = id2;
             return;
     }
 
@@ -324,53 +712,84 @@ static char ansi_escape_state_machine(char c) {
 }
 
 void console_write(const char * s, size_t len) {
+    console_cursor_hide();
+    cursor_busy = 1;
     for (int i = 0; i < len; i++) {
         if (ansi_escape_state_machine(s[i])) continue;
 
         if (s[i] == '\r') {
             console_x = 0; continue;
         }
-        if (s[i] == '\b' /*|| s[i] == 0x7F*/) {
-            if (console_x == 0) {
-                if (console_y == 0) continue;
-                console_y -= 1;
-                console_x = display_width_chars/FONT_MULTIPLIER - 1;
-            } else {
-                console_x --;
+        if (s[i] == '\b' /*|| s[i] == 0x7F*/) { // TODO: there may be a race condition with kernel/user printf
+            if (!current_process || console_buffer == NULL) continue; // early boot, kprintf doesn't do \b anyway
+
+            spinlock_acquire(&console_buffer_lock);
+
+            if (console_y >= console_buffer_h) console_y = console_buffer_h - 1;
+            if (console_x >= console_buffer_w) console_x = console_buffer_w - 1;
+
+            if (console_y < 0) console_y = 0;
+            if (console_x < 0) console_x = 0;
+            if (console_x == 0 && console_y == 0) {
+                spinlock_release(&console_buffer_lock);
+                continue;
             }
+
+            if (console_buffer[console_y * console_buffer_w + console_x - 1].c != CHAR_CELL_RELATED) {
+                if (console_x == 0) {
+                    if (console_y == 0) break;
+                    console_y -= 1;
+                    console_x = console_buffer_w - 1;
+                } else {
+                    console_x --;
+                }
+                console_buffer[console_y * console_buffer_w + console_x].c = 0;
+                spinlock_release(&console_buffer_lock);
+                gfx_blit_char(' ', console_x, console_y, 0, 0, 1, FONT_MULTIPLIER);
+                continue;
+            }
+            while (console_buffer[console_y * console_buffer_w + console_x - 1].c == CHAR_CELL_RELATED) {
+                if (console_x == 0) {
+                    if (console_y == 0) break;
+                    console_y -= 1;
+                    console_x = console_buffer_w - 1;
+                } else {
+                    console_x --;
+                }
+                console_buffer[console_y * console_buffer_w + console_x].c = 0;
+                gfx_blit_char(' ', console_x, console_y, 0, 0, 1, FONT_MULTIPLIER);
+            }
+            spinlock_release(&console_buffer_lock);
             ///*if (s[i] == 0x7F)*/ vga_put_char(0, vga_color, vga_x, vga_y); // assuming cursor is in front of text
             continue;
         }
         if (s[i] == '\n' || s[i] == '\v') { // see the vt102 user guide for \v behavior
             new_line:
             console_x = 0;
-            console_y ++;
-            if (console_y >= display_height_chars / FONT_MULTIPLIER) {
+            if (console_y >= display_height_chars / FONT_MULTIPLIER - 1) {
                 console_y = display_height_chars / FONT_MULTIPLIER - 1;
-                gfx_hw_scroll_scanlines(console_font_height*FONT_MULTIPLIER);
+                console_scroll(1);
                 current_video_funcs->fill_buffered(0, display_width - 1,
                     display_height - console_font_height*FONT_MULTIPLIER, display_height - 1,
                     console_default_color_bg, 1);
                 current_video_funcs->swap_region(0, display_width - 1,
                     display_height - console_font_height*FONT_MULTIPLIER, display_height - 1);
-            }
+            } else console_y++;
             continue;
         }
         if (s[i] == '\t') {
             int old_delta = console_tab_width - (console_x % console_tab_width);
             for (int i = 0; i < old_delta; i++) {
-                console_write(" ", 1);
+                console_write(&(char){CHAR_CELL_RELATED}, 1);
             }
             continue;
         }
-        //vga_put_char(s[i], vga_color, vga_x, vga_y);
-        gfx_blit_char(s[i], console_x*console_font_width*FONT_MULTIPLIER,
-                            console_y*console_font_height*FONT_MULTIPLIER,
-                    console_color_fg, console_color_bg, 1, FONT_MULTIPLIER);
-        console_x ++;
-        if (console_x >= display_width_chars / FONT_MULTIPLIER) goto new_line;
+        console_set_char(console_x, console_y, s[i]);
+        if (console_x >= display_width_chars / FONT_MULTIPLIER - 1) goto new_line;
+        console_x++;
     }
     console_move_cursor(console_x, console_y);
+    cursor_busy = 0;
 }
 
 

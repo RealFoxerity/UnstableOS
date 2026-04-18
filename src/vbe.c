@@ -543,7 +543,7 @@ void vbe_copy_region_unbuffered(unsigned int x, unsigned int y, unsigned int wid
     if (final_x + width > display_width) width = display_width - final_x;
     if (final_y + height > display_height) height = display_height - final_y;
 
-    if (y < final_y) {
+    if (final_y > y + height || final_y < y) {
         for (unsigned int i = 0; i < height; i++) {
             void * src = VBE_LINEAR_FRAMEBUFFER_START +
                 (y + i)       * vbe_current_mode->info.pitch + x       * vbe_current_mode->info.bpp/8;
@@ -553,7 +553,7 @@ void vbe_copy_region_unbuffered(unsigned int x, unsigned int y, unsigned int wid
             memmove(dest, src, width * vbe_current_mode->info.bpp/8);
         }
     } else {
-        for (unsigned int i = height; i > 0; i++) {
+        for (unsigned int i = height; i > 0; i--) {
             void * src = VBE_LINEAR_FRAMEBUFFER_START +
                 (y + i - 1)       * vbe_current_mode->info.pitch + x       * vbe_current_mode->info.bpp/8;
             void * dest = VBE_LINEAR_FRAMEBUFFER_START +

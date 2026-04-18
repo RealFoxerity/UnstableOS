@@ -79,7 +79,6 @@ static int pipe_put_ch(struct pipe * pq, const unsigned char c) {
     pq->pipe_fifo[pq->tail] = c;
     INC(pq);
     spinlock_release(&pq->pipe_lock);
-    thread_queue_unblock(&pq->read_queue);
     return 0;
 }
 
@@ -98,9 +97,13 @@ ssize_t pipe_write(const file_descriptor_t * file, const void * s, size_t n) {
     }
 
     for (size_t i = 0; i < n; i++) {
-        if (pipe_put_ch(file->inode->pipe, ((unsigned char*)s)[i]) == 256)
+        if (pipe_put_ch(file->inode->pipe, ((unsigned char*)s)[i]) == 256) {
+            // outside of pipe_put_ch so that we don't needlessly reschedule over and over again for a single char
+            thread_queue_unblock(&file->inode->pipe->read_queue);
             return i == 0 ? -EINTR : i;
+        }
     }
+    thread_queue_unblock(&file->inode->pipe->read_queue);
     return n;
 }
 
@@ -112,7 +115,7 @@ static int pipe_get_ch(struct pipe * pq) {
         thread_queue_add(&pq->read_queue, current_process, current_thread, SCHED_INTERR_SLEEP);
     if (current_thread->sa_to_be_handled) return 256;
 
-    char out = 0;
+    unsigned char out = 0;
     spinlock_acquire_interruptible(&pq->pipe_lock);
     if (EMPTY(pq)) {
         spinlock_release(&pq->pipe_lock);
@@ -123,7 +126,6 @@ static int pipe_get_ch(struct pipe * pq) {
     out = pq->pipe_fifo[pq->head];
     DEC(pq);
     spinlock_release(&pq->pipe_lock);
-    thread_queue_unblock(&pq->write_queue);
     return out;
 }
 
@@ -146,11 +148,14 @@ ssize_t pipe_read(const file_descriptor_t * file, void * s, size_t n) {
     for (unsigned char * i = s; i < (unsigned char*)s + n; i++) {
         int out = pipe_get_ch(file->inode->pipe);
         if (out == 256) {
+            thread_queue_unblock(&file->inode->pipe->write_queue);
+
             if (i - (unsigned char *)s == 0) return -EINTR;
             return i - (unsigned char *)s;
         }
         *i = out;
     }
-
+    // see comment in pipe_write
+    thread_queue_unblock(&file->inode->pipe->write_queue);
     return n;
 }

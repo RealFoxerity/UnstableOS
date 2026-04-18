@@ -182,18 +182,29 @@ static inline char tty_remove_char(tty_t * tty, char is_vkill) { // cannon mode,
                         spinlock_release(&tty->iqueue.queue_lock);
                         return -1;
                     }
-                    if (tty->params.lmodes & TTY_L_ECHOCTL) {
-                        if (tty->iqueue.buffer[tty->iqueue.tail-1] < ' ' ||
+                    switch (tty->iqueue.buffer[tty->iqueue.tail-1]) {
+                        case '\a':
+                        case '\b':
+                        case '\t':
+                        case '\n':
+                        case '\v':
+                        case '\f':
+                        case '\r':
+                            break;
+                        default:
+                            if (tty->params.lmodes & TTY_L_ECHOCTL) {
+                                if (tty->iqueue.buffer[tty->iqueue.tail-1] < ' ' ||
 
-                            (tty->params.control_chars[TCC_VERASE] != _POSIX_VDISABLE &&
-                            tty->iqueue.buffer[tty->iqueue.tail-1] == tty->params.control_chars[TCC_VERASE])) // probably not gonna happen
-                        {
-                            // remove the ^ from ^X escape
-                            if (tty_translate_line_outgoing("\b \b", 3, tty) != 3) {
-                                spinlock_release(&tty->iqueue.queue_lock);
-                                return -1;
+                                    (tty->params.control_chars[TCC_VERASE] != _POSIX_VDISABLE &&
+                                    tty->iqueue.buffer[tty->iqueue.tail-1] == tty->params.control_chars[TCC_VERASE])) // probably not gonna happen
+                                {
+                                    // remove the ^ from ^X escape
+                                    if (tty_translate_line_outgoing("\b \b", 3, tty) != 3) {
+                                        spinlock_release(&tty->iqueue.queue_lock);
+                                        return -1;
+                                    }
+                                }
                             }
-                        }
                     }
                 }
                 else {

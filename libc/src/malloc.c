@@ -68,6 +68,10 @@ void * __attribute__((malloc, malloc(free))) malloc(size_t size) {
 
     if (current_heap_object->flags & MALLOC_LAST_CHUNK) current_heap_object->flags ^= MALLOC_LAST_CHUNK;
     current_heap_object->next_chunk = next_heap_object;
+
+    if (!(next_heap_object->flags & MALLOC_LAST_CHUNK))
+        next_heap_object->next_chunk->prev_chunk = next_heap_object;
+
     mutex_unlock(allocator_mutex);
     return (void*)current_heap_object + sizeof(struct malloc_heap_header);
 }
