@@ -138,7 +138,7 @@ inode_t * devfs_lookup(superblock_t * sb, inode_t * last, const char * pathname)
             }
         }
     }
-    if (devfs_id == 0 && !(pathlen == 1 && pathname[0] == '.')) return VFS_LOOKUP_NOTDIRECTORY;
+    if (devfs_id == 0 && !(pathlen == 1 && pathname[0] == '.')) return VFS_LOOKUP_NOTFOUND;
 
     inode_t * ret = create_inode(sb, (void*)devfs_id);
     if (devfs_id == 0)

@@ -119,6 +119,7 @@ void paging_remap(void * old_virt_addr, void * new_virt_addr, unsigned int flags
 }
 
 void paging_add_page(void * target_virt_addr, unsigned int flags) {
+    target_virt_addr = (void*) ((unsigned long)target_virt_addr & ~(PAGE_SIZE_NO_PAE - 1));
     PAGE_TABLE_TYPE * page_table = paging_get_page_table(target_virt_addr);
     uint32_t page_table_idx = (uint32_t)target_virt_addr >> 12 & (PAGE_TABLE_ENTRIES - 1);
     
@@ -139,6 +140,8 @@ void paging_add_page(void * target_virt_addr, unsigned int flags) {
 
     page_table[page_table_idx] = ((uint32_t)new_page & (~(PAGE_SIZE_NO_PAE-1))) | (flags & (PAGE_SIZE_NO_PAE-1)) | PTE_PDE_PAGE_PRESENT;
     flush_tlb_entry(target_virt_addr);
+
+    memset(target_virt_addr, 0, PAGE_SIZE_NO_PAE);
 }
 
 void paging_map(void * target_virt_addr, size_t n, unsigned int flags) {

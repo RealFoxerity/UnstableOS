@@ -2,6 +2,9 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <errno.h>
+
+#include "string.h"
 
 int main(int argc, char ** argv) {
     if (argc < 2) {
@@ -11,7 +14,7 @@ int main(int argc, char ** argv) {
 
     int fd = open(argv[1], O_RDONLY, 0);
     if (fd < 0) {
-        printf("cat: cannot access %s, errno %d\n", argv[1], fd);
+        printf("cat: cannot access %s: %s\n", argv[1], strerror(errno));
         return 1;
     }
 
@@ -23,7 +26,7 @@ int main(int argc, char ** argv) {
     }
 
     if (read_bytes < 0) {
-        printf("cat: error while reading %s: errno %ld\n", argv[1], read_bytes);
+        printf("cat: error while reading %s: %s\n", argv[1], strerror(errno));
         return 1;
     }
 

@@ -219,11 +219,10 @@ int main(int argc, char ** argv) {
             }
 
             int pipefd[2] = {-1};
-            if (process2)
-                assert(pipe(pipefd) == 0);
             switch (fork()) {
                 case 0:
                     if (process2) {
+                        assert(pipe(pipefd) == 0);
                         switch (fork()) {
                             case 0:
                                 close(pipefd[1]);
@@ -244,6 +243,7 @@ int main(int argc, char ** argv) {
                     free(new_argv);
                     return 127;
                 default:
+                    wstatus = 0;
                     while (wait(&wstatus) == -1 && errno == EINTR) {}
                     if (WIFSIGNALED(wstatus)) {
                         printf("WSIG: %d ", WTERMSIG(wstatus));

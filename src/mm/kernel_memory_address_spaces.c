@@ -59,6 +59,10 @@ void paging_add_page_to_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr, void *targ
         panic("Not enough free memory to add a new page!\n");
     }
 
+    void * mapped_page = paging_map_phys_addr_unspecified(new_page, PTE_PDE_PAGE_WRITABLE);
+    memset(mapped_page, 0, PAGE_SIZE_NO_PAE);
+    paging_unmap_page(mapped_page);
+
     page_table[page_table_idx] = ((uint32_t)new_page & ~(PAGE_SIZE_NO_PAE-1)) | (flags & (PAGE_SIZE_NO_PAE-1)) | PTE_PDE_PAGE_PRESENT;
     paging_unmap_page(page_table);
 }

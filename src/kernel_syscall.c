@@ -392,22 +392,22 @@ void kernel_syscall_dispatcher(mcontext_t ctx) {
     }
     current_thread->in_critical_section = 0;
 
-    #ifdef SYSCALLS_RESCHEDULE
+    asm volatile ("cli;");
+
+    memcpy(&current_thread->context, &ctx, sizeof(mcontext_t) - (ctx.iret_frame.cs & 3 ? 0 : 2*sizeof(void *)));
+    signal_dispatch_sa(current_process, current_thread);
+    memcpy(&ctx, &current_thread->context, sizeof(mcontext_t) - (ctx.iret_frame.cs & 3 ? 0 : 2*sizeof(void *)));
+
+#ifdef SYSCALLS_RESCHEDULE
     reschedule();
-    #else
+#else
     if (current_process->do_cleanup) reschedule();
     if (current_process->is_stopped) reschedule();
 
     // sleep, waiting, ...
     // every syscall should be rescheduling on its own, but just in case
     if (current_thread->status != SCHED_RUNNING) reschedule();
-    #endif
-
-    asm volatile ("cli;");
-
-    memcpy(&current_thread->context, &ctx, sizeof(mcontext_t) - (ctx.iret_frame.cs & 3 ? 0 : 2*sizeof(void *)));
-    signal_dispatch_sa(current_process, current_thread);
-    memcpy(&ctx, &current_thread->context, sizeof(mcontext_t) - (ctx.iret_frame.cs & 3 ? 0 : 2*sizeof(void *)));
+#endif
 
     // somehow reentrant syscalls break segment selectors upon exit, TODO: figure out why?
     asm volatile (
