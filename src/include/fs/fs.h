@@ -87,7 +87,8 @@ struct pipe {
     unsigned char pipe_fifo[PIPE_BUF];
     size_t head, tail;
 
-    size_t readers;
+    size_t readers; // SIGPIPE
+    size_t writers; // EOF on read
 };
 
 void init_fds();

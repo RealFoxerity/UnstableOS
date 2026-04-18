@@ -95,9 +95,12 @@ int sys_close(int fd) {
 int close_file_forced(file_descriptor_t * file) {
     // to have the correct SIGPIPE behavior
     // has to be done here, because the inode doesn't carry flags
-    if (S_ISFIFO(file->inode->mode))
+    if (S_ISFIFO(file->inode->mode)) {
         if (file->flags & O_RDONLY)
             __atomic_sub_fetch(&file->inode->pipe->readers, 1, __ATOMIC_RELAXED);
+        else
+            __atomic_sub_fetch(&file->inode->pipe->writers, 1, __ATOMIC_RELAXED);
+    }
 
     inode_t * inode = file->inode; // to not race
     if (__atomic_sub_fetch(&file->instances, 1, __ATOMIC_RELAXED) == 0) close_inode(inode);
@@ -259,10 +262,12 @@ int sys_dup(int oldfd) {
     current_process->fds[fd] = current_process->fds[oldfd];
     __atomic_add_fetch(&current_process->fds[fd]->instances, 1, __ATOMIC_RELAXED);
 
-    if (S_ISFIFO(current_process->fds[fd]->inode->mode))
-        if (current_process->fds[fd]->flags & O_RDONLY)
-            __atomic_add_fetch(&current_process->fds[fd]->inode->pipe->readers, 1, __ATOMIC_RELAXED);
-
+    if (S_ISFIFO(current_process->fds[oldfd]->inode->mode)) {
+        if (current_process->fds[oldfd]->flags & O_RDONLY)
+            __atomic_add_fetch(&current_process->fds[oldfd]->inode->pipe->readers, 1, __ATOMIC_RELAXED);
+        else
+            __atomic_add_fetch(&current_process->fds[oldfd]->inode->pipe->writers, 1, __ATOMIC_RELAXED);
+    }
     spinlock_release(&kernel_fd_lock);
 
     return fd;
@@ -271,6 +276,8 @@ int sys_dup(int oldfd) {
 int sys_dup2(int oldfd, int newfd) {
     if (oldfd < 0 || oldfd >= FD_LIMIT_PROCESS) return -EBADF;
     if (newfd < 0 || newfd >= FD_LIMIT_PROCESS) return -EBADF;
+
+    if (oldfd == newfd) return oldfd;
 
     spinlock_acquire(&kernel_fd_lock);
 
@@ -282,10 +289,12 @@ int sys_dup2(int oldfd, int newfd) {
     current_process->fds[newfd] = current_process->fds[oldfd];
     __atomic_add_fetch(&current_process->fds[oldfd]->instances, 1, __ATOMIC_RELAXED);
 
-    if (S_ISFIFO(current_process->fds[oldfd]->inode->mode))
+    if (S_ISFIFO(current_process->fds[oldfd]->inode->mode)) {
         if (current_process->fds[oldfd]->flags & O_RDONLY)
             __atomic_add_fetch(&current_process->fds[oldfd]->inode->pipe->readers, 1, __ATOMIC_RELAXED);
-
+        else
+            __atomic_add_fetch(&current_process->fds[oldfd]->inode->pipe->writers, 1, __ATOMIC_RELAXED);
+    }
     spinlock_release(&kernel_fd_lock);
 
     return newfd;

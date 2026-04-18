@@ -396,6 +396,18 @@ ssize_t tty_read(file_descriptor_t * file, void * s, size_t n) {
     // assuming now file is a valid pointer
     dev_t dev = file->inode->device;
     if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE)) dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_S0); // kernel console can only read (which shouldn't happen anyway) from first serial
+    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CURRENT)) {
+        dev = 0;
+        spinlock_acquire(&tty_lock);
+        for (unsigned int i = 0; i < TTY_LIMIT_KERNEL; i++) {
+            if (terminals[i] != NULL && terminals[i]->used && terminals[i]->session == current_process->session) {
+                dev = GET_DEV(DEV_MAJ_TTY, i);
+                break;
+            }
+        }
+        spinlock_release(&tty_lock);
+        if (dev == 0) return -EINVAL;
+    }
     if (!is_valid_tty(dev)) return -EINVAL;
 
     if (n == 0) return 0;
@@ -408,8 +420,6 @@ ssize_t tty_read(file_descriptor_t * file, void * s, size_t n) {
         signal_process_group(current_process->pgrp, &(siginfo_t) {.si_signo = SIGTTIN });
         return -EINTR;
     }
-
-    if (tty->read_remaining != 0) return -EAGAIN; // something else is already reading
 
     while (!__atomic_compare_exchange_n(&tty->read_remaining, &(unsigned long){0}, n, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) asm volatile ("pause");
 
@@ -444,6 +454,18 @@ ssize_t tty_write(file_descriptor_t * file, const void * s, size_t n) { // outpu
     // likewise assuming now file is a valid pointer
     dev_t dev = file->inode->device;
     if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE)) dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_0);
+    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CURRENT)) {
+        dev = 0;
+        spinlock_acquire(&tty_lock);
+        for (unsigned int i = 0; i < TTY_LIMIT_KERNEL; i++) {
+            if (terminals[i] != NULL && terminals[i]->used && terminals[i]->session == current_process->session) {
+                dev = GET_DEV(DEV_MAJ_TTY, i);
+                break;
+            }
+        }
+        spinlock_release(&tty_lock);
+        if (dev == 0) return -EINVAL;
+    }
     if (n == 0) return 0;
 
     kassert(current_process);
