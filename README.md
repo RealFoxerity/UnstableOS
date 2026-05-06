@@ -30,7 +30,8 @@ List of defined syscalls can be found in [kernel.h](./src/include/kernel.h)
 - Tar as a filesystem
 - mountable devtmpfs
 - RTC
-- VGA, VBE
+- VGA, VBE, BGA
+- PCI
 
 ## Building
 ---
@@ -86,13 +87,13 @@ see [caveats.md](./caveats.md) for info
 - [x] errno in userspace instead of returning negative numbers
 - [ ] scheduler priorities?
 - [ ] any form of fpu
-- [ ] PCI
+- [x] PCI
 - [ ] ACPI
 - [ ] Ethernet (ne2000)
 - [x] Virtual-8086 mode
 - [x] VBE linear framebuffer instead of VGA text mode
-- [ ] proper VBE reading
-- [ ] proper direct VRAM access and ioctls for framebuffer devices
+- [x] proper direct VRAM access
+- [ ] ioctls for framebuffer devices
 - [ ] SMP - multicore support
 - [x] argv, argc, envp/environ, execve
 - [ ] functional `execve()` and `spawn()` for ring 0 processes

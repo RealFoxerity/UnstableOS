@@ -34,25 +34,27 @@ long sys_getpgid(pid_t target_pid) {
     else return -ESRCH;
 }
 
-void kernel_syscall_dispatcher(mcontext_t ctx);
+void kernel_syscall_dispatcher(mcontext_t * ctx);
 // since we use system V abi, arg4 is pushed onto the stack by the user
 __attribute__((naked, no_caller_saved_registers)) void interr_syscall(struct interr_frame * interrupt_frame) {
     asm volatile (
         "cld;"
         "pusha;"
+        "pushl %esp;"
         "call kernel_syscall_dispatcher;"
+        "popl %esp;"
         "popa;"
         "iret;"
     );
 }
 
-void kernel_syscall_dispatcher(mcontext_t ctx) {
-    enum syscalls syscall_number = ctx.eax;
+void kernel_syscall_dispatcher(mcontext_t * ctx) {
+    enum syscalls syscall_number = ctx->eax;
     long
-    arg1 = ctx.edi,
-    arg2 = ctx.esi,
-    arg3 = ctx.edx,
-    arg4 = ((long*)(ctx.iret_frame.sp))[3]; // no clue why [3], but it actually is
+    arg1 = ctx->edi,
+    arg2 = ctx->esi,
+    arg3 = ctx->edx,
+    arg4 = ((long*)(ctx->iret_frame.sp))[3]; // no clue why [3], but it actually is
 
     long return_value = -ENOSYS;
 
@@ -60,7 +62,7 @@ void kernel_syscall_dispatcher(mcontext_t ctx) {
     kassert(current_thread);
 
     // we might want to call syscalls from other syscalls and/or drivers
-    char in_kernel = (ctx.iret_frame.cs & 3) == 0;
+    char in_kernel = (ctx->iret_frame.cs & 3) == 0;
 
     #ifndef EXIT_AFFECTS_SYSCALLS
     CRIT_SEC_START
@@ -124,11 +126,11 @@ void kernel_syscall_dispatcher(mcontext_t ctx) {
             break;
         case SYSCALL_DUP:
             asm volatile ("sti;");
-            sys_dup(arg1);
+            return_value = sys_dup(arg1);
             break;
         case SYSCALL_DUP2:
             asm volatile ("sti;");
-            sys_dup2(arg1, arg2);
+            return_value = sys_dup2(arg1, arg2);
             break;
         case SYSCALL_SEEK:
             asm volatile ("sti;");
@@ -259,7 +261,7 @@ void kernel_syscall_dispatcher(mcontext_t ctx) {
             return_value = sys_spawn((const char *)arg1, (char * const*)arg2, (char * const*)arg3);
             break;
         case SYSCALL_FORK:
-            return_value = sys_fork(&ctx);
+            return_value = sys_fork(ctx);
             break;
         case SYSCALL_WAITPID:
             if ((int*)arg2 != NULL) {
@@ -341,7 +343,7 @@ void kernel_syscall_dispatcher(mcontext_t ctx) {
             return_value = sys_sigaction(arg1, (struct sigaction *)arg2, (struct sigaction *)arg3);
             break;
         case SYSCALL_SIGRETURN:
-            sys_sigreturn(&ctx);
+            sys_sigreturn(ctx);
             break;
         case SYSCALL_SIGPROCMASK:
             if (!paging_check_address_range((void*)arg2, sizeof(sigset_t), 0, in_kernel)) {
@@ -394,9 +396,9 @@ void kernel_syscall_dispatcher(mcontext_t ctx) {
 
     asm volatile ("cli;");
 
-    memcpy(&current_thread->context, &ctx, sizeof(mcontext_t) - (ctx.iret_frame.cs & 3 ? 0 : 2*sizeof(void *)));
+    memcpy(&current_thread->context, &ctx, sizeof(mcontext_t) - (ctx->iret_frame.cs & 3 ? 0 : 2*sizeof(void *)));
     signal_dispatch_sa(current_process, current_thread);
-    memcpy(&ctx, &current_thread->context, sizeof(mcontext_t) - (ctx.iret_frame.cs & 3 ? 0 : 2*sizeof(void *)));
+    memcpy(&ctx, &current_thread->context, sizeof(mcontext_t) - (ctx->iret_frame.cs & 3 ? 0 : 2*sizeof(void *)));
 
 #ifdef SYSCALLS_RESCHEDULE
     reschedule();
@@ -420,5 +422,5 @@ void kernel_syscall_dispatcher(mcontext_t ctx) {
 
     // wont work because we do popa
     //return return_value;
-    ctx.eax = return_value;
+    ctx->eax = return_value;
 }

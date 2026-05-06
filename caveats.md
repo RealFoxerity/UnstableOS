@@ -13,8 +13,6 @@
 - `fork()` (intentionally) doesn't copy any other stack than the calling thread's (which can lead to lost argc/argv/environ)
 - userspace `readdir()` is not thread-safe (POSIX doesn't specify whether it has to be)
 - orphaned processes are reparented to their "grandparent" instead of to the init
-- pipes only check if the fd has instance count >1 instead of checking for readers/writers
-- consequently, EPIPE and SIGPIPE is sent regardless if readers/writers exist (if instance count < 2)
 - I don't think every kernel process operation is thread safe, too lazy to check
 
 ### Known missing features
@@ -25,10 +23,11 @@
 - everything in the TODO obviously
 - missing `sigaltstack()` and everything along with it
 - missing `SA_RESTART`, almost all `si_code` values for `siginfo_t`
+- no support for PCI Configuration Space #2 (for i486 and early Pentiums)
+- no /dev/fb0 support on pure VGA (due to banking)
 ### Known console issues (compared to a VT102 excluding DEC escapes)
 ---
 - not setting bg for the rest of a line when encountering `\r\n`
-- not correctly deleting a `\t`
 - no "computer editing" or insertions
 - no programmable tab stops (constant 8)
 - no double widths/heights

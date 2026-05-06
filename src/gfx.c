@@ -2,6 +2,10 @@
 #include "kernel_spinlock.h"
 #include <stddef.h>
 
+#include "kernel.h"
+#include "string.h"
+#include "gfx/vga/vga_funcs.h"
+
 unsigned int console_font_width = 8;
 unsigned int console_font_height = 8;
 
@@ -92,4 +96,88 @@ void gfx_hw_scroll_scanlines(unsigned int scanline) {
         current_video_funcs->hw_shift_scanlines(scanline);
     else
         current_video_funcs->hw_shift_pixels(scanline * display_width);
+}
+
+#include "mm/kernel_memory.h"
+// part of early init
+// not thread safe, so disables interrupts
+spinlock_t framebuffer_lock = {0};
+uint32_t * back_framebuffer = NULL;
+size_t back_framebuffer_w = 0;
+size_t back_framebuffer_h = 0;
+
+void gfx_unmap_back_framebuffer() {
+    spinlock_acquire(&framebuffer_lock);
+
+    back_framebuffer_w = 0;
+    back_framebuffer_h = 0;
+    kfree(back_framebuffer);
+    back_framebuffer = NULL;
+
+    spinlock_release(&framebuffer_lock);
+}
+
+void * gfx_realloc_back_framebuffer(size_t width, size_t height) {
+    spinlock_acquire(&framebuffer_lock); // needs to disable interrupts
+    kfree(back_framebuffer);
+
+    if (width * height * sizeof(uint32_t) <= BACK_FRAMEBUFFER_MAX_SIZE &&
+        kalloc_get_free_memory() > width * height * sizeof(uint32_t)
+    ) {
+        back_framebuffer = kalloc(width * height * sizeof(uint32_t));
+        back_framebuffer_w = width;
+        back_framebuffer_h = height;
+
+        if (back_framebuffer == NULL) {
+            alloc_failed:
+            spinlock_release(&framebuffer_lock);
+
+            gfx_unmap_back_framebuffer();
+            kprintf("Warning: cannot allocate a back framebuffer!\n");
+
+            /*
+            vga_init_graphics();
+            panic("Failed to allocate memory for a back framebuffer!\n");
+            */
+
+            return NULL;
+        }
+        memset(back_framebuffer, 0, width * height * sizeof(uint32_t));
+    } else goto alloc_failed;
+    spinlock_release(&framebuffer_lock);
+
+    return back_framebuffer;
+}
+
+size_t framebuffer_size = 0;
+void * gfx_remap_framebuffer(void * phys_start, size_t fb_size, unsigned int flags) {
+    if (phys_start == NULL) {
+        kprintf("Warning: specified NULL framebuffer address, ignoring request\n");
+        return NULL;
+    }
+
+    if (fb_size &   (PAGE_SIZE_NO_PAE - 1)) {
+        fb_size &= ~(PAGE_SIZE_NO_PAE - 1);
+        fb_size +=   PAGE_SIZE_NO_PAE;
+    }
+    if (fb_size > LINEAR_FRAMEBUFFER_MAX_SIZE) {
+        kprintf("Warning: tried to map a framebuffer too large, mapping only the first %d MiB\n",
+            LINEAR_FRAMEBUFFER_MAX_SIZE / 1024 / 1024);
+        fb_size = LINEAR_FRAMEBUFFER_MAX_SIZE;
+    }
+
+    spinlock_acquire(&framebuffer_lock); // needs to disable interrupts
+
+    framebuffer_size = fb_size;
+
+    // first unmap everything so that we don't try to doublemap later
+    paging_unmap(LINEAR_FRAMEBUFFER_START, LINEAR_FRAMEBUFFER_MAX_SIZE);
+    for (size_t chunk = 0; chunk < fb_size / PAGE_SIZE_NO_PAE; chunk++) {
+        paging_map_phys_addr(phys_start + chunk*PAGE_SIZE_NO_PAE,
+            LINEAR_FRAMEBUFFER_START + chunk*PAGE_SIZE_NO_PAE,
+            PTE_PDE_PAGE_WRITABLE | flags);
+    }
+    spinlock_release(&framebuffer_lock);
+
+    return LINEAR_FRAMEBUFFER_START;
 }

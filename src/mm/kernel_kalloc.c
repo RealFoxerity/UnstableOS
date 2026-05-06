@@ -41,10 +41,9 @@ void kalloc_prepare(void * heap_struct_start, void * allocated_heap_top, void * 
 
 #pragma clang diagnostic ignored "-Wignored-attributes"
 void * __attribute__((malloc, malloc(kfree))) kalloc(size_t size) {
-    spinlock_acquire(&kalloc_lock);
-
     if (size % KALLOC_ALIGNMENT != 0) size = size + KALLOC_ALIGNMENT - size%KALLOC_ALIGNMENT;
 
+    spinlock_acquire(&kalloc_lock);
 
     struct heap_header * current_heap_object;
 
@@ -58,8 +57,16 @@ void * __attribute__((malloc, malloc(kfree))) kalloc(size_t size) {
         if (current_heap_object->flags & KALLOC_LAST_CHUNK) {
             // try to extend the heap
             if ((void*)current_heap_object->next_chunk < kernel_heap_top) {
-                paging_add_page(current_heap_object->next_chunk, PTE_PDE_PAGE_WRITABLE);
-                current_heap_object->next_chunk = (void*)current_heap_object->next_chunk + PAGE_SIZE_NO_PAE;
+                while ((void*)current_heap_object->next_chunk < kernel_heap_top &&
+                        (void*)current_heap_object->next_chunk - (void*)current_heap_object < size + sizeof(struct heap_header)*2
+                ) {
+                    if (paging_add_page(current_heap_object->next_chunk, PTE_PDE_PAGE_WRITABLE) == NULL) {
+                        spinlock_release(&kalloc_lock);
+                        return NULL;
+                    }
+
+                    current_heap_object->next_chunk = (void*)current_heap_object->next_chunk + PAGE_SIZE_NO_PAE;
+                }
                 goto try_remapped;
             }
             spinlock_release(&kalloc_lock);
@@ -211,5 +218,15 @@ size_t kalloc_get_free_memory() {
             occupied_mem += (size_t)current_heap_object->next_chunk - (size_t)current_heap_object;
 
     spinlock_release(&kalloc_lock);
-    return (size_t)(kernel_heap_top - kernel_heap_base) - occupied_mem;
+
+    // the amount that we can still extend the top by (see kalloc page mapping)
+    size_t heap_extendable_free = (size_t)(kernel_heap_top - (void*)current_heap_object);
+
+    // total heap free as is currently mapped
+    size_t current_heap_free = (size_t)((void*)current_heap_object - kernel_heap_base) - occupied_mem;
+
+    size_t phys_free = pf_get_free_memory();
+
+    size_t actual_heap_free = current_heap_free + (phys_free < heap_extendable_free ? phys_free : heap_extendable_free);
+    return actual_heap_free;
 }

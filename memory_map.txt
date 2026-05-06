@@ -4,9 +4,12 @@ Paging Virtual Memory Map
 
 0x0300'0000 - 0x04FF'BFFF 4 memdisks of around 8.3MB each
 0x04FF'F000 - 0x04FF'FFFF kernel's PDEs
-0x0500'0000 - 0x05FF'FFFF kernel heap
-0x0600'0000 - 0x06FF'FFFF mapped linear framebuffer for VESA/VBE (16MiB)
+0x0500'0000 - 0x06FF'FFFF kernel heap
 
-0xA000'0000 - 0xDFFF'FFFF program heap
-0xEC00'0000 - 0xEFFF'FFFF thread stacks
+0x8000'0000 - 0xBFFF'FFFF program heap  - 1GiB
+0xCC00'0000 - 0xCFFF'FFFF thread stacks - 1MiB per thread (256 threads)
+
+0xD000'0000 - 0xDFFF'FFFF mapped linear framebuffer for VESA/VBE (256 MiB)
+0xE000'0000 - 0xFEFF'FFFF MMIO space (~520 MiB)
+
 0xFFC0'0000 - 0xFFFF'FFFF mapped PTEs and PDEs

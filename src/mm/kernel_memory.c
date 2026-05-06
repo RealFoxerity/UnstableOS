@@ -6,7 +6,8 @@
 #include "../include/mm/kernel_memory.h"
 
 #include "kernel_exec.h"
-#include "../include/vga.h"
+#include "../include/gfx/vga.h"
+#include "lowlevel.h"
 
 #pragma clang diagnostic ignored "-Wint-to-pointer-cast"
 #pragma clang diagnostic ignored "-Wvoid-pointer-to-int-cast"
@@ -96,6 +97,7 @@ void paging_map_phys_addr(void * src_phys_addr, void * target_virt_addr, unsigne
     }
 
     page_table[page_table_idx] = ((uint32_t)src_phys_addr & (~(PAGE_SIZE_NO_PAE-1))) | (flags & (PAGE_SIZE_NO_PAE-1)) | PTE_PDE_PAGE_PRESENT;
+    sw_mem_barrier
     flush_tlb_entry(target_virt_addr);
 }
 
@@ -118,7 +120,7 @@ void paging_remap(void * old_virt_addr, void * new_virt_addr, unsigned int flags
     paging_map_phys_addr(phys_addr, new_virt_addr, flags);
 }
 
-void paging_add_page(void * target_virt_addr, unsigned int flags) {
+void * paging_add_page(void * target_virt_addr, unsigned int flags) {
     target_virt_addr = (void*) ((unsigned long)target_virt_addr & ~(PAGE_SIZE_NO_PAE - 1));
     PAGE_TABLE_TYPE * page_table = paging_get_page_table(target_virt_addr);
     uint32_t page_table_idx = (uint32_t)target_virt_addr >> 12 & (PAGE_TABLE_ENTRIES - 1);
@@ -130,21 +132,25 @@ void paging_add_page(void * target_virt_addr, unsigned int flags) {
         print_page_table_entry(page_table + page_table_idx);
         
         //dpanic("Illegal MMU operation");
-        return;
+        return NULL;
     }
 
     void * new_page = pfalloc();
     if (new_page == NULL) {
-        dpanic("Not enough free memory to add a new page!\n");
+        return NULL;
+        //    dpanic("Not enough free memory to add a new page!\n");
     }
 
     page_table[page_table_idx] = ((uint32_t)new_page & (~(PAGE_SIZE_NO_PAE-1))) | (flags & (PAGE_SIZE_NO_PAE-1)) | PTE_PDE_PAGE_PRESENT;
+    sw_mem_barrier
     flush_tlb_entry(target_virt_addr);
 
     memset(target_virt_addr, 0, PAGE_SIZE_NO_PAE);
+
+    return target_virt_addr;
 }
 
-void paging_map(void * target_virt_addr, size_t n, unsigned int flags) {
+void * paging_map(void * target_virt_addr, size_t n, unsigned int flags) {
     // align the address and size to pages
     target_virt_addr = (void*)((unsigned long)target_virt_addr&~(PAGE_SIZE_NO_PAE-1));
     n += (unsigned long)target_virt_addr & (PAGE_SIZE_NO_PAE - 1);
@@ -153,8 +159,10 @@ void paging_map(void * target_virt_addr, size_t n, unsigned int flags) {
     size_t pages = n/PAGE_SIZE_NO_PAE;
 
     for (size_t i = 0; i < pages; i++) {
-        paging_add_page(target_virt_addr + i*PAGE_SIZE_NO_PAE, flags);
+        if (paging_add_page(target_virt_addr + i*PAGE_SIZE_NO_PAE, flags) == NULL)
+            return NULL;
     }
+    return target_virt_addr;
 }
 
 void paging_change_flags(void * target_virt_addr, size_t n, unsigned int flags) {
@@ -176,6 +184,7 @@ void paging_change_flags(void * target_virt_addr, size_t n, unsigned int flags) 
         page_table[page_table_idx] &= ~(PAGE_SIZE_NO_PAE-1); // zero out flags
         page_table[page_table_idx] |= flags & (PAGE_SIZE_NO_PAE-1);
         page_table[page_table_idx] |= PTE_PDE_PAGE_PRESENT;
+        sw_mem_barrier
         flush_tlb_entry(target_virt_addr);
 
         target_virt_addr += PAGE_SIZE_NO_PAE;
@@ -191,7 +200,7 @@ void paging_unmap_page(void * virt_addr) {
     //    dpanic("Illegal MMU operation");
     //}
     page_table[page_table_idx] = 0;
-
+    sw_mem_barrier
     flush_tlb_entry(virt_addr);
 }
 
@@ -221,6 +230,8 @@ void * paging_map_phys_addr_unspecified(void * phys_addr, unsigned int flags) {
             PDE_ADDR_VIRT[i] = (unsigned long) new_page;
             PDE_ADDR_VIRT[i] &= ~(PAGE_SIZE_NO_PAE-1);
             PDE_ADDR_VIRT[i] |= PTE_PDE_PAGE_PRESENT | PTE_PDE_PAGE_WRITABLE | PTE_PDE_PAGE_USER_ACCESS;
+            sw_mem_barrier
+            flush_tlb_entry(PDE_ADDR_VIRT + i);
             memset(PTE_ADDR_VIRT_BASE + PAGE_TABLE_ENTRIES * i, 0, PAGE_TABLE_ENTRIES*sizeof(PAGE_TABLE_TYPE));
         }
         for (int j = 0; j < PAGE_TABLE_ENTRIES; j++) {
@@ -228,6 +239,7 @@ void * paging_map_phys_addr_unspecified(void * phys_addr, unsigned int flags) {
             if (__builtin_expect(!(*pt & PTE_PDE_PAGE_PRESENT), 0)) {
                 *pt = (unsigned long) phys_addr;
                 *pt |= PTE_PDE_PAGE_PRESENT | flags;
+                sw_mem_barrier
                 flush_tlb_entry(get_vaddr(i,j));
                 return get_vaddr(i, j);
             }
@@ -262,7 +274,8 @@ char paging_check_address_range(const void * addr, size_t n, char writable, char
                 return 0;
             // overcommitment, we could rely on page faults, but that would
             // require all syscalls to have interrupts enabled at all times
-            paging_add_page((void *)iteraddr, PTE_PDE_PAGE_USER_ACCESS | PTE_PDE_PAGE_WRITABLE);
+            if (paging_add_page((void *)iteraddr, PTE_PDE_PAGE_USER_ACCESS | PTE_PDE_PAGE_WRITABLE) == NULL)
+                return 0;
             continue;
         }
 
@@ -386,7 +399,7 @@ void setup_paging(unsigned long total_free, unsigned long ident_map_end) {
 
     dkprintf("Setting up kernel heap...\n");
 
-    paging_map(KERNEL_HEAP_BASE, KERNEL_HEAP_START_SIZE, PTE_PDE_PAGE_WRITABLE);
+    kassert(paging_map(KERNEL_HEAP_BASE, KERNEL_HEAP_START_SIZE, PTE_PDE_PAGE_WRITABLE));
 
     kalloc_prepare(KERNEL_HEAP_BASE, KERNEL_HEAP_BASE + KERNEL_HEAP_START_SIZE, KERNEL_HEAP_BASE + KERNEL_HEAP_SIZE);
     if (KERNEL_HEAP_BASE + KERNEL_HEAP_SIZE > kernel_mem_top) kernel_mem_top = KERNEL_HEAP_BASE + KERNEL_HEAP_SIZE;

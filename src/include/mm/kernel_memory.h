@@ -45,6 +45,9 @@ extern spinlock_t address_spaces_lock;
 #define PAGE_DIRECTORY_ENTRIES 1024
 #define PAGE_TABLE_ENTRIES PAGE_DIRECTORY_ENTRIES
 
+#define PCI_MMIO_START ((void *)0xE0000000)
+#define PCI_MMIO_END   ((void *)0xFEFFFFFF)
+
 #define ___PDE_VADDR_BASE 0xFFFFF000
 #define ___PTE_VADDR_BASE ((uint32_t)0-PAGE_TABLE_ENTRIES*PAGE_DIRECTORY_ENTRIES*sizeof(PAGE_TABLE_TYPE))
 #define PDE_ADDR_VIRT ((uint32_t*)___PDE_VADDR_BASE)
@@ -67,8 +70,8 @@ void * pfalloc_ref_inc(void * page);
 void paging_map_phys_addr(void * src_phys_addr, void * target_virt_addr, unsigned int flags);
 void * paging_map_phys_addr_unspecified(void * phys_addr, unsigned int flags); // just naively maps a physical address to nearest free virtual address
 
-void paging_map(void * target_virt_addr, size_t n, unsigned int flags);
-void paging_add_page(void * target_virt_addr, unsigned int flags); // adds a singular page, equivalent to paging_map(target_virt_addr, PAGE_SIZE_NO_PAE, flags)
+void * paging_map(void * target_virt_addr, size_t n, unsigned int flags);
+void * paging_add_page(void * target_virt_addr, unsigned int flags); // adds a singular page, equivalent to paging_map(target_virt_addr, PAGE_SIZE_NO_PAE, flags)
 void paging_unmap_page(void * virt_addr);
 void paging_unmap(void * target_virt_addr, size_t n);
 void paging_remap(void * old_virt_addr, void * new_virt_addr, unsigned int flags);
@@ -131,7 +134,7 @@ extern PAGE_DIRECTORY_TYPE * kernel_address_space_paddr;
 #define ___KERNEL_ADDRESS_SPACE_VADDR 0x04FFF000
 #define KERNEL_ADDRESS_SPACE_VADDR ((PAGE_DIRECTORY_TYPE*)___KERNEL_ADDRESS_SPACE_VADDR) // virtual address of the kernel address space for kernel task scheduling
 
-#define KERNEL_HEAP_SIZE (1<<24) // 16 MiB
+#define KERNEL_HEAP_SIZE (1<<25) // 32 MiB
 #define KERNEL_HEAP_START_SIZE (1<<15) // 32KiB
 #define ___KERNEL_HEAP_BASE 0x05000000
 #define KERNEL_HEAP_BASE ((void*)___KERNEL_HEAP_BASE) // before gcc's default .text address of 0x08000000

@@ -6,7 +6,7 @@
 #include "include/lowlevel.h"
 #include "include/kernel.h"
 #include "include/timer.h"
-#include "include/vga.h"
+#include "include/gfx/vga.h"
 #include "../libc/src/include/errno.h"
 #include "../libc/src/include/string.h"
 #include "kernel_console.h" // for the console cursor blinking

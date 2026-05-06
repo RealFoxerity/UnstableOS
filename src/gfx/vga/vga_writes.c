@@ -1,6 +1,6 @@
-#include "../include/vga.h"
-#include "../include/kernel_spinlock.h"
-#include "../../libc/src/include/string.h"
+#include "../../include/gfx/vga.h"
+#include "kernel_spinlock.h"
+#include <string.h>
 #include "gfx.h"
 
 struct gfx_funcs vga_funcs = {
@@ -9,7 +9,7 @@ struct gfx_funcs vga_funcs = {
     .write_pixel_buffered = vga_write_pixel_buffered,
     .fill_buffered = vga_fill_buffered,
     .copy_region_unbuffered = vga_copy_region,
-    .read_pixel = vga_read_pixel,
+    .read_framebuffer = vga_read_pixel,
     .hw_shift_pixels = vga_hw_shift_pixels,
 };
 

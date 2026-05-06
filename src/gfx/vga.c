@@ -1,13 +1,13 @@
 #include <stdint.h>
-#include "include/kernel.h"
-#include "include/lowlevel.h"
-#include "include/mm/kernel_memory.h"
+#include "kernel.h"
+#include "lowlevel.h"
+#include "mm/kernel_memory.h"
 
-#include "include/vga.h"
-#include "include/vga/vga_funcs.h"
-#include "include/vga/vga_modelines.h"
+#include "gfx/vga.h"
+#include "gfx/vga/vga_funcs.h"
+#include "gfx/vga/vga_modelines.h"
 
-#include "../libc/src/include/string.h"
+#include <string.h>
 
 
 char vga_pixels_per_address = 8; // set by individual modes to correctly set the offset CRTC register

@@ -23,7 +23,7 @@ static unsigned long page_frame_table_entries = 0;
 #pragma clang diagnostic ignored "-Wvoid-pointer-to-int-cast"
 #pragma clang diagnostic ignored "-Wpointer-to-int-cast"
 
-#define RESERVED_PAGE_FRAMES_END (PAGE_SIZE_NO_PAE*PAGE_SIZE_NO_PAE) // 16MiB "reserved" for DMA allocations, will try to avoid to allocate for normal allocations if possible
+#define RESERVED_PAGE_FRAMES_END (PAGE_SIZE_NO_PAE) // 16MiB "reserved" for DMA allocations, will try to avoid to allocate for normal allocations if possible
 
 void * page_frame_alloc_init(multiboot_info_t* mbd, unsigned long free_memory, void * free_space_start_page) { // we may lose up to PAGE_SIZE_NO_PAE if the amount of memory taken up by PFT itself would lower the max entries and bring it the table down by one page
     if (((unsigned long)free_space_start_page)%PAGE_SIZE_NO_PAE != 0) { // we need to deal with pages, so free memory has to be page aligned
@@ -34,7 +34,7 @@ void * page_frame_alloc_init(multiboot_info_t* mbd, unsigned long free_memory, v
     page_frame_table = free_space_start_page;
 
     page_frame_table_entries = free_memory/PAGE_SIZE_NO_PAE; // we may lose < 1 PAGE_SIZE_NO_PAE worth of memory
-    unsigned long pft_size_frames = page_frame_table_entries/PAGE_SIZE_NO_PAE + (page_frame_table_entries%PAGE_SIZE_NO_PAE)!=0?1:0;
+    unsigned long pft_size_frames = page_frame_table_entries/PAGE_SIZE_NO_PAE + (page_frame_table_entries%PAGE_SIZE_NO_PAE!=0?1:0);
 
     page_frame_table_start_addr = free_space_start_page + pft_size_frames*PAGE_SIZE_NO_PAE;
 

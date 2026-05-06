@@ -19,4 +19,4 @@ all: $(OBJS)
 .PHONY: clean
 clean:
 	rm -f build/*
-	rm src/cat.o
+	rm -f src/cat.o

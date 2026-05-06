@@ -25,9 +25,9 @@
 #include <fcntl.h>
 #include "kernel_tty_io.h"
 #include "gfx.h"
-#include "vga.h"
-#include "vbe.h"
-#include "v8086.h"
+#include "gfx/vga.h"
+#include "include/gfx/vbe.h"
+#include "pci/pci.h"
 
 // clang is insanely annoying, used because uint32_t is smaller than native pointer size (64 bit int) on my machine
 #pragma clang diagnostic ignored "-Wint-to-pointer-cast"
@@ -37,10 +37,20 @@
 
 #define KERNEL_PANIC_MSG "\n\e[0m\e[41m\n##############################\nKernel Panic:\n"
 void panic(char * reason) {
-    extern spinlock_t gfx_spinlock;
-    gfx_spinlock.state = SPINLOCK_UNLOCKED; // in case panic happened during vga writes
-
     scheduler_lock.state = SPINLOCK_LOCKED; // for future SMP endeavors
+
+
+    // stuff needed for kprintf to not deadlock
+    extern spinlock_t kalloc_lock;
+    gfx_spinlock.state     = SPINLOCK_UNLOCKED; // in case panic happened during vga writes
+    framebuffer_lock.state = SPINLOCK_UNLOCKED;
+    kalloc_lock.state      = SPINLOCK_UNLOCKED;
+    back_framebuffer       = NULL;
+
+    // the most supported graphics mode
+    // good idea for panics in graphics code
+    // unfortunately with BGA, reinitializing as VGA does nothing
+    //vga_init_graphics();
 
     disable_interrupts();
     kprintf(KERNEL_PANIC_MSG);
@@ -303,8 +313,6 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     construct_descriptor_tables();
     enable_interrupts();
     scheduler_init();
-    if (kernel_mem_top < VBE_LINEAR_FRAMEBUFFER_START + VBE_LINEAR_FRAMEBUFFER_MAX_SIZE)
-        kernel_mem_top = VBE_LINEAR_FRAMEBUFFER_START + VBE_LINEAR_FRAMEBUFFER_MAX_SIZE;
 
     timer_init(0, 1000/KERNEL_TIMER_RESOLUTION_MSEC, TIMER_RATE); // kernel scheduler timer, also enables pic interrupts
     rtc_init();
@@ -323,6 +331,8 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     vbe_gather_info();
 
     kernel_print_cpu_info();
+
+    pci_init();
 
     if (initrd_start + initrd_len > (void*)IDENT_MAPPING_MAX_ADDR)
         panic("initrd too large");

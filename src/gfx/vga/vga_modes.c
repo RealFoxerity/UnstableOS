@@ -1,7 +1,7 @@
-#include "../include/vga.h"
-#include "../include/vga/vga_funcs.h"
-#include "../include/vga/vga_modelines.h"
-#include "../include/kernel_spinlock.h"
+#include "gfx/vga.h"
+#include "gfx/vga/vga_funcs.h"
+#include "gfx/vga/vga_modelines.h"
+#include "kernel_spinlock.h"
 #include "gfx.h"
 
 extern spinlock_t gfx_spinlock;

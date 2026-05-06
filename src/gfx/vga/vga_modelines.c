@@ -1,4 +1,4 @@
-#include "../include/vga/vga_modelines.h"
+#include "gfx/vga/vga_modelines.h"
 
 /*
 const struct vesa_modeline vga_1280x800 = {

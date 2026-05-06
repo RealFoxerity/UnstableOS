@@ -213,6 +213,7 @@ void v86_monitor(unsigned long error, v86_mcontext_t * ctx) {
     char is_o32 = 0;
 
     void * eip = V86_FAR2LIN(ctx->iret_frame.cs, ctx->iret_frame.ip);
+    unsigned char last_instruction     = *(unsigned char *)(eip - 1);
     unsigned char faulting_instruction = *(unsigned char *)eip; // technically not safe, but this address will always be mapped
     unsigned char op1 = *(unsigned char *)(eip + 1);
     void * string_ptr = V86_FAR2LIN(ctx->iret_frame.es, ctx->edi);
@@ -288,7 +289,10 @@ void v86_monitor(unsigned long error, v86_mcontext_t * ctx) {
             return;
         case X86_IN_AX_IMM:
             ctx->iret_frame.ip += 2;
-            ctx->eax = inw(op1);
+            if (is_o32)
+                ctx->eax = inl(op1);
+            else
+                ctx->eax = inw(op1);
             return;
         case X86_IN_AL_DX:
             ctx->iret_frame.ip++;
@@ -296,17 +300,29 @@ void v86_monitor(unsigned long error, v86_mcontext_t * ctx) {
             return;
         case X86_IN_AX_DX:
             ctx->iret_frame.ip++;
-            ctx->eax = inw(ctx->edx);
+            if (is_o32)
+                ctx->eax = inl(ctx->edx);
+            else
+                ctx->eax = inw(ctx->edx);
             return;
         case X86_INSB:
+            if (last_instruction == 0xF3) kprintf("REP unimplemented for INSB\n");
+
             ctx->iret_frame.ip++;
             *(unsigned char *)string_ptr = inb(ctx->edx);
             ctx->edi -= ctx->iret_frame.flags & IA_32_EFL_DIRECTION ? 1 : -1;
             return;
         case X86_INSW:
+            if (last_instruction == 0xF3) kprintf("REP unimplemented for INSW\n");
+
             ctx->iret_frame.ip++;
-            *(unsigned short *)string_ptr  = inw(ctx->edx);
-            ctx->edi -= ctx->iret_frame.flags & IA_32_EFL_DIRECTION ? 2 : -2;
+            if (is_o32) {
+                *(unsigned int *)string_ptr  = inl(ctx->edx);
+                ctx->edi -= ctx->iret_frame.flags & IA_32_EFL_DIRECTION ? 4 : -4;
+            } else {
+                *(unsigned short *)string_ptr  = inw(ctx->edx);
+                ctx->edi -= ctx->iret_frame.flags & IA_32_EFL_DIRECTION ? 2 : -2;
+            }
             return;
 
         case X86_OUT_AL_IMM:
@@ -315,7 +331,10 @@ void v86_monitor(unsigned long error, v86_mcontext_t * ctx) {
             return;
         case X86_OUT_AX_IMM:
             ctx->iret_frame.ip += 2;
-            outw(op1, ctx->eax);
+            if (is_o32)
+                outl(op1, ctx->eax);
+            else
+                outw(op1, ctx->eax);
             return;
         case X86_OUT_AL_DX:
             ctx->iret_frame.ip++;
@@ -323,17 +342,29 @@ void v86_monitor(unsigned long error, v86_mcontext_t * ctx) {
             return;
         case X86_OUT_AX_DX:
             ctx->iret_frame.ip++;
-            outw(ctx->edx, ctx->eax);
+            if (is_o32)
+                outl(ctx->edx, ctx->eax);
+            else
+                outw(ctx->edx, ctx->eax);
             return;
         case X86_OUTSB:
+            if (last_instruction == 0xF3) kprintf("REP unimplemented for OUTSB\n");
+
             ctx->iret_frame.ip++;
             outb(ctx->edx, *(unsigned char *)string_ptr);
             ctx->edi -= ctx->iret_frame.flags & IA_32_EFL_DIRECTION ? 1 : -1;
             return;
         case X86_OUTSW:
+            if (last_instruction == 0xF3) kprintf("REP unimplemented for OUTSW\n");
+
             ctx->iret_frame.ip++;
-            outb(ctx->edx, *(unsigned short *)string_ptr);
-            ctx->edi -= ctx->iret_frame.flags & IA_32_EFL_DIRECTION ? 2 : -2;
+            if (is_o32) {
+                outl(ctx->edx, *(unsigned int *)string_ptr);
+                ctx->edi -= ctx->iret_frame.flags & IA_32_EFL_DIRECTION ? 4 : -4;
+            } else {
+                outw(ctx->edx, *(unsigned short *)string_ptr);
+                ctx->edi -= ctx->iret_frame.flags & IA_32_EFL_DIRECTION ? 2 : -2;
+            }
             return;
         default:
             kprintf("error %lx, efl %lx, ip %p, cs %lx, ins: %hhx\n", error, ctx->iret_frame.flags, ctx->iret_frame.ip, ctx->iret_frame.cs, faulting_instruction);

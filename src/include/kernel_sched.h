@@ -21,13 +21,13 @@
 
 #define PROGRAM_KERNEL_STACK_SIZE (1<<13) // 8KiB
 
-#define ___PROGRAM_STACK_VADDR (0xF0000000) // top, need this as an integer for the #if to work
+#define ___PROGRAM_STACK_VADDR (0xD0000000) // top, need this as an integer for the #if to work
 #define PROGRAM_STACK_VADDR ((void*)___PROGRAM_STACK_VADDR) // top
 
 #define GET_STACK_IDX_FROM_ADDR(vaddr) ((PROGRAM_STACK_VADDR - vaddr)/PROGRAM_STACK_SIZE) // returns the index to the stack bitmap for process
 #define GET_STACK_ADDR_FROM_IDX(index) (PROGRAM_STACK_VADDR - i*PROGRAM_STACK_SIZE) // gets the top
 
-#define ___PROGRAM_HEAP_VADDR (0xA0000000) // base
+#define ___PROGRAM_HEAP_VADDR (0x80000000) // base
 #define PROGRAM_HEAP_VADDR ((void*)___PROGRAM_HEAP_VADDR) // base
 #define PROGRAM_HEAP_SIZE (0x40000000) // 1GiB
 #define PROGRAM_HEAP_START_SIZE (0x90000) // 0.5MiB, the initially allocated amount
