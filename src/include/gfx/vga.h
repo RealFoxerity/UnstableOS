@@ -43,8 +43,8 @@
 
 #define VGA_RGB32_TO_RGB8(color) (VGA_RGB_TO_RGB8((color) >> 24, (color) >> 16, (color) >> 8))
 
-#include "vga/vga_modelines.h"
-#include "vga/vga_funcs.h"
+#include "gfx/vga/vga_modelines.h"
+#include "gfx/vga/vga_funcs.h"
 
 // 300x200 256 colors, fast
 void vga_set_mode_13();
@@ -120,7 +120,7 @@ void vga_hw_shift_pixels(unsigned int pixels);
 // not safe when x and final_x overlap!
 void vga_copy_region(unsigned int x, unsigned int y, unsigned int width, unsigned int height, unsigned int final_x, unsigned int final_y);
 
-#include "gfx.h"
+#include "../gfx.h"
 extern struct gfx_funcs vga_funcs;
 
 #endif

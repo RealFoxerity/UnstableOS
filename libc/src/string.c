@@ -124,25 +124,27 @@ size_t strnlen(const char * s, size_t n) {
     }
     return n;
 }
-
+/*
 void * memcpy(void *__restrict dest, const void *__restrict src, size_t n) {
     for (size_t i = 0; i < n; i++) {
         ((char*)dest)[i] = ((char*)src)[i];
     }
     return dest;
 }
+*/
 void * mempcpy(void *__restrict dest, const void *__restrict src, size_t n) {
     memcpy(dest, src, n);
     return dest + n;
 }
 
+/*
 void * memset(void * s, char c, size_t n) {
     for (size_t i = 0; i < n; i++) {
         ((char*)s)[i] = c;
     }
     return s;
 }
-
+*/
 void * memmove(void * dest, const void * src, size_t n) {
     if (src == dest) return dest;
     if (dest > src + n || dest + n < src) { // faster to do normal memcpy

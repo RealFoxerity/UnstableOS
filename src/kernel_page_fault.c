@@ -10,7 +10,7 @@
 #include "include/block/memdisk.h"
 #include "include/kernel_spinlock.h"
 #include "../libc/src/include/string.h"
-#include "include/vga.h"
+#include "include/gfx/vga.h"
 
 #pragma clang diagnostic ignored "-Wexcessive-regsave"
 
@@ -98,17 +98,21 @@ __attribute__((no_caller_saved_registers)) int page_fault_handler(unsigned long 
         if (fault_address >= MEMDISKS_BASE && fault_address < MEMDISKS_BASE + MEMDISK_LIMIT_KERNEL * DEFAULT_MEMDISK_SIZE && (iret_frame->cs & 3) == 0) { // assuming the user cannot read memdisks themselves
             spinlock_acquire(&memdisk_lock);
             if (memdisks[GET_MEMDISK_IDX(fault_address)].used && memdisks[GET_MEMDISK_IDX(fault_address)].is_allocated) {
-                paging_add_page(fault_address, PTE_PDE_PAGE_WRITABLE);
-                flush_tlb_entry(fault_address);
-                memset(fault_address, 0, PAGE_SIZE_NO_PAE);
-                spinlock_release(&memdisk_lock);
+                if (paging_add_page(fault_address, PTE_PDE_PAGE_WRITABLE) == NULL) {
+                    kprintf("\e[0m\e[41mPage fault: Ran out of memory in memdisk overcommitment! Killing task...\n");
+                } else {
+                    flush_tlb_entry(fault_address);
+                    memset(fault_address, 0, PAGE_SIZE_NO_PAE);
+                    spinlock_release(&memdisk_lock);
+                }
                 return 1;
             } else
                 spinlock_release(&memdisk_lock);
         } else { // overcommitment
             if (fault_address >= PROGRAM_HEAP_VADDR && fault_address < PROGRAM_HEAP_VADDR + PROGRAM_HEAP_SIZE) {
-                paging_add_page(fault_address, PTE_PDE_PAGE_USER_ACCESS | PTE_PDE_PAGE_WRITABLE);
-                return 1;
+                if (paging_add_page(fault_address, PTE_PDE_PAGE_USER_ACCESS | PTE_PDE_PAGE_WRITABLE) == NULL) {
+                    kprintf("\e[0m\e[41mPage fault: Ran out of memory in heap overcommitmen! Killing task...\n");
+                } else return 1;
             }
             // unfortunately due to the kernel's usage pattern (cli, then kalloc), this would never trigger and we'd get a triple fault
             // else if (fault_address >= KERNEL_HEAP_BASE && fault_address <= KERNEL_HEAP_BASE + KERNEL_HEAP_SIZE) {

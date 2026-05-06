@@ -78,7 +78,7 @@ enum cpuid_funcs {
 // x86 achieved 20 bits of addressing by <<4 of the segment and using that as the base
 #define V86_FAR2LIN(seg, off) ((void *)(((unsigned long)(seg) & 0xFFFF) << 4) + ((unsigned long)(off) & 0xFFFF))
 
-
+#define sw_mem_barrier asm volatile("":::"memory");
 
 void outb(uint16_t port, uint8_t data);
 uint8_t inb(uint16_t port);

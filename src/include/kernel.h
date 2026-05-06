@@ -161,4 +161,11 @@ if not selected, reschedule only happens on cleanup and non-running thread state
 // e.g. QEMU qxl vga device
 #define VBE_EDID_ASSUME_VIRTUAL_ON_FAILURE
 
+// upper limit for the BGA resolution so we don't set something like 16000x12000
+#define BGA_MAX_ALLOWABLE_XRES 1920
+#define BGA_MAX_ALLOWABLE_YRES 1080
+
+// if defined, reading/writing to /dev/fb calls current_video_funcs->read/write
+// if not defined, raw reading from the mapped framebuffer
+//#define FB_ACCESS_CALLS_GFX_API
 #endif

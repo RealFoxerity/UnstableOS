@@ -4,7 +4,7 @@ LD		:=i686-elf-ld
 
 # gnu has asm volatile instead of __asm
 CFLAGS	:=\
--ffreestanding -T src/linker.ld -nostdlib -nodefaultlibs -nostartfiles -Og -g -std=gnu99 \
+-ffreestanding -T src/linker.ld -nostdlib -nodefaultlibs -nostartfiles -O3 -g -std=gnu99 \
 -isystem src/include -isystem libc/src/include -isysroot . \
 -DTARGET_I486  -Wall -Wno-unknown-pragmas \
 -fstack-protector

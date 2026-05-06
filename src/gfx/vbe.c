@@ -1,4 +1,5 @@
-#include "vbe.h"
+#include "gfx/vbe.h"
+#include "gfx/vga.h"
 #include "edid.h"
 
 #include "v8086.h"
@@ -7,10 +8,11 @@
 #include <string.h>
 
 #include "endian.h"
-#include "vga.h"
 #include "mm/kernel_memory.h"
 
-// TODO: This code assumes that the framebuffer address will remain the same throughout all modes
+// WARNING: this code is NOT interrupt safe
+// printing in an ISR in the same context as a previously running operation WILL DEADLOCK on the framebuffer lock!
+
 // tested in:
 // (virtualized) VMWare, QXL, Cirrus
 // (real) Intel 82945M, Intel X3100, Intel Iris XE (8th gen), NVidia GTX 1050-ti, and AMD Radeon RX 7800-XT
@@ -21,7 +23,7 @@ struct EDID_block    * vbe_edid_block = (void*)0xA300;
 
 const struct VBE_modes_list * vbe_current_mode = NULL;
 
-static void * vbe_framebuffer_paddr = NULL;
+
 size_t vbe_framebuffer_size = 0;
 
 #define VBE_SIGNATURE "VESA"
@@ -39,12 +41,6 @@ size_t vbe_framebuffer_size = 0;
 #define VBE_MODE_USE_LINEAR_FB 0x4000 // as opposed to a windowed fb
 
 #define VBE_DDC 0x4F15
-
-struct VBE_modes_list {
-    unsigned short mode_num;
-    struct VBE_mode_info info;
-    struct VBE_modes_list * next;
-};
 
 struct VBE_modes_list * vbe_modes_list = NULL;
 
@@ -69,8 +65,10 @@ void vbe_gather_info() {
     vbe_framebuffer_size = vbe_info_block->total_memory_64k_blocks * 64 * 1024;
     kprintf("VBE supported, v0x%hx, total memory %lu\n", vbe_info_block->version, vbe_framebuffer_size);
 
-    if (vbe_framebuffer_size > VBE_LINEAR_FRAMEBUFFER_MAX_SIZE) {
-        kprintf("VBE: Warning: Framebuffer size larger than 16 MiB, will not map rest!\n");
+    if (vbe_framebuffer_size > LINEAR_FRAMEBUFFER_MAX_SIZE) {
+        kprintf("VBE: Warning: Framebuffer size larger than %d MiB, will not map rest!\n",
+            LINEAR_FRAMEBUFFER_MAX_SIZE/1024/1024);
+        vbe_framebuffer_size = LINEAR_FRAMEBUFFER_MAX_SIZE;
     }
 
     char * vbe_oem_string     = V86_FAR2LIN(vbe_info_block->oem_string    [1], vbe_info_block->oem_string    [0]);
@@ -112,8 +110,11 @@ void vbe_gather_info() {
         if (!vbe_mode_info->attributes.linear_framebuffer) continue; // i really don't want to fuck with planars again
         if ( vbe_mode_info->framebuffer_paddr == 0)        continue; // TODO: VirtualBox advertises linear FB with address 0?
         if (!vbe_mode_info->attributes.gfx_mode)           continue; // we don't support text
-        if ( vbe_mode_info->bpp % 8 != 0)                  continue; // i refuse to do bit operations
+        if ( vbe_mode_info->bpp % 8 != 0 &&
+             vbe_mode_info->bpp != 15)                     continue; // i refuse to do bit operations
         if ( vbe_mode_info->bpp > 32)                      continue; // we don't support better than 32 bits
+        if ( vbe_mode_info->pitch * vbe_mode_info->height * vbe_mode_info->bpp / 8 > LINEAR_FRAMEBUFFER_MAX_SIZE)
+            continue; // we wouldn't be able to map the framebuffer all in
 
         /*
         kprintf("VBE: (%hx) %ux%ux%hhu %c, fbaddr %lx\n",
@@ -135,13 +136,6 @@ void vbe_gather_info() {
         continue;
 
         ok:
-        if (vbe_framebuffer_paddr == NULL)
-            vbe_framebuffer_paddr = (void*)vbe_mode_info->framebuffer_paddr;
-        else if (vbe_framebuffer_paddr != (void*)vbe_mode_info->framebuffer_paddr) {
-            kprintf("VBE: Error: Multiple framebuffers found! Not implemented, giving up\n");
-            return;
-        }
-
         struct VBE_modes_list * this = kalloc(sizeof(struct VBE_modes_list));
         kassert(this != NULL);
         this->mode_num = *video_modes;
@@ -157,15 +151,10 @@ void vbe_gather_info() {
     }
     kprintf("VBE: Found %lu eligible modes\n", loaded_modes);
 
-    // 16 4K pages in one 64K chunk
-    for (size_t chunk = 0; chunk < vbe_info_block->total_memory_64k_blocks * 16; chunk++) {
-        paging_map_phys_addr(vbe_framebuffer_paddr + chunk*PAGE_SIZE_NO_PAE,
-            VBE_LINEAR_FRAMEBUFFER_START + chunk*PAGE_SIZE_NO_PAE,
-            PTE_PDE_PAGE_WRITABLE);
-    }
-
     gather_EDID_info_and_set_mode();
 }
+
+uint32_t * vbe_doubleframebuffer = NULL;
 
 void vbe_set_info(const struct VBE_modes_list * mode) {
     v86_mcontext_t ret = v86_call_bios(X86_VIDEO_INT, (v86_mcontext_t){.eax = VBE_SET_MODE_INFO, .ebx = mode->mode_num | VBE_MODE_USE_LINEAR_FB});
@@ -183,16 +172,43 @@ void vbe_set_info(const struct VBE_modes_list * mode) {
     display_width = mode->info.width;
     display_height = mode->info.height;
 
-    // TODO: if implementing different framebuffer address, remap
+    // using vbe_framebuffer_size instead of the specific one makes it easier for us to do thread safe clearing
+    // among other things
+    gfx_realloc_back_framebuffer(mode->info.width, mode->info.height);
+    gfx_remap_framebuffer((void *)mode->info.framebuffer_paddr, vbe_framebuffer_size, 0);
 }
 
 static struct VBE_modes_list * vbe_get_specified_mode(int xres, int yres) {
     struct VBE_modes_list * best_mode = NULL;
+    // try to get an exact mode
     for (struct VBE_modes_list * current = vbe_modes_list; current != NULL; current = current->next) {
         //kprintf("%u %u %p\n", current->info.width, current->info.height, current);
         if (current->info.width == xres && current->info.height == yres) {
             if (best_mode == NULL || current->info.bpp > best_mode->info.bpp)
                 best_mode = current;
+        }
+    }
+    if (best_mode != NULL) return best_mode;
+
+    // try to get the closest mode available
+    unsigned long requested_area = xres * yres;
+    unsigned long best_delta   = -1;
+    for (struct VBE_modes_list * current = vbe_modes_list; current != NULL; current = current->next) {
+        unsigned long area = current->info.width * current->info.height;
+        unsigned long area_delta = 0;
+        if (area < requested_area)
+            area_delta = requested_area - area;
+        else
+            area_delta = area - requested_area;
+
+        if (best_mode == NULL || (area_delta == best_delta && current->info.bpp > best_mode->info.bpp)) {
+            best_mode = current;
+            best_delta = area_delta;
+            continue;
+        }
+        if (area_delta < best_delta) {
+            best_mode = current;
+            best_delta = area_delta;
         }
     }
     return best_mode;
@@ -414,7 +430,64 @@ void gather_EDID_info_and_set_mode() {
 }
 
 
-void vbe_swap_region(unsigned int start_x, unsigned int end_x, unsigned int start_y, unsigned int end_y) {}
+__attribute__((optimize("O3"))) static uint32_t vbe_get_direct_color(uint32_t color) {
+    uint32_t direct_color = 0;
+    direct_color =
+            (color >> 24) >>
+            (8 - vbe_current_mode->info.red_mask) <<
+            (vbe_current_mode->info.red_position);
+    direct_color |=
+            (color >> 16 & 0xFF) >>
+            (8 - vbe_current_mode->info.green_mask) <<
+            (vbe_current_mode->info.green_position);
+    direct_color |=
+            (color >> 8 & 0xFF) >>
+            (8 - vbe_current_mode->info.blue_mask) <<
+            (vbe_current_mode->info.blue_position);
+    return direct_color;
+}
+
+// these are unrolled on purpose to minimize conditionals!
+__attribute__((optimize("O3"))) void vbe_swap_region(unsigned int start_x, unsigned int end_x, unsigned int start_y, unsigned int end_y) {
+    if (back_framebuffer == NULL) return;
+    spinlock_acquire_interruptible(&framebuffer_lock);
+    if (start_x >= back_framebuffer_w || start_y >= back_framebuffer_h) {
+        spinlock_release(&framebuffer_lock);
+        return;
+    }
+    if (end_x >= back_framebuffer_w) end_x = back_framebuffer_w - 1;
+    if (end_y >= back_framebuffer_h) end_y = back_framebuffer_h - 1;
+
+    switch (vbe_current_mode->info.bpp) {
+        case 32:
+            for (unsigned int y = start_y; y <= end_y; y++) {
+                for (unsigned int x = start_x; x <= end_x; x++) {
+                    ((uint32_t *)LINEAR_FRAMEBUFFER_START)[y * vbe_current_mode->info.pitch / 4 + x] =
+                        back_framebuffer[y * back_framebuffer_w + x];
+                }
+            }
+            break;
+        case 16:
+        case 15:
+            for (unsigned int y = start_y; y <= end_y; y++) {
+                for (unsigned int x = start_x; x <= end_x; x++) {
+                    ((uint16_t *)LINEAR_FRAMEBUFFER_START)[y * vbe_current_mode->info.pitch / 2 + x] =
+                        back_framebuffer[y * back_framebuffer_w + x] & 0xFFFF;
+                }
+            }
+            break;
+        case 8:
+            for (unsigned int y = start_y; y <= end_y; y++) {
+                for (unsigned int x = start_x; x <= end_x; x++) {
+                    ((uint8_t *)LINEAR_FRAMEBUFFER_START)[y * vbe_current_mode->info.pitch + x] =
+                        back_framebuffer[y * back_framebuffer_w + x] & 0xFF;
+                }
+            }
+        default:
+            break;
+    }
+    spinlock_release(&framebuffer_lock);
+}
 
 void vbe_hw_shift_pixels(unsigned int pixels) {}
 
@@ -424,22 +497,38 @@ struct gfx_funcs vbe_funcs = {
     .write_pixel_buffered = vbe_write_pixel_buffered,
     .fill_buffered = vbe_fill_buffered,
     .copy_region_unbuffered = vbe_copy_region_unbuffered,
-    .read_pixel = vbe_read_pixel,
+    .read_framebuffer = vbe_read_framebuffer,
     .hw_shift_pixels = vbe_hw_shift_pixels,
     .hw_shift_scanlines = vbe_hw_shift_scanlines,
 };
 
-uint32_t vbe_read_pixel(unsigned int x, unsigned int y) {
-    void * dest = VBE_LINEAR_FRAMEBUFFER_START + y * vbe_current_mode->info.pitch + x * vbe_current_mode->info.bpp/8;
+// TODO: implement converting to normal rgb
+// thinking of moving to the way linux does things
+// just don't solve this and leave it up to the userspace to parse colors
+__attribute__((optimize("O3"))) uint32_t vbe_read_framebuffer(unsigned int x, unsigned int y) {
+    if (y >= display_height) return 0;
+    if (x >= display_width) return 0;
+
+    spinlock_acquire_interruptible(&framebuffer_lock);
+    if (back_framebuffer != NULL) {
+        if (y < back_framebuffer_h &&
+            x < back_framebuffer_w
+        ) {
+            uint32_t color = back_framebuffer[y * back_framebuffer_w + x];
+            spinlock_release(&framebuffer_lock);
+            return color;
+        }
+    }
+    spinlock_release(&framebuffer_lock);
+
+    // fall back to unbuffered VRAM read - very slow
+    void * dest = LINEAR_FRAMEBUFFER_START + y * vbe_current_mode->info.pitch + x * vbe_current_mode->info.bpp/8;
 
     uint32_t read_color = 0;
-    uint32_t output_color = 0;
     switch(vbe_current_mode->info.memory_model) {
 
         case VBE_MEMORY_MODEL_PACKED:
-            return (*(unsigned char *)dest & 0b11100000 << 0) |
-                   (*(unsigned char *)dest & 0b00011100 << 3) |
-                   (*(unsigned char *)dest & 0b00000011 << 6);
+            return *(unsigned char*)dest;
         //case VBE_MEMORY_MODEL_YUV:
         case VBE_MEMORY_MODEL_DIRECT:
             switch (vbe_current_mode->info.bpp) {
@@ -448,12 +537,12 @@ uint32_t vbe_read_pixel(unsigned int x, unsigned int y) {
                 case 24:
                     read_color |= *(unsigned char*)(dest + 2) << 16;
                 case 16:
+                case 15:
                     read_color |= *(unsigned char*)(dest + 1) << 8;
                 case 8:
                     read_color |= *(unsigned char*)(dest + 0) << 0;
                 default: break;
             }
-            // TODO: proper reading
             return read_color;
         default:
             return *(unsigned char *)dest;
@@ -461,18 +550,43 @@ uint32_t vbe_read_pixel(unsigned int x, unsigned int y) {
 }
 
 void vbe_clear() {
-    memset(VBE_LINEAR_FRAMEBUFFER_START, 0, vbe_framebuffer_size);
+    spinlock_acquire_interruptible(&framebuffer_lock);
+    memset(LINEAR_FRAMEBUFFER_START, 0, vbe_framebuffer_size);
+    if (back_framebuffer != NULL) {
+        memset(back_framebuffer, 0, back_framebuffer_w * back_framebuffer_h * sizeof(*back_framebuffer));
+    }
+    spinlock_release(&framebuffer_lock);
 }
 
+static void __vbe_write_framebuffer_unbuffered(unsigned int x, unsigned int y, uint32_t raw);
+void vbe_write_framebuffer_buffered(unsigned int x, unsigned int y, uint32_t raw) {
+    spinlock_acquire_interruptible(&framebuffer_lock);
+    if (back_framebuffer != NULL) {
+        if (y < back_framebuffer_h &&
+            x < back_framebuffer_w
+        ) {
+            back_framebuffer[y * back_framebuffer_w + x] = raw;
+        }
+    } else
+        __vbe_write_framebuffer_unbuffered(x, y, raw);
+    spinlock_release(&framebuffer_lock);
+}
 void vbe_write_pixel_buffered(unsigned int x, unsigned int y, uint32_t color, char use_palette) {
-    if (x >= display_width)  x = display_width - 1;
-    if (y >= display_height) y = display_height - 1;
+    if (y >= display_height) return;
+    if (x >= display_width) return;
 
     if (use_palette) color = console_colors[color & 0xF];
 
-    void * dest = VBE_LINEAR_FRAMEBUFFER_START + y * vbe_current_mode->info.pitch + x * vbe_current_mode->info.bpp/8;
-
-    uint32_t output_color = 0;
+    uint32_t direct_color = vbe_get_direct_color(color);
+    uint32_t packed_color = VGA_RGB32_TO_RGB8(color);
+    if (vbe_current_mode->info.memory_model == VBE_MEMORY_MODEL_PACKED) {
+        vbe_write_framebuffer_buffered(x, y, packed_color);
+    } else {
+        vbe_write_framebuffer_buffered(x, y, direct_color);
+    }
+}
+static void __vbe_write_framebuffer_unbuffered(unsigned int x, unsigned int y, uint32_t raw) {
+    void * dest = LINEAR_FRAMEBUFFER_START + y * vbe_current_mode->info.pitch + x * vbe_current_mode->info.bpp/8;
 
     switch(vbe_current_mode->info.memory_model) {
         // 0x00 - 0x03 aren't used at all by us and aren't that common
@@ -482,7 +596,7 @@ void vbe_write_pixel_buffered(unsigned int x, unsigned int y, uint32_t color, ch
         // 3 = planar, deselected in our mode gathering
 
         case VBE_MEMORY_MODEL_PACKED:
-            *(uint8_t *)dest = VGA_RGB32_TO_RGB8(color);
+            *(uint8_t *)dest = raw;
             return;
         // 5 = non-chain 4, 256 color, deselected in our mode gathering
         //case VBE_MEMORY_MODEL_YUV:
@@ -491,34 +605,22 @@ void vbe_write_pixel_buffered(unsigned int x, unsigned int y, uint32_t color, ch
             // however because we chose to only support linear framebuffers
             // which came out with VBE 1.2, we don't have to support the
             // old bpp default pixel structures
-            output_color =
-                    (color >> 24) >>
-                    (8 - vbe_current_mode->info.red_mask) <<
-                    (vbe_current_mode->info.red_position);
-            output_color |=
-                    (color >> 16 & 0xFF) >>
-                    (8 - vbe_current_mode->info.green_mask) <<
-                    (vbe_current_mode->info.green_position);
-            output_color |=
-                    (color >> 8 & 0xFF) >>
-                    (8 - vbe_current_mode->info.blue_mask) <<
-                    (vbe_current_mode->info.blue_position);
-            //output_color = color >> 8; works for 32 bpp 0:8:8:8
 
             switch (vbe_current_mode->info.bpp) {
                 case 8:
-                    *(uint8_t *)dest = output_color;
+                    *(uint8_t *)dest = raw;
                     break;
+                case 15:
                 case 16:
-                    *(uint16_t *)dest = output_color;
+                    *(uint16_t *)dest = raw;
                     break;
                 case 24:
-                    *(uint8_t *)dest = output_color >> 16;
-                    *(uint8_t *)dest = output_color >> 8;
-                    *(uint8_t *)dest = output_color >> 0;
+                    *(uint8_t *)dest = raw >> 16;
+                    *(uint8_t *)dest = raw >> 8;
+                    *(uint8_t *)dest = raw >> 0;
                     break;
                 case 32:
-                    *(uint32_t *)dest = output_color;
+                    *(uint32_t *)dest = raw;
                     break;
                 default:
                     return;
@@ -527,6 +629,46 @@ void vbe_write_pixel_buffered(unsigned int x, unsigned int y, uint32_t color, ch
         // all further reserved and/or OEM
         default:
             return;
+    }
+}
+
+static void __vbe_copy_region_buffered(unsigned int x, unsigned int y, unsigned int width, unsigned int height, unsigned final_x, unsigned int final_y) {
+    if (final_y > y + height || final_y < y) {
+        for (unsigned int i = 0; i < height; i++) {
+            memmove(
+                back_framebuffer + (final_y + i) * back_framebuffer_w + final_x,
+                back_framebuffer + (y + i)       * back_framebuffer_w + x,
+                width * sizeof(*back_framebuffer)
+            );
+        }
+    } else {
+        for (unsigned int i = height; i > 0; i--) {
+            memmove(
+                back_framebuffer + (final_y + i - 1) * back_framebuffer_w + final_x,
+                back_framebuffer + (y + i - 1)       * back_framebuffer_w + x,
+                width * sizeof(*back_framebuffer)
+            );
+        }
+    }
+}
+
+static void __vbe_copy_region_unbuffered(unsigned int x, unsigned int y, unsigned int width, unsigned int height, unsigned final_x, unsigned int final_y) {
+    if (final_y > y + height || final_y < y) {
+        for (unsigned int i = 0; i < height; i++) {
+            memmove(
+                (void*)back_framebuffer + (final_y + i) * vbe_current_mode->info.pitch + final_x * vbe_current_mode->info.bpp/8,
+                (void*)back_framebuffer + (final_y + i) * vbe_current_mode->info.pitch + x * vbe_current_mode->info.bpp/8,
+                width * vbe_current_mode->info.bpp/8
+            );
+        }
+    } else {
+        for (unsigned int i = height; i > 0; i--) {
+            memmove(
+                (void*)back_framebuffer + (final_y + i - 1) * vbe_current_mode->info.pitch + final_x * vbe_current_mode->info.bpp/8,
+                (void*)back_framebuffer + (final_y + i - 1) * vbe_current_mode->info.pitch + x * vbe_current_mode->info.bpp/8,
+                width * vbe_current_mode->info.bpp/8
+            );
+        }
     }
 }
 
@@ -543,36 +685,22 @@ void vbe_copy_region_unbuffered(unsigned int x, unsigned int y, unsigned int wid
     if (final_x + width > display_width) width = display_width - final_x;
     if (final_y + height > display_height) height = display_height - final_y;
 
-    if (final_y > y + height || final_y < y) {
-        for (unsigned int i = 0; i < height; i++) {
-            void * src = VBE_LINEAR_FRAMEBUFFER_START +
-                (y + i)       * vbe_current_mode->info.pitch + x       * vbe_current_mode->info.bpp/8;
-            void * dest = VBE_LINEAR_FRAMEBUFFER_START +
-                (final_y + i) * vbe_current_mode->info.pitch + final_x * vbe_current_mode->info.bpp/8;
 
-            memmove(dest, src, width * vbe_current_mode->info.bpp/8);
-        }
+    spinlock_acquire_interruptible(&framebuffer_lock);
+    if (back_framebuffer != NULL &&
+        display_width == back_framebuffer_w &&
+        display_height == back_framebuffer_h // couldn't be bother checking everything again
+    ) {
+        __vbe_copy_region_buffered(x, y, width, height, final_x, final_y);
     } else {
-        for (unsigned int i = height; i > 0; i--) {
-            void * src = VBE_LINEAR_FRAMEBUFFER_START +
-                (y + i - 1)       * vbe_current_mode->info.pitch + x       * vbe_current_mode->info.bpp/8;
-            void * dest = VBE_LINEAR_FRAMEBUFFER_START +
-                (final_y + i - 1) * vbe_current_mode->info.pitch + final_x * vbe_current_mode->info.bpp/8;
-
-            memmove(dest, src, width * vbe_current_mode->info.bpp/8);
-        }
+        __vbe_copy_region_unbuffered(x, y, width, height, final_x, final_y);
     }
+    spinlock_release(&framebuffer_lock);
+
+    vbe_swap_region(final_x, final_x + width - 1, final_y, final_y + height - 1);
 }
 
 void vbe_fill_buffered(unsigned int start_x, unsigned int end_x, unsigned start_y, unsigned int end_y, uint32_t color, char use_palette) {
-    switch(vbe_current_mode->info.memory_model) {
-        case VBE_MEMORY_MODEL_PACKED:
-        case VBE_MEMORY_MODEL_DIRECT:
-            break;
-        case VBE_MEMORY_MODEL_YUV:
-        default: return;
-    }
-
     if (start_x >= display_width)  start_x = display_width - 1;
     if (start_y >= display_height) start_y = display_height - 1;
 
@@ -581,61 +709,63 @@ void vbe_fill_buffered(unsigned int start_x, unsigned int end_x, unsigned start_
 
     if (use_palette) color = console_colors[color & 0xF];
 
-    // precompute the packed color bytes to avoid expensive bit operations
-    uint32_t direct_color = 0;
-    direct_color =
-            (color >> 24) >>
-            (8 - vbe_current_mode->info.red_mask) <<
-            (vbe_current_mode->info.red_position);
-    direct_color |=
-            (color >> 16 & 0xFF) >>
-            (8 - vbe_current_mode->info.green_mask) <<
-            (vbe_current_mode->info.green_position);
-    direct_color |=
-            (color >> 8 & 0xFF) >>
-            (8 - vbe_current_mode->info.blue_mask) <<
-            (vbe_current_mode->info.blue_position);
-
+    uint32_t direct_color = vbe_get_direct_color(color);
     uint32_t packed_color = VGA_RGB32_TO_RGB8(color);
 
+    spinlock_acquire_interruptible(&framebuffer_lock);
 
-    for (unsigned int y = start_y; y <= end_y; y++) {
-        void * dest = VBE_LINEAR_FRAMEBUFFER_START + y * vbe_current_mode->info.pitch;
-
-        for (unsigned int x = start_x; x <= end_x; x++) {
-            switch(vbe_current_mode->info.memory_model) {
-                case VBE_MEMORY_MODEL_PACKED:
-                    ((uint8_t *)dest)[x] = packed_color;
-                    break;
-                case VBE_MEMORY_MODEL_DIRECT:
-                    switch (vbe_current_mode->info.bpp) {
-                        case 8:
-                                ((uint8_t *)dest)[x] = direct_color;
-                                break;
-                        case 16:
-                                ((uint16_t *)dest)[x] = direct_color;
-                                break;
-                        case 24:
-                                ((uint8_t *)dest)[x*3 + 0] = direct_color >> 16;
-                                ((uint8_t *)dest)[x*3 + 1] = direct_color >> 8;
-                                ((uint8_t *)dest)[x*3 + 2] = direct_color >> 0;
-                                break;
-                        case 32:
-                                ((uint32_t *)dest)[x] = direct_color;
-                                break;
-                        default: break;
-                    }
-                default: break;
+    if (back_framebuffer != NULL &&
+        display_width == back_framebuffer_w &&
+        display_height == back_framebuffer_h)
+    {
+        if (vbe_current_mode->info.memory_model == VBE_MEMORY_MODEL_PACKED) {
+            for (unsigned int y = start_y; y <= end_y; y++) {
+                for (unsigned int x = start_x; x <= end_x; x++) {
+                    back_framebuffer[y * back_framebuffer_w + x] = packed_color;
+                }
+            }
+        } else {
+            for (unsigned int y = start_y; y <= end_y; y++) {
+                for (unsigned int x = start_x; x <= end_x; x++) {
+                    back_framebuffer[y * back_framebuffer_w + x] = direct_color;
+                }
+            }
+        }
+    } else {
+        if (vbe_current_mode->info.memory_model == VBE_MEMORY_MODEL_PACKED) {
+            for (unsigned int y = start_y; y <= end_y; y++) {
+                for (unsigned int x = start_x; x <= end_x; x++) {
+                    __vbe_write_framebuffer_unbuffered(x, y, packed_color);
+                }
+            }
+        } else {
+            for (unsigned int y = start_y; y <= end_y; y++) {
+                for (unsigned int x = start_x; x <= end_x; x++) {
+                    __vbe_write_framebuffer_unbuffered(x, y, direct_color);
+                }
             }
         }
     }
 
+    spinlock_release(&framebuffer_lock);
+    if (back_framebuffer != NULL) vbe_swap_region(start_x, end_x, start_y, end_y);
 }
-
 void vbe_hw_shift_scanlines(unsigned int scanlines) {
-    for (unsigned int i = scanlines; i < display_height; i++) {
-        memcpy(VBE_LINEAR_FRAMEBUFFER_START + (i-scanlines) * vbe_current_mode->info.pitch,
-                VBE_LINEAR_FRAMEBUFFER_START + i * vbe_current_mode->info.pitch,
-                vbe_current_mode->info.pitch);
+    spinlock_acquire_interruptible(&framebuffer_lock);
+    if (back_framebuffer != NULL) {
+        for (unsigned int i = scanlines; i < back_framebuffer_h; i++) {
+            memcpy(back_framebuffer + (i-scanlines) * back_framebuffer_w,
+                    back_framebuffer + i * back_framebuffer_w,
+                    back_framebuffer_w * sizeof(*back_framebuffer));
+        }
+    } else {
+        for (unsigned int i = scanlines; i < display_height; i++) {
+            memcpy(LINEAR_FRAMEBUFFER_START + (i-scanlines) * vbe_current_mode->info.pitch,
+                    LINEAR_FRAMEBUFFER_START + i * vbe_current_mode->info.pitch,
+                    vbe_current_mode->info.pitch);
+        }
     }
+    spinlock_release(&framebuffer_lock);
+
+    vbe_swap_region(0, display_width, 0, display_height - scanlines);
 }

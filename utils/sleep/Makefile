@@ -19,4 +19,4 @@ all: $(OBJS)
 .PHONY: clean
 clean:
 	rm -f build/*
-	rm src/sleep.o
+	rm -f src/sleep.o

@@ -9,7 +9,7 @@
 #include "include/elf.h"
 #include "include/lowlevel.h"
 #include "include/kernel_gdt_idt.h"
-#include "include/vga.h"
+#include "include/gfx/vga.h"
 #include <stddef.h>
 
 // all static functions assume locked scheduler

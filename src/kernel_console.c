@@ -60,12 +60,20 @@ char cursor_currently_visible = 0;
 
 void console_cursor_hide() {
     if (!cursor_busy && cursor_currently_visible) {
-        // because we run these from the RTC interrupt, we could be in the VGA draw routine -> deadlock
+        // because we run these from the RTC interrupt, we could be in
+        // the VGA draw routine -> deadlock
+        // any draw routing using the framebuffer -> deadlock
+
         // it would be much better to have a separate thread for blinking
         // but this since the cursor isn't that important, we can just skip drawing
-        extern spinlock_t gfx_spinlock;
-        if (gfx_spinlock.state == SPINLOCK_LOCKED) return;
 
+        // note that this is actually enough,
+        // we just need to check whether it's our thread that's the one who acquired the lock
+        // and since the interrupt (assuming) happens in the thread that locked it
+        // there's no way we race on the state
+        extern spinlock_t gfx_spinlock;
+        if (gfx_spinlock.state     == SPINLOCK_LOCKED) return;
+        if (framebuffer_lock.state == SPINLOCK_LOCKED) return;
         cursor_busy = 1;
         cursor_currently_visible = 0;
 
@@ -106,7 +114,8 @@ void console_cursor_show() {
     if (!cursor_busy && !cursor_currently_visible) {
 
         extern spinlock_t gfx_spinlock;
-        if (gfx_spinlock.state == SPINLOCK_LOCKED) return;
+        if (gfx_spinlock.state     == SPINLOCK_LOCKED) return;
+        if (framebuffer_lock.state == SPINLOCK_LOCKED) return;
 
         cursor_busy = 1;
         cursor_currently_visible = 1;
@@ -122,7 +131,7 @@ void console_cursor_show() {
 }
 
 // called from the RTC handler
-#define CONSOLE_CURSOR_REFRESH_TICKS 256
+#define CONSOLE_CURSOR_REFRESH_TICKS 500
 void console_blink_cursor() {
     if (uptime_clicks % CONSOLE_CURSOR_REFRESH_TICKS) return;
     if (!console_cursor_shown) {
@@ -164,7 +173,7 @@ void console_redraw_range(int startx, int endx, int starty, int endy) {
 
     for (unsigned int y = starty; y <= endy; y++) {
         for (unsigned int x = startx; x <= endx; x++) {
-            //if (!isprint(console_buffer[y * console_buffer_w + x].c)) continue;
+            if (!isprint(console_buffer[y * console_buffer_w + x].c)) continue;
 
             gfx_blit_char(
                 console_buffer[y * console_buffer_w + x].c,
@@ -276,6 +285,14 @@ static void console_scroll(int lines) {
     console_cursor_hide();
     cursor_busy = 1;
     gfx_hw_scroll_scanlines(console_font_height*FONT_MULTIPLIER);
+    current_video_funcs->fill_buffered(0, display_width - 1,
+        display_height - console_font_height*FONT_MULTIPLIER, display_height - 1,
+        console_default_color_bg, 1
+    );
+    current_video_funcs->swap_region(0, display_width - 1,
+        display_height - console_font_height*FONT_MULTIPLIER, display_height - 1
+    );
+
     if (current_process == NULL || console_buffer == NULL) return; // scheduler not initialized -> early boot -> no heap
 
     spinlock_acquire(&console_buffer_lock);
@@ -726,8 +743,6 @@ static char ansi_escape_state_machine(char c) {
 }
 
 void console_write(const char * s, size_t len) {
-    console_cursor_hide();
-    cursor_busy = 1;
     for (int i = 0; i < len; i++) {
         if (ansi_escape_state_machine(s[i])) continue;
 
@@ -789,11 +804,6 @@ void console_write(const char * s, size_t len) {
             if (console_y >= display_height_chars / FONT_MULTIPLIER - 1) {
                 console_y = display_height_chars / FONT_MULTIPLIER - 1;
                 console_scroll(1);
-                current_video_funcs->fill_buffered(0, display_width - 1,
-                    display_height - console_font_height*FONT_MULTIPLIER, display_height - 1,
-                    console_default_color_bg, 1);
-                current_video_funcs->swap_region(0, display_width - 1,
-                    display_height - console_font_height*FONT_MULTIPLIER, display_height - 1);
             } else console_y++;
             continue;
         }
@@ -808,8 +818,8 @@ void console_write(const char * s, size_t len) {
         if (console_x >= display_width_chars / FONT_MULTIPLIER - 1) goto new_line;
         console_x++;
     }
+
     console_move_cursor(console_x, console_y);
-    cursor_busy = 0;
 }
 
 

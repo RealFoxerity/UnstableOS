@@ -2,9 +2,6 @@
 #define VBE_H
 #include <stdint.h>
 
-#define VBE_LINEAR_FRAMEBUFFER_START ((void*)0x06000000)
-#define VBE_LINEAR_FRAMEBUFFER_MAX_SIZE 0x01000000
-
 #define VBE_MEMORY_MODEL_PACKED 0x04
 #define VBE_MEMORY_MODEL_DIRECT 0x06
 #define VBE_MEMORY_MODEL_YUV    0x07
@@ -72,7 +69,13 @@ struct VBE_mode_info {
     uint8_t  __resv1[206];
 } __attribute__((packed));
 
-#include "gfx.h"
+struct VBE_modes_list {
+    unsigned short mode_num;
+    struct VBE_mode_info info;
+    struct VBE_modes_list * next;
+};
+
+#include "../gfx.h"
 extern struct gfx_funcs vbe_funcs;
 
 // call only once during setup
@@ -84,7 +87,7 @@ void vbe_clear();
 void vbe_write_pixel_buffered(unsigned int x, unsigned int y, uint32_t color, char use_palette);
 void vbe_copy_region_unbuffered(unsigned int x, unsigned int y, unsigned int width, unsigned int height, unsigned int final_x, unsigned int final_y);
 void vbe_fill_buffered(unsigned int start_x, unsigned int end_x, unsigned start_y, unsigned int end_y, uint32_t color, char use_palette);;
-uint32_t vbe_read_pixel(unsigned int x, unsigned int y);
+uint32_t vbe_read_framebuffer(unsigned int x, unsigned int y);
 void vbe_hw_shift_pixels(unsigned int pixels);
 void vbe_hw_shift_scanlines(unsigned int scanlines);
 #endif

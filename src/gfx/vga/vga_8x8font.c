@@ -9,7 +9,7 @@ with 8x8 and resolution 640x480, we can achieve 80x60 chars
 this font is the Tandy 2K 8 pixels wide which can be found at
 https://github.com/viler-int10h/vga-text-mode-fonts/blob/master/FONTS/NON-PC/TANDY2K2.F08
 */
-#include "../include/vga.h"
+#include "gfx/vga.h"
 const unsigned char vga_font8x8[256*8] = {
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
 0x3c, 0x42, 0xa5, 0x81, 0xa5, 0x99, 0x42, 0x3c, 
