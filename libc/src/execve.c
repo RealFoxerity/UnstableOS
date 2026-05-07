@@ -1,7 +1,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdlib.h>
-#include "../../src/include/kernel.h"
+#include <UnstableOS/syscalls.h>
 #include <stdio.h>
 #include <sys/stat.h>
 #include <errno.h>

@@ -4,7 +4,7 @@
 
 #include "block/memdisk.h"
 #include "debug/backtrace.h"
-#include "devs.h"
+#include "../libc/src/include/UnstableOS/devs.h"
 #include <errno.h>
 #include "fs/fs.h"
 #include "fs/vfs.h"
@@ -324,6 +324,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     init_inodes();
     init_superblocks();
 
+    extern void dev_initialize_static_devices();
     dev_initialize_static_devices();
 
     // assuming that by some miracle the gpu doesn't support vga emulation,
@@ -354,7 +355,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     if (openat_inode(current_process->root, "/dev", O_DIRECTORY | O_RDONLY, 0, &dev_inode) < 0) {
         kprintf("No /dev directory in initial memdisk, /dev won't be mounted\n");
     } else {
-        if (mount_dev(-1, dev_inode, FS_DEVFS, 0) != 0) {
+        if (mount_dev(dev_get_ephemeral(), dev_inode, FS_DEVFS, 0) != 0) {
             kprintf("Error while mounting /dev, /dev won't be mounted\n");
         }
         close_inode(dev_inode);

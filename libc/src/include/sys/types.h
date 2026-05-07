@@ -18,7 +18,8 @@ typedef ssize_t pid_t;
 typedef id_t ino_t;
 typedef id_t gid_t;
 typedef id_t uid_t;
-typedef unsigned short mode_t;
+// unsigned short would be enough, however stdarg has undefined behavior for lesser types
+typedef unsigned int mode_t;
 typedef ssize_t off_t;
 
 #endif

@@ -1,7 +1,7 @@
 #include "fs/devfs.h"
 #include "fs/fs.h"
 #include "fs/vfs.h"
-#include "devs.h"
+#include "../../libc/src/include/UnstableOS/devs.h"
 #include "kernel.h"
 #include "mm/kernel_memory.h"
 #include <errno.h>
@@ -228,11 +228,12 @@ int devfs_stat(inode_t * file, struct stat * buf) {
             *buf = (struct stat) {
                 .st_mode = S_IFDIR | S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH
             };
-            return 0;
+            break;
         case 1: // stat for "..", which doesn't make sense
             return -EINVAL;
         default:
             *buf = devfs_files[(size_t)file->id - 2].node_info;
     }
+    buf->st_dev = file->backing_superblock->device;
     return 0;
 }

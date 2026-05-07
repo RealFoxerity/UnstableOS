@@ -16,7 +16,7 @@ It is not meant as a production OS, there is no testing, there is no fuzzing. I 
 - `exec()`, CoW `fork()`, `spawn()`, `wait()`
 - Signals - most of `sig*`, `kill()`, `tgkill()`
 - Semaphores and kernel spinlocks (technically mutexes)
-- Mostly POSIX compliant TTY
+- Mostly POSIX compliant TTY with most of termios
 - DEC VT102 inspired framebuffer console
 - Lame and lacking custom libc
 - Custom (lame and lacking) shell
@@ -83,7 +83,8 @@ see [caveats.md](./caveats.md) for info
 - [ ] implement priority for realtime signals 
 - [x] `waitid()`, `waitpid()`
 - [ ] `alarm()`
-- [ ] finish implementing sessions and foreground groups for TTY
+- [x] finish implementing sessions and foreground groups for TTY
+- [ ] implement `setsid()` and controlling terminal allocation
 - [x] errno in userspace instead of returning negative numbers
 - [ ] scheduler priorities?
 - [ ] any form of fpu

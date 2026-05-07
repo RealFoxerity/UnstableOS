@@ -4,7 +4,7 @@
 #include <errno.h>
 #include <signal.h>
 #include <string.h>
-#include <sys/limits.h>
+#include <limits.h>
 #include "kernel_spinlock.h"
 #include "mm/kernel_memory.h"
 

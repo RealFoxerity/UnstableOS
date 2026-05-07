@@ -20,28 +20,28 @@ struct stat {
 
 
 // our defines, more readable names
-#define __ITMODE_MASK       0xF000
-#define __ITMODE_REG        0x1000
-#define __ITMODE_DIR        0x2000
-#define __ITMODE_PIPE       0x3000
-#define __ITMODE_BLK        0x4000
-#define __ITMODE_CHAR       0x8000
+#define __ITMODE_MASK       070000
+#define __ITMODE_REG        010000
+#define __ITMODE_DIR        020000
+#define __ITMODE_PIPE       030000
+#define __ITMODE_BLK        040000
+#define __ITMODE_CHAR       050000
 
-#define __IPMODE_MASK       0x0FFF
-#define __IPMODE_O_STICKY   0x0008 // sticky bit
-#define __IPMODE_O_READ     0x0004
-#define __IPMODE_O_WRITE    0x0002
-#define __IPMODE_O_EXEC     0x0001
+#define __IPMODE_MASK       07777
+#define __IPMODE_O_STICKY   01000 // sticky bit
+#define __IPMODE_O_READ     00004
+#define __IPMODE_O_WRITE    00002
+#define __IPMODE_O_EXEC     00001
 
-#define __IPMODE_G_SET      0x0080 // SGID
-#define __IPMODE_G_READ     0x0040
-#define __IPMODE_G_WRITE    0x0020
-#define __IPMODE_G_EXEC     0x0010
+#define __IPMODE_G_SET      02000 // SGID
+#define __IPMODE_G_READ     00040
+#define __IPMODE_G_WRITE    00020
+#define __IPMODE_G_EXEC     00010
 
-#define __IPMODE_U_SET      0x0800 // SUID
-#define __IPMODE_U_READ     0x0400
-#define __IPMODE_U_WRITE    0x0200
-#define __IPMODE_U_EXEC     0x0100
+#define __IPMODE_U_SET      04000 // SUID
+#define __IPMODE_U_READ     00400
+#define __IPMODE_U_WRITE    00200
+#define __IPMODE_U_EXEC     00100
 
 // the classic posix macros
 #define S_IRUSR __IPMODE_U_READ

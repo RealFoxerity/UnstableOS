@@ -5,17 +5,28 @@
 #define STDOUT_FILENO 1
 #define STDERR_FILENO 2
 
-#include "sys/types.h"
+#include <stdint.h>
+
+#include <sys/types.h>
 
 #define SEEK_SET 0
 #define SEEK_CUR 1
 #define SEEK_END 2
 
+int brk(void * addr);
+void * sbrk(intptr_t increment);
+
 int close(int fd);
 ssize_t write(int fd, const void * buf, size_t count);
 ssize_t read (int fd, void * buf, size_t count);
 
+char *getcwd(char *buf, size_t size);
+
 int pipe(int fildes[2]);
+
+int isatty(int fildes); // termios.c
+pid_t tcgetpgrp(int fildes); // termios.c
+int tcsetpgrp(int fildes, pid_t pgid_id); // termios.c
 
 off_t lseek(int fd, off_t offset, int whence);
 

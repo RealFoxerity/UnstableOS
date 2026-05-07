@@ -78,7 +78,7 @@ extern superblock_t ** kernel_superblocks;
  * file_descriptor_t and inode_t is already defined
  */
 
-#include <sys/limits.h>
+#include <limits.h>
 #include "../kernel_sched_queues.h"
 
 struct pipe {
@@ -121,10 +121,9 @@ void inode_change_mode(inode_t * inode, unsigned short new_mode);
 // puts a new fd into the current process
 int get_fd_from_inode(inode_t * inode, unsigned short flags);
 
-int sys_open(const char * path, unsigned short flags, unsigned short mode);
-int sys_openat(int fd, const char * path, unsigned short flags, unsigned short mode);
+int sys_openat(int fd, const char * path, unsigned short flags, mode_t mode);
 // the kernel function itself
-int openat_inode(inode_t * base, const char * path, unsigned short flags, unsigned short mode, inode_t ** out);
+int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t mode, inode_t ** out);
 
 int sys_chdir(const char * path);
 int sys_chroot(const char * path);
@@ -137,7 +136,7 @@ ssize_t sys_read(int fd, void * buf, size_t count);
 ssize_t sys_write(int fd, const void * buf, size_t count);
 off_t sys_seek(int fd, off_t off, int whence);
 
-long sys_ioctl(int fd, unsigned long command, void * arg);
+long sys_ioctl(int fd, unsigned long request, void * arg);
 
 #include <dirent.h>
 ssize_t sys_readdir(int fd, struct dirent * dent, size_t dent_size);

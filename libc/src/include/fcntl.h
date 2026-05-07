@@ -9,12 +9,12 @@
 #define O_DIRECTORY 16 // open() fails with ENOTDIR if resolved to a regular file
 #define O_SEARCH 32 // open() allows just metadata read access, not yet fully implemented
 
-#define AT_FDCWD -1
+#define AT_FDCWD (-1)
 #include "sys/types.h"
 #include "sys/stat.h"
 
-int open(const char * path, unsigned short flags, mode_t mode);
-int openat(int fd, const char * path, unsigned short flags, mode_t mode);
+int open(const char * path, unsigned short flags, ...);
+int openat(int fd, const char * path, unsigned short flags, ...);
 int creat(const char * path, mode_t mode);
 
 #endif

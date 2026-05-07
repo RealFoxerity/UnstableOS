@@ -101,6 +101,27 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
             asm volatile ("jmp kernel_idle");
             break;
 
+        case SYSCALL_BRK:
+            if (current_process->ring == 0) panic("Called brk in a kernel task!");
+            if ((void *)arg1 < PROGRAM_HEAP_VADDR ||
+                (void *) arg1 >= PROGRAM_HEAP_VADDR + PROGRAM_MAX_HEAP_SIZE)
+            {
+                return_value = (unsigned long)current_process->program_break;
+                break;
+            }
+
+            if ((void *)arg1 > current_process->program_break) {
+                current_process->program_break = (void *)arg1;
+                return_value = arg1;
+                break;
+            }
+            void * old_break = current_process->program_break;
+            current_process->program_break = (void *)arg1;
+            paging_unmap(current_process->program_break,
+                old_break - current_process->program_break);
+            return_value = arg1;
+            break;
+
         case SYSCALL_WRITE:
             if (!paging_check_address_range((const void*)arg2, arg3, 0, in_kernel)) {
                 return_value = -EFAULT;
@@ -229,12 +250,8 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
                 return_value = -EFAULT;
                 break;
             }
+            asm volatile ("sti");
             return_value = sys_mount((const char*)arg1, (const char*)arg2, (unsigned char)arg3, (unsigned short)arg4);
-            break;
-        case SYSCALL_OPEN:
-            asm volatile ("sti;");
-            // it is up to sys_open to securely copy the path (arg1)
-            return_value = sys_open((const char *)arg1, arg2, arg3);
             break;
         case SYSCALL_OPENAT:
             asm volatile ("sti;");
@@ -374,9 +391,11 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
         case SYSCALL_SIGQUEUE:
             return_value = sys_sigqueue(arg1, arg2, (union sigval){arg3});
             break;
+        case SYSCALL_IOCTL:
+            asm volatile ("sti");
+            return_value = sys_ioctl(arg1, arg2, (void *)arg3);
+            break;
         case SYSCALL_SETPGID:
-        case SYSCALL_TCGETPGRP:
-        case SYSCALL_TCSETPGRP:
         case SYSCALL_MKDIR:
         case SYSCALL_UNLINK:
         default:

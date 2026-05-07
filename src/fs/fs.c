@@ -364,19 +364,16 @@ long ioctl_file(file_descriptor_t * file, unsigned long command, void * arg) {
     int test = check_file(file);
     if (test != 0) return test;
 
-    if (!(S_ISBLK(file->inode->mode) || S_ISCHR(file->inode->mode)))
-        return -EINVAL;
-
     spinlock_acquire(&file->access_lock);
     long ret = ioctl_dev(file, command, arg);
     spinlock_release(&file->access_lock);
     return ret;
 }
 
-long sys_ioctl(int fd, unsigned long command, void * arg) {
+long sys_ioctl(int fd, unsigned long request, void * arg) {
     if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
 
     file_descriptor_t * file = current_process->fds[fd];
 
-    return ioctl_file(file, command, arg);
+    return ioctl_file(file, request, arg);
 }

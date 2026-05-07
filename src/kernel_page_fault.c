@@ -1,7 +1,7 @@
 #include "include/debug/backtrace.h"
 #include "include/kernel.h"
 #include "include/kernel_interrupts.h"
-#include "include/devs.h"
+#include "../libc/src/include/UnstableOS/devs.h"
 #include "include/kernel_gdt_idt.h"
 #include "include/kernel_sched.h"
 #include "include/kernel_exec.h"
@@ -109,7 +109,7 @@ __attribute__((no_caller_saved_registers)) int page_fault_handler(unsigned long 
             } else
                 spinlock_release(&memdisk_lock);
         } else { // overcommitment
-            if (fault_address >= PROGRAM_HEAP_VADDR && fault_address < PROGRAM_HEAP_VADDR + PROGRAM_HEAP_SIZE) {
+            if (fault_address >= PROGRAM_HEAP_VADDR && fault_address <= current_process->program_break) {
                 if (paging_add_page(fault_address, PTE_PDE_PAGE_USER_ACCESS | PTE_PDE_PAGE_WRITABLE) == NULL) {
                     kprintf("\e[0m\e[41mPage fault: Ran out of memory in heap overcommitmen! Killing task...\n");
                 } else return 1;

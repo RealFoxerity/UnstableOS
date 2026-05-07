@@ -1,8 +1,8 @@
 #ifndef KERNEL_H
 #define KERNEL_H
 #include <stdint.h>
-#include "../../libc/src/include/stdio.h"
-#include "devs.h"
+#include <stdio.h>
+#include <UnstableOS/devs.h>
 
 #define KERNEL_TIMER_RESOLUTION_MSEC 4
 #define RTC_TIMER_RESOLUTION_HZ 1024
@@ -46,82 +46,7 @@
     list->prev = item;                              \
 }
 
-#define SYSCALL_INTERR 0xF0 // if changing, change crt0.s
-
-enum syscalls {
-    SYSCALL_EXIT = 0, // if changing, change crt0.s, exit(long exitcode)
-    SYSCALL_ABORT = 1,
-    SYSCALL_OPEN,
-    SYSCALL_OPENAT,
-    SYSCALL_CLOSE,
-
-    SYSCALL_DUP,
-    SYSCALL_DUP2,
-
-    SYSCALL_MKDIR,
-    //SYSCALL_CREATE, handled by OPEN
-    SYSCALL_UNLINK,
-
-    SYSCALL_READ,
-    SYSCALL_WRITE,
-    SYSCALL_SEEK,
-
-    SYSCALL_READDIR, // theoretically could be implemented in read()
-
-    SYSCALL_PIPE,
-
-    SYSCALL_CHDIR,
-    SYSCALL_CHROOT,
-
-    SYSCALL_FSTAT,
-    SYSCALL_FSTATAT,
-
-    SYSCALL_MOUNT,
-
-    SYSCALL_EXEC,
-    SYSCALL_FORK,
-    SYSCALL_SPAWN, // spawn a new process (fork() + exec())
-
-    SYSCALL_GETPID,
-    SYSCALL_GETPPID,
-    SYSCALL_GETTID,
-    //SYSCALL_SETSID,
-    SYSCALL_GETPGID, // getpgid(pid_t target_pid)
-    SYSCALL_SETPGID, // setpgid(pid_t target_pid, pid_t target_pgid)
-
-    SYSCALL_KILL,
-    SYSCALL_TGKILL,
-
-    SYSCALL_SIGACTION,
-    SYSCALL_SIGRETURN,
-    SYSCALL_SIGPROCMASK,
-    SYSCALL_SIGPENDING,
-    SYSCALL_SIGSUSPEND,
-    SYSCALL_SIGQUEUE,
-
-    SYSCALL_WAITPID, // the same as the waitpid() function
-
-    SYSCALL_CREATE_THREAD, // create_thread(void (* entry_point)(void*), void * args)
-    SYSCALL_EXIT_THREAD, // like exit() but for threads, no exitcode, has to be done via userspace (see libc/src/threads.c)
-
-    SYSCALL_YIELD,
-
-    SYSCALL_NANOSLEEP,
-    SYSCALL_TIME,
-
-    // different than the function since we can't easily return 64 bits: struct tms * buffer, clock_t * elapsed
-    // we could do 32 bits, but then the 2038 problem comes to bite us
-    SYSCALL_TIMES,
-
-    //SYSCALL_IOCTL,
-    SYSCALL_TCGETPGRP,
-    SYSCALL_TCSETPGRP,
-
-    SYSCALL_SEM_INIT, // semaphore_t sem_init(int initial val)
-    SYSCALL_SEM_POST, // sem_post(int semaphore id)
-    SYSCALL_SEM_WAIT, // sem_wait(int semaphore id)
-    SYSCALL_SEM_DESTROY,
-};
+#include <UnstableOS/syscalls.h>
 
 extern unsigned long _kernel_base, _kernel_top, _kernel_stack_top, boot_mem_top;
 extern time_t system_time_sec, uptime_clicks;
@@ -132,7 +57,7 @@ void __attribute__((noreturn)) panic(char * reason);
 
 void kernel_reset_system(); // kernel_ps2.c
 
-
+dev_t dev_get_ephemeral();
 
 /****** feature macros ******/
 #define HEAP_POISONING // fills freed chunks with 0x41 and allocated with 0x62
@@ -168,4 +93,14 @@ if not selected, reschedule only happens on cleanup and non-running thread state
 // if defined, reading/writing to /dev/fb calls current_video_funcs->read/write
 // if not defined, raw reading from the mapped framebuffer
 //#define FB_ACCESS_CALLS_GFX_API
+
+/* POSIX wants EINVAL on invalid request of any kind, and
+ * ENOTTY for non-STREAMS based devices
+ *
+ * Linux does EINVAL on completely invalid requests,
+ * ENOTTY for requests that are normally valid, but not for this kind of device, and
+ * ENOTTY for non-STREAMS based devices
+ */
+//#define POSIX_LIKE_IOCTL_ERRORS
+
 #endif

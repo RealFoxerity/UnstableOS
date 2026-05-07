@@ -28,4 +28,6 @@ static const char * __errno_msgs[] = {
     [EOVERFLOW] = "Value too large to be stored in data type",
     [EINTR]     = "Interrupted function",
     [ENODEV]    = "No such device",
+    [ENOTTY]    = "Inappropriate I/O control operation",
+    [EPERM]     = "Operation not permitted",
 };

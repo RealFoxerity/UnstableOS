@@ -5,13 +5,14 @@
 // one of the registered ones is the first TTY
 
 #include "kernel.h"
-#include "devs.h"
+#include "../libc/src/include/UnstableOS/devs.h"
 #include "dev_ops.h"
 #include "fs/fs.h"
 #include "mm/kernel_memory.h"
 #include "kernel_spinlock.h"
 #include <string.h>
 #include <errno.h>
+#include <sys/ioctl.h>
 
 static spinlock_t devs_lock = {0};
 
@@ -142,15 +143,32 @@ off_t seek_dev(file_descriptor_t * file, off_t offset, int whence) {
 
     return dev_ops.seek(file, offset, whence);
 }
-long ioctl_dev(file_descriptor_t *file, unsigned long cmd, void * arg) {
+long ioctl_dev(file_descriptor_t *file, unsigned long request, void * arg) {
     kassert(file);
     kassert(file->inode);
-    kassert(S_ISCHR(file->inode->mode) || S_ISBLK(file->inode->mode));
+
+    // following the linux-like approach that everything can have an IOCTL
+    // for context: POSIX normally mandates ENOTTY on non-STREAMS devices,
+    // and EINVAL on invalid request and/or arg
+    // meanwhile linux just does ENOTTY whenever the request doesn't match the device
+    if (!(
+#ifndef POSIX_LIKE_IOCTL_ERRORS
+        S_ISBLK(file->inode->mode) ||
+#endif
+        S_ISCHR(file->inode->mode)))
+            return -ENOTTY;
+
+    if (MAJOR(file->inode->device) != __IOCTL_DEV(request))
+#ifndef POSIX_LIKE_IOCTL_ERRORS
+        return -ENOTTY;
+#else
+        return -EINVAL;
+#endif
 
     struct dev_operations dev_ops = dev_ops_lookup(file->inode->device);
-    if (dev_ops.ioctl == NULL) return -EINVAL;
+    if (dev_ops.ioctl == NULL) return -ENODEV;
 
-    return dev_ops.ioctl(file, cmd, arg);
+    return dev_ops.ioctl(file, request, arg);
 }
 
 
@@ -159,4 +177,9 @@ extern void dev_register_basic_devices();
 void dev_initialize_static_devices() {
     framebuffer_register();
     dev_register_basic_devices();
+}
+
+dev_t dev_get_ephemeral() {
+    static unsigned short last_id = 0;
+    return GET_DEV(DEV_MAJ_EPHEMERAL, __atomic_fetch_add(&last_id, 1, __ATOMIC_RELAXED) % 1024);
 }

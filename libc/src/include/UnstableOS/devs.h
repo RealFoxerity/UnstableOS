@@ -1,5 +1,5 @@
-#ifndef DEVS_H
-#define DEVS_H
+#ifndef _UNSTABLEOS_DEVS_H
+#define _UNSTABLEOS_DEVS_H
 
 
 typedef unsigned short dev_t; // major << 10 | minor   major is then 0-64 and minor 1024
@@ -14,7 +14,8 @@ enum dev_maj {
     DEV_MAJ_BLOCK,
     DEV_MAJ_TTY,
     DEV_MAJ_MISC,
-    DEV_MAJ_FB // minor here being the id of the framebuffer
+    DEV_MAJ_FB, // minor here being the id of the framebuffer
+    DEV_MAJ_EPHEMERAL, // numbers incrementing so that st_dev in stat is different for virtual file systems
 };
 
 #define MEMDISK_LIMIT_KERNEL 4
@@ -61,5 +62,4 @@ enum dev_tty_min {
     DEV_TTY_CONSOLE = 255 // the kernel log
 };
 
-void dev_initialize_static_devices();
 #endif
