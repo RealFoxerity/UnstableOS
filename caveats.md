@@ -25,6 +25,8 @@
 - missing `SA_RESTART`, almost all `si_code` values for `siginfo_t`
 - no support for PCI Configuration Space #2 (for i486 and early Pentiums)
 - no /dev/fb0 support on pure VGA (due to banking)
+- no break condition support on TTY and RS-232
+- no baud/speed settings, delays, and control flags in termios
 ### Known console issues (compared to a VT102 excluding DEC escapes)
 ---
 - not setting bg for the rest of a line when encountering `\r\n`
@@ -34,7 +36,3 @@
 - no underlines
 - no "bolds" (but we do support 16 colors like xterm)
 - no blinks (though i am working on that)
-
-### Untested features that might work?
----
-- TTY foreground groups and sessions

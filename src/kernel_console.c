@@ -1,7 +1,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "../libc/src/include/stdio.h"
-#include "include/devs.h"
+#include "../libc/src/include/UnstableOS/devs.h"
 #include "include/kernel.h"
 #include "include/kernel_tty_io.h"
 #include "include/keyboard.h"
@@ -250,7 +250,7 @@ static void console_set_char(int x, int y, char c) {
                 cy >= end_y;
                 cy--
         ) {
-            memcpy(console_buffer_2 + cy * display_width_chars / FONT_MULTIPLIER,
+            memcpy(console_buffer_2 + (cy - end_y) * display_width_chars / FONT_MULTIPLIER,
                    console_buffer + cy * console_buffer_w,
                    new_line_length * sizeof(struct character_cell)
             );

@@ -4,10 +4,10 @@ LD		:=i686-elf-ld
 
 # gnu has asm volatile instead of __asm
 CFLAGS	:=\
--ffreestanding -T src/linker.ld -nostdlib -nodefaultlibs -nostartfiles -O3 -g -std=gnu99 \
--isystem src/include -isystem libc/src/include -isysroot . \
--DTARGET_I486  -Wall -Wno-unknown-pragmas \
--fstack-protector
+	-ffreestanding -T src/linker.ld -nostdlib -nodefaultlibs -nostartfiles -O3 -g -std=gnu99 \
+	-isystem src/include -isystem libc/src/include -isysroot . \
+	-Wall -Wno-unknown-pragmas -fno-strict-aliasing\
+	-fstack-protector
 LDFLAGS	:=-T src/linker.ld -lgcc
 
 OBJS=$(shell find src/ -name "*.[cs]" | sed 's/[cs]$$/o/g') $(shell $(CC) --print-libgcc-file-name)
@@ -59,8 +59,9 @@ src/kernel_syscall.o: src/kernel_syscall.c
 
 PHONY: build/memdisk.tar
 build/memdisk.tar: utils
-	mkdir -p build/initmd/bin build/initmd/dev
+	mkdir -p build/initmd/bin build/initmd/dev build/initmd/usr/include
+	cp -r libc/src/include/* build/initmd/usr/include/
 	cp utils/*/build/* build/initmd/bin/
 	cp build/initmd/bin/ysh build/initmd/init
 	cp -r utils build/initmd
-	tar -C build/initmd -cf build/memdisk.tar init utils bin dev
+	tar -C build/initmd -cf build/memdisk.tar init utils bin dev usr

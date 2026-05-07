@@ -2,8 +2,8 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <dirent.h>
-#include "../../src/include/kernel.h"
-#include "../../src/include/errno.h"
+#include <UnstableOS/syscalls.h>
+#include <errno.h>
 
 #include <assert.h>
 #define MAX_FILENAME_LEN 512
@@ -18,7 +18,7 @@ DIR * fdopendir(int fd) {
 }
 DIR * opendir(const char * filename) {
     if (filename == NULL) return NULL;
-    int fd = open(filename, O_RDONLY | O_DIRECTORY, 0);
+    int fd = open(filename, O_SEARCH | O_DIRECTORY, 0);
     return fdopendir(fd);
 }
 int dirfd(DIR * dirp) {

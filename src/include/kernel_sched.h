@@ -2,9 +2,9 @@
 #define KERNEL_SCHED_H
 
 #include <stddef.h>
-#include "../../libc/src/include/time.h"
-#include "../../libc/src/include/signal.h"
-#include "../../libc/src/include/sys/limits.h"
+#include <time.h>
+#include <signal.h>
+#include <limits.h>
 #include "kernel_interrupts.h"
 #include "kernel_spinlock.h"
 #include "mm/kernel_memory.h"
@@ -29,12 +29,9 @@
 
 #define ___PROGRAM_HEAP_VADDR (0x80000000) // base
 #define PROGRAM_HEAP_VADDR ((void*)___PROGRAM_HEAP_VADDR) // base
-#define PROGRAM_HEAP_SIZE (0x40000000) // 1GiB
-#define PROGRAM_HEAP_START_SIZE (0x90000) // 0.5MiB, the initially allocated amount
+#define PROGRAM_MAX_HEAP_SIZE (0x40000000) // 1GiB
 
-#define PROGRAM_MINIMUM_AVAIL_MEMORY (PROGRAM_HEAP_START_SIZE+PROGRAM_STACK_SIZE+PROGRAM_KERNEL_STACK_SIZE)
-
-#if (___PROGRAM_HEAP_VADDR + PROGRAM_HEAP_SIZE > ___PROGRAM_STACK_VADDR - PTHREAD_THREADS_MAX*PROGRAM_STACK_SIZE)
+#if (___PROGRAM_HEAP_VADDR + PROGRAM_MAX_HEAP_SIZE > ___PROGRAM_STACK_VADDR - PTHREAD_THREADS_MAX*PROGRAM_STACK_SIZE)
 #error "\
 Processes' memory map would have thread stacks and heap overlap!\n\
 Consider lowering thread count, increasing stack base address, lowering heap address, and/or decreasing stack and heap sizes"
@@ -112,12 +109,16 @@ struct process_t {
         pgrp, // used for tty interrupts
         session;
 
+    char orphaned_pgrp; // 1 = orphaned
+
     unsigned long uid, gid;
     PAGE_DIRECTORY_TYPE * address_space_paddr;
 
     char thread_stacks[PTHREAD_THREADS_MAX];
     // a way to keep track of available address ranges, 1 = used
     // PROGRAM_STACK_VADDR - i*PROGRAM_STACK_SIZE
+
+    void * program_break;
 
     size_t argc;
     const char ** argv;

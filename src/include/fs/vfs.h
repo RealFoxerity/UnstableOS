@@ -50,7 +50,7 @@ struct vfs_ops {
     int (*unlink)    (superblock_t * sb, const char * pathname);
     int (*rmdir)     (superblock_t * sb, const char * pathname);
 
-    inode_t*(*create)(superblock_t * sb, inode_t * parent, const char * pathname, unsigned short mode);
+    inode_t*(*create)(superblock_t * sb, inode_t * parent, const char * pathname, mode_t mode);
 
     // note: fd offset 0 is considered the "." folder to simplify userspace rewinddir()
     ssize_t (*readdir) (file_descriptor_t * fd, struct dirent * dent, size_t dent_size);

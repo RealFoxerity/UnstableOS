@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "rs232.h"
-#include "devs.h"
+#include "../libc/src/include/UnstableOS/devs.h"
 #include "kernel_tty_io.h"
 #include "lowlevel.h"
 #include "kernel.h"

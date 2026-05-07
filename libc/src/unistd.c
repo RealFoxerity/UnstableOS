@@ -1,11 +1,35 @@
 #include <stddef.h>
 #include <stdarg.h>
-#include "include/unistd.h"
-#include "include/signal.h"
-#include "include/time.h"
-#include "include/errno.h"
-#include "../../src/include/kernel.h"
+#include <unistd.h>
+#include <signal.h>
+#include <time.h>
+#include <errno.h>
+#include <UnstableOS/syscalls.h>
+#include <sys/ioctl.h>
 
+#include "assert.h"
+
+int brk(void * addr) {
+    void * old_break = (void *)syscall(SYSCALL_BRK, NULL);
+    void * new_break = (void *)syscall(SYSCALL_BRK, addr);
+
+    if (new_break == old_break) {
+        errno = -ENOMEM;
+        return -1;
+    }
+    return 0;
+}
+
+void * sbrk(intptr_t increment) {
+    void * old_break = (void *)syscall(SYSCALL_BRK, NULL);
+    void * new_break = (void *)syscall(SYSCALL_BRK, old_break + increment);
+
+    if (new_break == old_break) {
+        errno = -ENOMEM;
+        return (void *)-1;
+    }
+    return old_break;
+}
 
 int close(int fd) {
     int ret = syscall(SYSCALL_CLOSE, fd);
@@ -117,7 +141,10 @@ unsigned sleep(unsigned seconds) {
     struct timespec waited = {.tv_sec = seconds, .tv_nsec = 0};
 
     long ret = syscall(SYSCALL_NANOSLEEP, &waited, &actual);
-    if (ret < 0) return ret;
+    if (ret < 0) {
+        errno = -ret;
+        return ret;
+    }
 
     return actual.tv_sec;
 }
@@ -142,4 +169,17 @@ long syscall(unsigned long syscall_number, ...) { // interrupt handler in kernel
         :"m"(arg4), "D"(arg1), "S"(arg2), "d"(arg3)
     );
     return out;
+}
+
+int ioctl(int fildes, unsigned long request, ...) {
+    va_list args;
+    va_start(args, request);
+    unsigned long arg = va_arg(args, unsigned long);
+
+    long ret = syscall(SYSCALL_IOCTL, fildes, request, arg);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return ret;
 }

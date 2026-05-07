@@ -1,10 +1,16 @@
-#include "../../src/include/kernel_sched.h"
+#include <stddef.h>
+#include <unistd.h>
+#include <UnstableOS/syscalls.h>
 
 char ** environ = NULL;
 int errno;
 
+#define START_HEAP_SIZE 0x8000000 // 128MiB
+
 extern void malloc_prepare(void *heap_struct_start, void *heap_top);
 void __libc_init(int argc, char ** args) {
-    malloc_prepare(PROGRAM_HEAP_VADDR, PROGRAM_HEAP_VADDR + PROGRAM_HEAP_SIZE);
+    void * heap_start = sbrk(START_HEAP_SIZE);
+
+    malloc_prepare(heap_start, heap_start + START_HEAP_SIZE);
     environ = args + argc + 1;
 }

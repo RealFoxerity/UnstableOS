@@ -270,7 +270,7 @@ char paging_check_address_range(const void * addr, size_t n, char writable, char
     for (const void * iteraddr = addr; iteraddr < addr+n && iteraddr >= addr; iteraddr += PAGE_SIZE_NO_PAE) { // > addr in case we wrap around
         const PAGE_TABLE_TYPE * pte = paging_get_pte(iteraddr);
         if (pte == NULL) {
-            if (!(iteraddr >= PROGRAM_HEAP_VADDR && iteraddr < PROGRAM_HEAP_VADDR + PROGRAM_HEAP_SIZE))
+            if (!(iteraddr >= PROGRAM_HEAP_VADDR && iteraddr <= current_process->program_break))
                 return 0;
             // overcommitment, we could rely on page faults, but that would
             // require all syscalls to have interrupts enabled at all times

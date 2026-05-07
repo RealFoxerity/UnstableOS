@@ -64,7 +64,7 @@
 
 #define USHRT_MAX  ((1 << (sizeof(unsigned short) * 8)) - 1)
 
-#include "types.h" // ssize_t
+#include "sys/types.h"
 #define SSIZE_MAX  (((unsigned long long)1 << (sizeof(ssize_t) * 8 - 1)) - 1)
 #define SSIZE_MIN  (-SSIZE_MAX)
 

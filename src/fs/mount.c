@@ -128,7 +128,7 @@ long sys_mount(const char * dev_path, const char * mount_path, unsigned char typ
 
     switch (type) {
         case FS_DEVFS: // devfs doesn't require a device
-            ret = mount_dev(-1, mount_inode, type, options);
+            ret = mount_dev(dev_get_ephemeral(), mount_inode, type, options);
             close_inode(mount_inode);
             return ret;
         default:

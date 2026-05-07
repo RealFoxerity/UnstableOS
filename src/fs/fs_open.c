@@ -1,14 +1,14 @@
-#include "../include/fs/fs.h"
-#include "../include/fs/vfs.h"
-#include "../include/kernel_sched.h"
-#include "../include/errno.h"
-#include "../include/mm/kernel_memory.h"
+#include "fs/fs.h"
+#include "fs/vfs.h"
+#include "kernel_sched.h"
+#include <errno.h>
+#include "mm/kernel_memory.h"
 
-#include "../../libc/src/include/string.h"
-#include "../../libc/src/include/sys/limits.h"
-#include "../include/kernel_tty_io.h"
-#include "../include/block/memdisk.h"
-#include "../../libc/src/include/fcntl.h"
+#include <string.h>
+#include <limits.h>
+#include "kernel_tty_io.h"
+#include "block/memdisk.h"
+#include <fcntl.h>
 
 
 static int __open_raw_device(dev_t device, unsigned short flags, file_descriptor_t ** file_out) {
@@ -101,18 +101,7 @@ static inline char * secure_strdup(const char * path, size_t max_len, size_t *le
 // TODO: check permissions
 // note: if file is open for searching only, check the directory permissions
 
-int openat_inode(inode_t * base, const char * path, unsigned short flags, unsigned short mode, inode_t ** out);
-int sys_open(const char * path, unsigned short flags, unsigned short mode) {
-    inode_t * new = NULL;
-    int ret = openat_inode(current_process->pwd, path, flags, mode, &new);
-    if (ret < 0) return ret;
-    ret = get_fd_from_inode(new, flags);
-    if (ret < 0)
-        close_inode(new);
-    return ret;
-}
-
-int sys_openat(int fd, const char * path, unsigned short flags, unsigned short mode) {
+int sys_openat(int fd, const char * path, unsigned short flags, mode_t mode) {
     if ((fd < 0 || fd >= FD_LIMIT_PROCESS) && fd != AT_FDCWD) return -EBADF;
 
     inode_t * ino = NULL;
@@ -136,7 +125,7 @@ int sys_openat(int fd, const char * path, unsigned short flags, unsigned short m
     return ret;
 }
 
-int openat_inode(inode_t * base, const char * path, unsigned short flags, unsigned short mode, inode_t ** out) {
+int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t mode, inode_t ** out) {
     if (base == NULL) {
         kprintf("\e[0m\e[41mWarning: called openat with NULL base inode!\e[0m\n");
         return -EINVAL;
@@ -238,6 +227,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, unsign
         if (*next_slash == '\0') last_fragment = 1;
         *next_slash = '\0';
 
+        lookup_escape_again:
         if (last_fragment) {
             if (sb->mount_options & MOUNT_RDONLY && mode & O_WRONLY) {
                 close_inode(prev);
@@ -279,10 +269,10 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, unsign
             new = sb->mountpoint;
             __atomic_add_fetch(&new->instances, 1, __ATOMIC_RELAXED);
             sb = new->backing_superblock;
-            if (last_fragment) {
-                close_inode(prev);
-                break;
-            }
+            close_inode(prev);
+
+            prev = new;
+            goto lookup_escape_again; // try again on parent superblock
         }
         if (new == VFS_LOOKUP_NOTDIRECTORY) {
             close_inode(prev);

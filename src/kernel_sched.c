@@ -176,6 +176,15 @@ static inline void register_kernel_task(mcontext_t * context) {
 
 
 static inline char scheduler_remove_process(process_t * process) {
+    if (!process->orphaned_pgrp) { // in case we need to call remove_process > 1
+        process->orphaned_pgrp = 1;
+        for (process_t * pgrp_proc = process_list; pgrp_proc != NULL; pgrp_proc = pgrp_proc->next) {
+            if (pgrp_proc->pgrp == process->pgrp) {
+                pgrp_proc->orphaned_pgrp = 1;
+            }
+        }
+    }
+
     for (thread_t * thread = process->threads; thread != NULL; ) {
         if (!kernel_destroy_thread(process, thread)) {
             thread = thread->next;

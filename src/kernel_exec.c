@@ -22,7 +22,7 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
     ssize_t stack_state_sz = exec_safe_argv_dup(argv, envp, PROGRAM_STACK_VADDR, &stack_state);
     if (stack_state_sz < 0) return stack_state_sz;
 
-    int elf_fd = sys_open(path, O_RDONLY, 0);
+    int elf_fd = sys_openat(AT_FDCWD, path, O_RDONLY, 0);
     if (elf_fd < 0) return elf_fd;
     if (S_ISDIR(current_process->fds[elf_fd]->inode->mode)) {
         sys_close(elf_fd);
@@ -78,6 +78,7 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
     paging_unmap_page(mapped_as);
 
     current_process->address_space_paddr = new_pd_paddr;
+    current_process->program_break = PROGRAM_HEAP_VADDR;
 
     for (int i = 0; i < SEM_NSEMS_MAX; i++) {
         if (current_process->semaphores[i] == NULL) continue;
@@ -150,7 +151,7 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     if (stack_state_sz < 0) return stack_state_sz;
     spinlock_release(&scheduler_lock);
 
-    int elf_fd = sys_open(path, O_RDONLY, 0);
+    int elf_fd = sys_openat(AT_FDCWD, path, O_RDONLY, 0);
     if (elf_fd < 0) return elf_fd;
     if (S_ISDIR(current_process->fds[elf_fd]->inode->mode)) {
         sys_close(elf_fd);
@@ -173,6 +174,7 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     proc->parent = current_process;
     proc->pid = __atomic_add_fetch(&last_pid, 1, __ATOMIC_RELAXED);
     proc->address_space_paddr = paging_virt_addr_to_phys(new_prog.pd_vaddr);
+    proc->program_break = PROGRAM_HEAP_VADDR;
     proc->threads = NULL;
 
     proc->sa_pending = 0;

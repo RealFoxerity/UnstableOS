@@ -1,7 +1,7 @@
 #ifndef MEMDISK_H
 #define MEMDISK_H
 #include <stddef.h>
-#include "../../include/devs.h"
+#include <UnstableOS/devs.h>
 #include "../../include/mm/kernel_memory.h"
 #include "../../../libc/src/include/sys/types.h"
 

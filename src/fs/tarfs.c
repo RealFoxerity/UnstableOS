@@ -36,20 +36,14 @@ static inline unsigned long long oct2int(const char * oct_data, size_t n) {
     return out;
 }
 
-static inline mode_t tar_mode_parse(const char * oct_data, size_t n) {
+static mode_t tar_mode_parse(const char * oct_data, size_t n) {
     size_t out = 0;
     for (size_t i = 0; i < n; i++) {
         if(!isdigit(oct_data[i])) break;
-        out *= 16;
+        out *= 8;
         out += oct_data[i] - '0';
     }
-    out &= 0x7777;
-    if (out & 0x7000) {
-        if (out & 0x1000) out |= S_ISVTX;
-        if (out & 0x2000) out |= S_ISGID;
-        if (out & 0x4000) out |= S_ISUID;
-    }
-    out &= 0xFFF;
+    out &= __IPMODE_MASK;
     return out;
 }
 

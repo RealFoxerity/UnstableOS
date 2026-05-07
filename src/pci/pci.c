@@ -274,7 +274,7 @@ void * pci_map_mmio(void * phys_start, size_t size, unsigned int page_flags) {
     }
 
     // align to page size
-    if (size &  PAGE_SIZE_NO_PAE - 1) {
+    if (size & (PAGE_SIZE_NO_PAE - 1)) {
         size &= PAGE_SIZE_NO_PAE - 1;
         size += PAGE_SIZE_NO_PAE;
     }

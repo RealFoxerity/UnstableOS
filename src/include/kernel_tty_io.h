@@ -2,7 +2,8 @@
 #define KERNEL_TTY_IO_H
 #include "kernel_spinlock.h"
 #include "kernel_sched.h"
-#include "devs.h"
+#include "../../libc/src/include/UnstableOS/devs.h"
+#include <termios.h>
 
 #define EMPTY(tq) ((tq)->head == (tq)->tail)
 #define FULL(tq) (((tq)->head == 0 && (tq)->tail == TTY_BUFFER_SIZE - 1) || (tq)->tail == (tq)->head - 1)
@@ -18,77 +19,36 @@
 #define TTY_BUFFER_SIZE 4096
 #define MAX_CANNON TTY_BUFFER_SIZE
 
-#define TTY_L_ECHO 1
-#define TTY_L_ICANON 2 // new line buffering
-#define TTY_L_ISIG 4 // enable signals
-#define TTY_L_TOSTOP 8 // set SIGTTOU if background process group tries to write()
-#define TTY_L_ECHOE 16 // echo VERASE as '\b \b' - the standard backspace behavior
-#define TTY_L_ECHOK 32 // echo \n after VKILL
-#define TTY_L_ECHOCTL 64 // echo escapes as ^X
-
-// as you might have noticed, i pick from the posix standard based on how easy things are to implement
-#define TTY_I_CRNL 1 // carriage return -> new line
-#define TTY_I_IGNCR 2 // ignore carriage return
-#define TTY_I_NLCR 4 // new line -> carriage return
-#define TTY_I_STRIP 8 // strip 8 bit ascii to 7 bit
-#define TTY_I_BRKINT 16 // VINTR sends sigint
-#define TTY_I_IGNBRK 32 // ignoring VINTR, trainslating into NULL byte
-//#define TTY_I_XOFF 64 // we can send VSTOP/VSTART to pause/resume the transmit of the other side TODO: implement
-#define TTY_I_XON 128 // recieving TCC_VSTOP pauses output, recieving TCC_VSTART resumes output
-#define TTY_I_XANY 256 // any recieved character resumes output
-
-#define TTY_O_POST 1 // whether to even do processing
-#define TTY_O_NLCR 2 // new line -> carriage return new line
-#define TTY_O_CRNL 4 // carriage return -> new line
-#define TTY_O_NLRET 8 // new line does also carriage return
-
-
-enum termios_control_chars { // NC non-canonical, IC canonical ("line buffered")
-    TCC_VEOF,   // IC       if ICANON all bytes immediately sent to process (as if \n was entered)
-    TCC_VEOL,   // IC       if ICANON another \n
-    TCC_VERASE, // IC       if not ICANON works as backspace (until EOF, EOL, \n)
-    TCC_VINTR,  // IC, NC   sigint
-    TCC_VKILL,  // IC       if ICANON deletes entire line (until EOF, EOL, \n)
-    TCC_VMIN,   // NC       minimum bytes to satisfy read for non-canonical mode
-    TCC_VQUIT,  // IC, NC   sigquit
-    TCC_VSUSP,  // IC, NC   sigtstp to foreground pgrp
-    TCC_VTIME,  // NC       timeout value for non-canonical mode
-    TCC_VSTART, // IC, NC   if flow control starts output again
-    TCC_VSTOP,  // IC, NC   if flow control stops output
-};
-
 #define _POSIX_VDISABLE 0xFF // if ICANON, putting this value into control chars disables the function
 static const unsigned char default_control_chars[11] = { // well imagine wanting to do ctrl+c to interrupt, look at C0 escapes, use that
-    [TCC_VEOF]     = '\x04',
-    [TCC_VEOL]     = '\x00',
-    [TCC_VERASE]   = '\x7f',
-    [TCC_VINTR]    = '\x03',
-    [TCC_VKILL]    = '\x19',
-    [TCC_VMIN]     = 1, // minimum amount of data needed to flush the tty
-    [TCC_VQUIT]    = '\x1c',
-    [TCC_VSUSP]    = '\x1a',
-    [TCC_VTIME]    = 0, // not an actual char
-    [TCC_VSTART]   = '\x11',
-    [TCC_VSTOP]    = '\x13',
+    [VEOF]   = 'D' - '@',
+    [VEOL]   = '\x00',
+    [VERASE] = '\x7f',
+    [VINTR]  = 'C' - '@',
+    [VKILL]  = 'U' - '@',
+    [VMIN]   = 1, // minimum amount of data needed to flush the tty
+    [VQUIT]  = '\\' - '@',
+    [VSTART] = 'Q' - '@',
+    [VSTOP]  = 'S' - '@',
+    [VSUSP]  = 'Z' - '@',
+    [VTIME]  = 0, // not an actual char, timeout in deciseconds for noncanonical read, not implemented
 };
 
-typedef unsigned short tcflag_t;
-struct termios {
-    unsigned char control_chars[11];
-    tcflag_t imodes;
-    tcflag_t omodes;
-    tcflag_t cmodes;
-    tcflag_t lmodes;
 
-    char input_stopped, output_stopped; // see IXON, IXOFF
-};
+#define TTY_QUEUE_MODE 0 // 0 = discards new input, 1 = overwrites old input, 2 = blocks until writable
 
 struct tty_queue {
     spinlock_t queue_lock;
     char buffer[TTY_BUFFER_SIZE];
     size_t head, tail; // tail = pointer to the next free char
-    //thread_queue_t write_queue; // see comments in kernel_tty_io.c
+#if TTY_QUEUE_MODE == 2
+    thread_queue_t write_queue;
+#endif
     thread_queue_t read_queue;
+
+    thread_queue_t ix_queue;
+
+    unsigned long tty_column; // for ONOCR
 };
 
 
@@ -96,12 +56,9 @@ struct tty_queue {
 struct tty_t {
     char used; // here so we don't need to free() the structure
     char com_port; // -1 if not serial backed
+    spinlock_t tty_lock; // for params
     size_t height;
     size_t width;
-
-    int posx, posy;
-
-    //unsigned short * terminal_framebuffer;
 
     struct tty_queue iqueue, oqueue; // input, output
 
@@ -113,6 +70,7 @@ struct tty_t {
     size_t read_remaining;
 
     struct termios params;
+    char input_stopped, output_stopped; // see IXON, IXOFF
 } typedef tty_t;
 
 extern tty_t * terminals[TTY_LIMIT_KERNEL];
@@ -126,11 +84,13 @@ void tty_register(tty_t * tty, dev_t minor);
 void tty_alloc_kernel_console();
 
 int tty_queue_getch(struct tty_queue * tq); // if 256, recieved SIGALRM
-int tty_queue_putch(struct tty_queue * tq, char c);
+
+// onlret being the same as the termios flag, that is resetting tty column to 0 on \n, \v
+int tty_queue_putch(struct tty_queue * tq, char c, char onlret);
 
 ssize_t tty_write(file_descriptor_t * file, const void * s, size_t n);
 ssize_t tty_read(file_descriptor_t * file, void * s, size_t n);
-long tty_ioctl(file_descriptor_t * file, unsigned long command, void * arg);
+long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg);
 
 long tty_write_to_tty(const char * s, size_t n, dev_t dev);
 
