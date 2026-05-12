@@ -162,6 +162,9 @@ void vbe_set_info(const struct VBE_modes_list * mode) {
         kprintf("VBE: Warning: Failed to set mode %hx - error code %hx\n", mode->mode_num, (unsigned short)ret.eax);
         return;
     }
+    // before mode setting in order for warnings from the realloc to go through with the old callbacks
+    // for example VGA (that doesn't use the framebuffer) -> VBE, where reallocating printing a warning would page fault
+    gfx_realloc_back_framebuffer(mode->info.width, mode->info.height);
 
     // this will momentarily break all colors :P
     // -> white = blue on mode 12
@@ -169,13 +172,22 @@ void vbe_set_info(const struct VBE_modes_list * mode) {
 
     vbe_current_mode = mode;
     current_video_funcs = &vbe_funcs;
-    display_width = mode->info.width;
-    display_height = mode->info.height;
 
+    // ifs to avoid locking operations
+    if (display_width > mode->info.width)
+        display_width = mode->info.width;
+    if (display_height > mode->info.height)
+        display_height = mode->info.height;
+
+    // has to be here instead of vbe info gather in case the mode has a different VRAM physical start address
     // using vbe_framebuffer_size instead of the specific one makes it easier for us to do thread safe clearing
     // among other things
-    gfx_realloc_back_framebuffer(mode->info.width, mode->info.height);
     gfx_remap_framebuffer((void *)mode->info.framebuffer_paddr, vbe_framebuffer_size, 0);
+
+    if (display_width < mode->info.width)
+        display_width = mode->info.width;
+    if (display_height < mode->info.height)
+        display_height = mode->info.height;
 }
 
 static struct VBE_modes_list * vbe_get_specified_mode(int xres, int yres) {

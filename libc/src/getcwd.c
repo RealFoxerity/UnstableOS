@@ -78,7 +78,7 @@ char *getcwd(char *buf, size_t size) {
         }
 
         size_t component_len = strlen(dent->d_name);
-        if (component_len == 2 && strcmp(dent->d_name, "..") == 0) break;
+        if (strcmp(dent->d_name, "..") == 0) break;
 
         if (remaining < component_len) {
             closedir(this_dir);

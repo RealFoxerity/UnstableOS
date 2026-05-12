@@ -14,6 +14,7 @@ spinlock_t sleep_queue_lock = {0};
 struct sleep_queue {
     process_t * process; // record keeping
     thread_t * thread;
+    unsigned int magic_queue_value;
     time_t time_delta_usec;
     struct sleep_queue * next;
 };
@@ -25,8 +26,12 @@ static void sleep_pop_thread() {
     kassert(sq->thread);
     kassert(sq->thread->instances > 0);
 
-    sq->thread->status = SCHED_RUNNABLE;
+    if (sq->magic_queue_value == sq->thread->magic_queue_value) {
+        sq->thread->status = SCHED_RUNNABLE;
 
+        // like signals, sleeping (when used internally) can invalidate thread wait queues
+        __atomic_add_fetch(&sq->thread->magic_queue_value, 1, __ATOMIC_RELAXED);
+    }
     if (__atomic_sub_fetch(&sq->thread->instances, 1, __ATOMIC_RELAXED) == 0) kfree(sq->thread);
 
     struct sleep_queue * old = sq;
@@ -34,7 +39,7 @@ static void sleep_pop_thread() {
     kfree(old);
 }
 
-static void sleep_remove_thread(process_t * pprocess, thread_t * thread) {
+void sleep_remove_thread(process_t * pprocess, thread_t * thread) {
     kassert(thread);
     kassert(thread->instances > 0);
     if (sq == NULL) return;
@@ -107,6 +112,7 @@ ssize_t sys_nanosleep(process_t * pprocess, thread_t * thread, struct timespec r
     *new_entry = (struct sleep_queue) {
         .process = pprocess,
         .thread = thread,
+        .magic_queue_value = thread->magic_queue_value,
     };
     if (__atomic_add_fetch(&thread->instances, 1, __ATOMIC_RELAXED) == UINT32_MAX) panic("Overflown thread instance count!");
 
@@ -142,7 +148,7 @@ ssize_t sys_nanosleep(process_t * pprocess, thread_t * thread, struct timespec r
     spinlock_release(&sleep_queue_lock);
     reschedule();
 
-    if (old_time_usec + requested_usec + RTC_TIME_RESOLUTION_USEC < uptime_clicks * RTC_TIME_RESOLUTION_USEC) {
+    if (old_time_usec + requested_usec > uptime_clicks * RTC_TIME_RESOLUTION_USEC) {
         sleep_remove_thread(pprocess, thread);
 
         if (elapsed == NULL) return -EINTR;

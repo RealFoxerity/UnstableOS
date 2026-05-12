@@ -32,6 +32,41 @@ static char is_valid_tty(dev_t dev) { // checks if the device is a valid raw tty
 }
 void tty_flush_input(tty_t * tty);
 
+// TODO: add the missing unimplemented ones
+// missing BRKINT, IGNBRK, IGNPAR, INPCK, unsure about whether to implement IXOFF?
+#define TERMIOS_VALID_IFLAGS ( \
+ICRNL | \
+IGNCR | \
+INLCR | \
+ISTRIP | \
+IXANY | \
+IXON \
+)
+
+// missing nldly, crly, tabdly, bsdly, vtdly
+#define TERMIOS_VALID_OFLAGS ( \
+OPOST | \
+ONLCR | \
+OCRNL | \
+ONOCR | \
+ONLRET \
+)
+
+#define TERMIOS_VALID_LFLAGS ( \
+ECHO | \
+ECHOE | \
+ECHOK | \
+ECHONL | \
+ICANON | \
+ISIG | \
+NOFLSH | \
+TOSTOP | \
+ECHOCTL \
+)
+
+// missing everything
+#define TERMIOS_VALID_CFLAGS (0)
+
 long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
     kassert(file);
     kassert(file->inode);
@@ -88,6 +123,10 @@ long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
 
             spinlock_acquire_interruptible(&tty_lock);
             memcpy(&terminals[MINOR(dev)]->params, arg, sizeof(struct termios));
+            terminals[MINOR(dev)]->params.c_iflag &= TERMIOS_VALID_IFLAGS;
+            terminals[MINOR(dev)]->params.c_oflag &= TERMIOS_VALID_OFLAGS;
+            terminals[MINOR(dev)]->params.c_lflag &= TERMIOS_VALID_LFLAGS;
+            terminals[MINOR(dev)]->params.c_cflag &= TERMIOS_VALID_CFLAGS;
             spinlock_release(&tty_lock);
             return 0;
         case TCSETSW: // apply after writing all
@@ -280,9 +319,9 @@ void tty_alloc_kernel_console() { // for the kernel task, don't call for user pr
     if (kernel_task == NULL) panic("Tried to allocate console before initializing kernel task!");
 
     tty_t * kernel_console = tty_init_tty(
-        ICRNL | IXON,
-        ECHO | ECHOE | ECHOK | ECHOCTL | ICANON | ISIG,
-        OPOST | ONLCR,
+        TTYDEF_IFLAG,
+        TTYDEF_LFLAG,
+        TTYDEF_OFLAG,
         default_control_chars,
         display_height, display_width,
         tty_console_write, 0,
@@ -294,12 +333,19 @@ void tty_alloc_kernel_console() { // for the kernel task, don't call for user pr
     dev_register_ops(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CURRENT), &tty_ops);
 }
 
-int tty_queue_getch(struct tty_queue * tq) { // if 256, got SIGALRM
+int tty_queue_getch(struct tty_queue * tq, struct timespec timeout) { // if 256, got SIGALRM
     kassert(tq->head < TTY_BUFFER_SIZE && tq->tail < TTY_BUFFER_SIZE);
 
     again:
-    if (EMPTY(tq))
-        thread_queue_add(&tq->read_queue, current_process, current_thread, SCHED_INTERR_SLEEP);
+    if (EMPTY(tq)) {
+        if (timeout.tv_nsec == 0 && timeout.tv_sec == 0)
+            thread_queue_add(&tq->read_queue, current_process, current_thread, SCHED_INTERR_SLEEP);
+        else if (timeout.tv_nsec == -1)
+            return 257;
+        else
+            if (thread_queue_add_with_timeout(&tq->read_queue, current_process, current_thread, timeout))
+                return 257;
+    }
     if (current_thread->sa_to_be_handled)
         return 256; // any signal interrupting
 
@@ -502,7 +548,7 @@ static inline size_t tty_translate_line_incoming(const char * s, size_t n, tty_t
                     }
                     if (tty->params.c_cc[VSUSP] != _POSIX_VDISABLE && checked == tty->params.c_cc[VSUSP]) {
                         signal_process_group(tty->foreground_pgrp, &(siginfo_t) {.si_signo = SIGTSTP });
-                        if (!(tty->params.c_lflag & NOFLSH)) tty_flush_input(tty);
+                        //if (!(tty->params.c_lflag & NOFLSH)) tty_flush_input(tty);
                         return i;
                     }
                 }
@@ -526,7 +572,6 @@ static inline size_t tty_translate_line_incoming(const char * s, size_t n, tty_t
                     if (tty_translate_line_outgoing(&(char){final + '@'}, 1, tty) != 1) return i;
                 }
             } else if (tty->params.c_lflag & ECHOCTL &&
-                    !(tty->params.c_lflag & ICANON) &&
                     final == 0x7f)
             {
                 if (tty_translate_line_outgoing("^?", 2, tty) != 2) return i;
@@ -541,10 +586,10 @@ static inline size_t tty_translate_line_incoming(const char * s, size_t n, tty_t
                 (tty->params.c_cc[VEOF] != _POSIX_VDISABLE && final == tty->params.c_cc[VEOF]) ||
                 (tty->params.c_cc[VEOL] != _POSIX_VDISABLE && final == tty->params.c_cc[VEOL]))) {
             tty_flush_input(tty);
-        } else if (!(tty->params.c_lflag & ICANON) &&
+        } else if (!(tty->params.c_lflag & ICANON) /* &&
                     ((tty->params.c_cc[VMIN] != _POSIX_VDISABLE &&
                         REMAIN(&tty->iqueue) >= tty->params.c_cc[VMIN]) ||
-                        tty->params.c_cc[VMIN] == _POSIX_VDISABLE)
+                        tty->params.c_cc[VMIN] == _POSIX_VDISABLE)*/
         ){
             tty_flush_input(tty);
         }
@@ -559,7 +604,12 @@ static size_t tty_translate_line_outgoing(const char * s, size_t n, tty_t * tty)
     if (tty->write == NULL) return n; // useless to write to a nonbacked tty
 
     if (!(tty->params.c_oflag & OPOST)) { // to avoid useless switch
-        for (size_t i = 0; i < n; i++) if (tty_queue_putch(&tty->oqueue, s[i], 0) == 256) return i;
+        for (size_t i = 0; i < n; i++) {
+            if (tty_queue_putch(&tty->oqueue, s[i], 0) == 256) return i;
+
+            if (!(tty->output_stopped && current_process->ring == 0))
+                tty->write(tty);
+        }
         return n;
     }
 
@@ -641,13 +691,47 @@ ssize_t tty_read(file_descriptor_t * file, void * s, size_t n) {
     while (!__atomic_compare_exchange_n(&tty->read_remaining, &(unsigned long){0}, n, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) asm volatile ("pause");
 
     int out = 0;
+    struct timespec timeout = {0};
+    if (!(tty->params.c_lflag & ICANON)) {
+        if (tty->params.c_cc[VTIME] == 0 && tty->params.c_cc[VMIN] == 0) {
+            timeout.tv_nsec = -1;
+        } else {
+            timeout.tv_sec  = tty->params.c_cc[VTIME] / 10;
+            timeout.tv_nsec = (tty->params.c_cc[VTIME] % 10) * 100000000;
+        }
+        if (tty->params.c_cc[VTIME] == 0 && tty->params.c_cc[VMIN] != 0)
+            n = tty->params.c_cc[VMIN];
+    }
+
     for (char * i = s; i < (char*)s + n; i++) {
-        out = tty_queue_getch(&tty->iqueue);
+        out = tty_queue_getch(&tty->iqueue, timeout);
         if (tty->params.c_lflag & ICANON) {
             if ((tty->params.c_cc[VEOF] != _POSIX_VDISABLE && out == tty->params.c_cc[VEOF]) ||
                 (tty->params.c_cc[VEOL] != _POSIX_VDISABLE && out == tty->params.c_cc[VEOL])) {
+                    tty->read_remaining = 0;
                     return i - (char*)s;
                 }
+        } else {
+            // POSIX general terminal interface 11.1.7 Non-canonical input processing case A
+            // VTIME is an interbyte interval, have to read at least 1 byte before returning
+            if (out == 257 && i == s && tty->params.c_cc[VTIME] != 0 && tty->params.c_cc[VMIN] != 0) {
+                i--; // counteract the for loop iteration
+                continue;
+            }
+            else if (out == 257      && tty->params.c_cc[VTIME] != 0 && tty->params.c_cc[VMIN] != 0) {
+                tty->read_remaining = 0;
+                return i - (char*)s;
+            }
+
+            // case B is handled by our "n" setup before this for
+
+            // case C & D
+            // C: VMIN is 0 and VTIME then serves as a complete read() timer for a single byte - handled by timeout
+            // D: both VMIN and VTIME are 0, read() returns immediately if no bytes present - handled by timeout of -1
+            if (out == 257 && tty->params.c_cc[VMIN] == 0) {
+                tty->read_remaining = 0;
+                return i - (char*)s;
+            }
         }
         if (out == 256) { // signal occured - interrupted sleep
             tty->read_remaining = 0;

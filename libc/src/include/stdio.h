@@ -9,6 +9,10 @@
 
 #define EOF 0
 
+#define stdin  STDIN_FILENO
+#define stdout STDOUT_FILENO
+#define stderr STDERR_FILENO
+
 void vfprintf(int fd, const char * format, va_list args);
 void __attribute__((format(printf, 2, 3))) fprintf(int fd, const char * format, ...);
 

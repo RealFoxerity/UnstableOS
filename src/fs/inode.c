@@ -138,7 +138,7 @@ inode_t * inode_from_device(dev_t device) {
 
     new_inode = get_free_inode();
 
-    new_inode->mode = S_IFBLK;
+    new_inode->mode = DEV_IS_CHAR(device) ? S_IFCHR : S_IFBLK;
     new_inode->device = device;
 
     end:

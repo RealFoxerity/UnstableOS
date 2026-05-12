@@ -29,10 +29,12 @@ void * __attribute__((malloc, malloc(free))) calloc(size_t size);
 long long atoll(const char * nptr);
 long atol(const char * nptr);
 int atoi(const char * nptr);
-unsigned long long strtoull(const char * start, char ** end_out);
-unsigned long strtoul(const char * start, char ** end_out);
-long long strtoll(const char * start, char ** end_out);
-long strtol(const char * start, char ** end_out);
+
+// in stdlib_strto.c
+unsigned long long strtoull(const char * __restrict start, char ** __restrict end_out, int base);
+unsigned      long strtoul (const char * __restrict start, char ** __restrict end_out, int base);
+         long long strtoll (const char * __restrict start, char ** __restrict end_out, int base);
+              long strtol  (const char * __restrict start, char ** __restrict end_out, int base);
 
 char * getenv(const char * name);
 #endif

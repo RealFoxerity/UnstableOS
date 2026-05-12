@@ -51,8 +51,7 @@ void thread_queue_unblock_all(thread_queue_t * thread_queue) {
 }
 
 // pprocess and thread here to allow adding other threads than current
-void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, enum pstatus_t new_status) {
-    spinlock_acquire(&thread_queue->queue_lock);
+void __thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread) {
     if (__atomic_add_fetch(&thread->instances, 1, __ATOMIC_RELAXED) == UINT32_MAX) panic("Overflown thread instance count!");
 
     if (thread_queue->queue.parent_process == NULL) {
@@ -60,7 +59,7 @@ void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, threa
         thread_queue->queue.thread = thread;
         thread_queue->queue.prev = &thread_queue->queue;
         thread_queue->queue.prev->magic_queue_value = thread->magic_queue_value;
-        goto before_unlock;
+        return;
     }
 
     thread_queue->queue.prev->next = kalloc(sizeof(struct __thread_queue_inner));
@@ -74,12 +73,27 @@ void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, threa
     thread_queue->queue.prev->parent_process = pprocess;
     thread_queue->queue.prev->thread = thread;
     thread_queue->queue.prev->magic_queue_value = thread->magic_queue_value;
+}
+void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, enum pstatus_t new_status) {
+    spinlock_acquire(&thread_queue->queue_lock);
 
-    before_unlock:
+    __thread_queue_add(thread_queue, pprocess, thread);
+
     thread->status = new_status;
     spinlock_release(&thread_queue->queue_lock);
 
     //kprintf("sleeping on thread id %d of process %d\n", thread->tid, pprocess->pid);
 
     reschedule();
+}
+
+char thread_queue_add_with_timeout(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, struct timespec ts) {
+    spinlock_acquire(&thread_queue->queue_lock);
+
+    __thread_queue_add(thread_queue, pprocess, thread);
+
+    spinlock_release(&thread_queue->queue_lock);
+    if (sys_nanosleep(pprocess, thread, ts, NULL) == 0) return 1;
+    //sleep_remove_thread(pprocess, thread); nanosleep gets woken up in time to remove the process
+    return 0;
 }
