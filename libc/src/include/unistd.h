@@ -13,6 +13,11 @@
 #define SEEK_CUR 1
 #define SEEK_END 2
 
+// if ICANON, putting this value into control chars disables the function
+// why is this here? wouldn't it make more sense to have it in termios.h?
+// but posix says so...
+#define _POSIX_VDISABLE 0xF0
+
 int brk(void * addr);
 void * sbrk(intptr_t increment);
 

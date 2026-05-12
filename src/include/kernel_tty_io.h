@@ -2,8 +2,12 @@
 #define KERNEL_TTY_IO_H
 #include "kernel_spinlock.h"
 #include "kernel_sched.h"
-#include "../../libc/src/include/UnstableOS/devs.h"
+#include <UnstableOS/devs.h>
 #include <termios.h>
+
+#define TTYDEF_IFLAG    (ICRNL | ISTRIP | IXANY | IXON)
+#define TTYDEF_OFLAG    (OPOST | ONLCR)
+#define TTYDEF_LFLAG    (ECHO | ECHOE | ECHOK | ICANON | ISIG | ECHOCTL)
 
 #define EMPTY(tq) ((tq)->head == (tq)->tail)
 #define FULL(tq) (((tq)->head == 0 && (tq)->tail == TTY_BUFFER_SIZE - 1) || (tq)->tail == (tq)->head - 1)
@@ -19,18 +23,18 @@
 #define TTY_BUFFER_SIZE 4096
 #define MAX_CANNON TTY_BUFFER_SIZE
 
-#define _POSIX_VDISABLE 0xFF // if ICANON, putting this value into control chars disables the function
+#define CTRL(c) ((c) & 0x1F)
 static const unsigned char default_control_chars[11] = { // well imagine wanting to do ctrl+c to interrupt, look at C0 escapes, use that
-    [VEOF]   = 'D' - '@',
+    [VEOF]   = CTRL('D'),
     [VEOL]   = '\x00',
     [VERASE] = '\x7f',
-    [VINTR]  = 'C' - '@',
-    [VKILL]  = 'U' - '@',
+    [VINTR]  = CTRL('C'),
+    [VKILL]  = CTRL('U'),
     [VMIN]   = 1, // minimum amount of data needed to flush the tty
-    [VQUIT]  = '\\' - '@',
-    [VSTART] = 'Q' - '@',
-    [VSTOP]  = 'S' - '@',
-    [VSUSP]  = 'Z' - '@',
+    [VQUIT]  = CTRL('\\'),
+    [VSTART] = CTRL('Q'),
+    [VSTOP]  = CTRL('S'),
+    [VSUSP]  = CTRL('Z'),
     [VTIME]  = 0, // not an actual char, timeout in deciseconds for noncanonical read, not implemented
 };
 
@@ -83,7 +87,14 @@ void tty_register(tty_t * tty, dev_t minor);
 
 void tty_alloc_kernel_console();
 
-int tty_queue_getch(struct tty_queue * tq); // if 256, recieved SIGALRM
+// specify 0 for no timeout -> wait forever
+// specify -1 in timespec->tv_nsec to return on empty buffer
+// otherwise blocks until timeout expires
+// this way to facilitate all 4 modes of POSIX terminal reading
+// cannot just return 256, because signals always return from read()
+// returns 257 on timer expiry, or on empty buffer if timespec->tv_nsec is -1
+// returns 256 on signal
+int tty_queue_getch(struct tty_queue * tq, struct timespec timeout);
 
 // onlret being the same as the termios flag, that is resetting tty column to 0 on \n, \v
 int tty_queue_putch(struct tty_queue * tq, char c, char onlret);

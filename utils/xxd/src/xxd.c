@@ -62,7 +62,7 @@ int main(int argc, char ** argv) {
     if (argc == 2) {
         in_fd = open(argv[1], O_RDONLY, 0);
         if (in_fd < 0) {
-            fprintf(STDERR_FILENO, "xxd: %s: %s\n", argv[1], strerror(errno));
+            fprintf(stderr, "xxd: %s: %s\n", argv[1], strerror(errno));
             return EXIT_FAILURE;
         }
     }

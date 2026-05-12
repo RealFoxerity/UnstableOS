@@ -43,9 +43,9 @@ char * fgets(char * s, int size, int fd) {
 
 void perror(const char * s) {
     if (s != NULL) {
-        fprintf(STDERR_FILENO, "%s: ", s);
+        fprintf(stderr, "%s: ", s);
     }
-    fprintf(STDERR_FILENO, "%s\n", strerror(errno));
+    fprintf(stderr, "%s\n", strerror(errno));
 }
 
 char *strerror(int errnum) {

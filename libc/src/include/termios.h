@@ -30,23 +30,23 @@ struct termios {
 
 
 // as you might have noticed, i pick from the posix standard based on how easy things are to implement
-#define IBRKINT 1 // break condition (see rs232 break status, unsupported) sends SIGINT
-#define ICRNL   2 // carriage return -> new line
-#define IGNBRK  4 // ignoring break condition, translating into NULL byte
-#define IGNCR   8 // ignore carriage return
-//#define IGNPAR  16 // ignore characters with parity error
-#define INLCR   32 // new line -> carriage return
-//#define INPCK   64 // enable parity check
-#define ISTRIP  128 // strip 8 bit ascii to 7 bit
-#define IXANY   256 // any received character resumes output
-//#define IXOFF   512 //  VSTOP/VSTART to pause/resume character input when internal buffer full? TODO: implement
+#define BRKINT 1     // break condition (see rs232 break status, TODO) sends SIGINT
+#define ICRNL   2    // carriage return -> new line
+#define IGNBRK  4    // ignoring break condition, translating into NULL byte, TODO
+#define IGNCR   8    // ignore carriage return
+#define IGNPAR  16   // ignore characters with parity error, TODO
+#define INLCR   32   // new line -> carriage return
+#define INPCK   64   // enable parity check, TODO
+#define ISTRIP  128  // strip 8 bit ascii to 7 bit
+#define IXANY   256  // any received character resumes output
+#define IXOFF   512  // VSTOP/VSTART to pause/resume character input when internal buffer full? TODO: implement
 #define IXON    1024 // VSTOP/VSTART to pause/resume character output
 
 
 #define OPOST  1 // whether to even do processing
 #define ONLCR  2 // new line -> carriage return new line
 #define OCRNL  4 // carriage return -> new line
-#define ONOCR  8
+#define ONOCR  8 // do not output \r on first column
 #define ONLRET 16 // new line resets tty column counter to 0
 //nldly, crdly, tabdly, bsdly, vtdly
 
@@ -66,14 +66,14 @@ struct termios {
 */
 
 
-#define ECHO   1
-#define ECHOE  2  // do VERASE visually (as '\b \b') - the standard backspace behavior
-#define ECHOK  4  // do VKILL visually - the standard CTRL+U behavior
-#define ECHONL 8  // echo \n even if ECHO is disabled
-#define ICANON 16 // newline buffered, control chars handling
-#define ISIG   32 // enable signals
-#define NOFLSH 64 // don't do flushing on VINTR, VQUIT, VSUSP
-#define TOSTOP 128 // set SIGTTOU if background process group tries to write()
+#define ECHO    1
+#define ECHOE   2   // do VERASE visually (as '\b \b') - the standard backspace behavior
+#define ECHOK   4   // do VKILL visually - the standard CTRL+U behavior
+#define ECHONL  8   // echo \n even if ECHO is disabled
+#define ICANON  16  // newline buffered, control chars handling
+#define ISIG    32  // enable signals
+#define NOFLSH  64  // don't do flushing on VINTR, VQUIT
+#define TOSTOP  128 // set SIGTTOU if background process group tries to write()
 #define ECHOCTL 256 // echo escapes as ^X
 
 /*

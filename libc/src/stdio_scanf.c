@@ -108,8 +108,9 @@ int vsscanf(const char * restrict s, const char * restrict format, va_list args)
                                 return -1;
                             }
 
-                            *(short*)temp = strtol(s + soff, &conv_end);
-                            soff = conv_end - s;
+                            *(short*)temp = strtol(s + soff, &conv_end, 10);
+                            if (s + soff == conv_end) return matched_args; // failed to parse
+                            soff = conv_end - s - 1;
                             matched_args++;
                             break;
                         case 'u':
@@ -121,8 +122,9 @@ int vsscanf(const char * restrict s, const char * restrict format, va_list args)
                                 return -1;
                             }
 
-                            *(short*)temp = strtoul(s + soff, &conv_end);
-                            soff = conv_end - s;
+                            *(short*)temp = strtoul(s + soff, &conv_end, 10);
+                            if (s + soff == conv_end) return matched_args; // failed to parse
+                            soff = conv_end - s - 1;
                             matched_args++;
                             break;
                         case 'h': // char
@@ -137,8 +139,9 @@ int vsscanf(const char * restrict s, const char * restrict format, va_list args)
                                         return -1;
                                     }
 
-                                    *(char*)temp = (char)strtol(s + soff, &conv_end);
-                                    soff = conv_end - s;
+                                    *(char*)temp = (char)strtol(s + soff, &conv_end, 10);
+                                    if (s + soff == conv_end) return matched_args; // failed to parse
+                                    soff = conv_end - s - 1;
                                     matched_args++;
                                     break;
                                 case 'u':
@@ -150,8 +153,9 @@ int vsscanf(const char * restrict s, const char * restrict format, va_list args)
                                         return -1;
                                     }
 
-                                    *(unsigned char*)temp = (unsigned char)strtoul(s + soff, &conv_end);
-                                    soff = conv_end - s;
+                                    *(unsigned char*)temp = (unsigned char)strtoul(s + soff, &conv_end, 10);
+                                    if (s + soff == conv_end) return matched_args; // failed to parse
+                                    soff = conv_end - s - 1;
                                     matched_args++;
                                     break;
                                 default:
@@ -174,8 +178,9 @@ int vsscanf(const char * restrict s, const char * restrict format, va_list args)
                         return -1;
                     }
 
-                    *(int*)temp = (int)strtol(s + soff, &conv_end);
-                    soff = conv_end - s;
+                    *(int*)temp = (int)strtol(s + soff, &conv_end, 10);
+                    if (s + soff == conv_end) return matched_args; // failed to parse
+                    soff = conv_end - s - 1;
                     matched_args++;
                     break;
                 case 'u': // unsigned int
@@ -188,8 +193,9 @@ int vsscanf(const char * restrict s, const char * restrict format, va_list args)
                         return -1;
                     }
 
-                    *(unsigned int*)temp = (unsigned int)strtoul(s + soff, &conv_end);
-                    soff = conv_end - s;
+                    *(unsigned int*)temp = (unsigned int)strtoul(s + soff, &conv_end, 10);
+                    if (s + soff == conv_end) return matched_args; // failed to parse
+                    soff = conv_end - s - 1;
                     matched_args++;
                     break;
                 case 'l': // 32+ bit numbers
@@ -204,8 +210,9 @@ int vsscanf(const char * restrict s, const char * restrict format, va_list args)
                                 return -1;
                             }
 
-                            *(long*)temp = strtol(s + soff, &conv_end);
-                            soff = conv_end - s;
+                            *(long*)temp = strtol(s + soff, &conv_end, 10);
+                            if (s + soff == conv_end) return matched_args; // failed to parse
+                            soff = conv_end - s - 1;
                             matched_args++;
                             break;
                         case 'u':
@@ -217,8 +224,9 @@ int vsscanf(const char * restrict s, const char * restrict format, va_list args)
                                 return -1;
                             }
 
-                            *(unsigned long*)temp = strtoul(s + soff, &conv_end);
-                            soff = conv_end - s;
+                            *(unsigned long*)temp = strtoul(s + soff, &conv_end, 10);
+                            if (s + soff == conv_end) return matched_args; // failed to parse
+                            soff = conv_end - s - 1;
                             matched_args++;
                             break;
                         case 'l':
@@ -233,8 +241,9 @@ int vsscanf(const char * restrict s, const char * restrict format, va_list args)
                                         return -1;
                                     }
 
-                                    *(long long*)temp = (long long)strtoll(s + soff, &conv_end);
-                                    soff = conv_end - s;
+                                    *(long long*)temp = (long long)strtoll(s + soff, &conv_end, 10);
+                                    if (s + soff == conv_end) return matched_args; // failed to parse
+                                    soff = conv_end - s - 1;
                                     matched_args++;
                                     break;
                                 case 'u':
@@ -246,8 +255,9 @@ int vsscanf(const char * restrict s, const char * restrict format, va_list args)
                                         return -1;
                                     }
 
-                                    *(unsigned long long*)temp = (unsigned long long)strtoull(s + soff, &conv_end);
-                                    soff = conv_end - s;
+                                    *(unsigned long long*)temp = (unsigned long long)strtoull(s + soff, &conv_end, 10);
+                                    if (s + soff == conv_end) return matched_args; // failed to parse
+                                    soff = conv_end - s - 1;
                                     matched_args++;
                                     break;
                                 default:

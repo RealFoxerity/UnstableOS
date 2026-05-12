@@ -2,7 +2,7 @@
 #define _UNSTABLEOS_DEVS_H
 
 
-typedef unsigned short dev_t; // major << 10 | minor   major is then 0-64 and minor 1024
+typedef unsigned short dev_t; // major << 10 | minor   major is then 0-32 with the top bit indicating char and minor 1024
 #define MAJOR(dev) (dev >> 10)
 #define MINOR(dev) (dev & 0x3FF)
 #define GET_DEV(major, minor) (((major) << 10) | ((minor) & 0x3FF))
@@ -12,11 +12,14 @@ typedef unsigned short dev_t; // major << 10 | minor   major is then 0-64 and mi
 enum dev_maj {
     DEV_MAJ_MEM,
     DEV_MAJ_BLOCK,
-    DEV_MAJ_TTY,
-    DEV_MAJ_MISC,
-    DEV_MAJ_FB, // minor here being the id of the framebuffer
     DEV_MAJ_EPHEMERAL, // numbers incrementing so that st_dev in stat is different for virtual file systems
+
+    DEV_MAJ_TTY = 0b100000, // first char device
+    DEV_MAJ_FB, // minor here being the id of the framebuffer
+    DEV_MAJ_MISC,
 };
+
+#define DEV_IS_CHAR(dev) ((dev) & 0x8000)
 
 #define MEMDISK_LIMIT_KERNEL 4
 enum dev_mem_min {

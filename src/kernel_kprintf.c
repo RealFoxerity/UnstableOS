@@ -46,6 +46,11 @@ void kprintf_write(const char * buf, size_t count) { // TODO: rewrite, this is h
         */
 
         //if (__builtin_expect(kernel_task == NULL || kernel_task->fds[0] == NULL || kernel_task->fds[0]->inode == NULL, 0)) {
+            // the kernel doesn't use the tty subsystem and its ONLCR flag, so we need to emulate it
+            if (buf[i] == '\n') {
+                console_write(&(char){'\r'}, 1);
+                com_write(0, &(char){'\r'}, 1);
+            }
             console_write(buf+i, 1);
             com_write(0, buf+i, 1);
         //} else {

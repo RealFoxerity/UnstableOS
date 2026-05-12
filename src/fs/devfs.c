@@ -126,13 +126,12 @@ inode_t * devfs_lookup(superblock_t * sb, inode_t * last, const char * pathname)
     kassert(pathname);
 
     size_t pathlen = strlen(pathname);
-    if (pathlen == 2 && strncmp(pathname, "..", 2) == 0) return VFS_LOOKUP_ESCAPE;
+    if (strcmp(pathname, "..") == 0) return VFS_LOOKUP_ESCAPE;
 
     size_t devfs_id = 0;
     if (!(pathlen == 0 || (pathlen == 1 && pathname[0] == '.'))) {
         for (int i = 0; i < sizeof(devfs_files)/sizeof(struct devfs_node); i++) {
-            if (pathlen == strlen(devfs_files[i].name) &&
-                strcmp(pathname, devfs_files[i].name) == 0) {
+            if (strcmp(pathname, devfs_files[i].name) == 0) {
                 devfs_id = i + 2;
                 break;
             }

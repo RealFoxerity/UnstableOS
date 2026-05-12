@@ -147,12 +147,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
     if (dup_path == NULL) return -EFAULT;
 
     // deciding whether normal path (/,///+) or meta directory //
-    if (
-        dup_path[0] == '/' &&
-        pathlen >= sizeof(PATH_METADIR) &&
-        strcmp(dup_path, PATH_METADIR) == 0 &&
-        dup_path[sizeof(PATH_METADIR) - 1] != '/'
-    ) {
+    if (strcmp(dup_path, PATH_METADIR) == 0) {
         kprintf("Stub: we don't yet support the // meta directory!\n");
         kfree(dup_path);
         return -EINVAL;

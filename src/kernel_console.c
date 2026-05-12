@@ -200,6 +200,10 @@ static void console_set_char(int x, int y, char c) {
         gfx_blit_char(c, console_x*console_font_width*FONT_MULTIPLIER,
                 console_y*console_font_height*FONT_MULTIPLIER,
         console_color_fg, console_color_bg, 1, FONT_MULTIPLIER);
+    } else if (c == CHAR_CELL_RELATED) {
+        gfx_blit_char(' ', console_x*console_font_width*FONT_MULTIPLIER,
+                console_y*console_font_height*FONT_MULTIPLIER,
+        console_color_fg, console_color_bg, 1, FONT_MULTIPLIER);
     }
 
     if (current_process == NULL || panicked_here) return; // scheduler not initialized -> early boot -> no heap
@@ -287,7 +291,7 @@ static void console_scroll(int lines) {
     gfx_hw_scroll_scanlines(console_font_height*FONT_MULTIPLIER);
     current_video_funcs->fill_buffered(0, display_width - 1,
         display_height - console_font_height*FONT_MULTIPLIER, display_height - 1,
-        console_default_color_bg, 1
+        console_color_bg, 1
     );
     current_video_funcs->swap_region(0, display_width - 1,
         display_height - console_font_height*FONT_MULTIPLIER, display_height - 1
@@ -800,7 +804,8 @@ void console_write(const char * s, size_t len) {
         }
         if (s[i] == '\n' || s[i] == '\v') { // see the vt102 user guide for \v behavior
             new_line:
-            console_x = 0;
+            //console_x = 0;
+
             if (console_y >= display_height_chars / FONT_MULTIPLIER - 1) {
                 console_y = display_height_chars / FONT_MULTIPLIER - 1;
                 console_scroll(1);
@@ -815,7 +820,10 @@ void console_write(const char * s, size_t len) {
             continue;
         }
         console_set_char(console_x, console_y, s[i]);
-        if (console_x >= display_width_chars / FONT_MULTIPLIER - 1) goto new_line;
+        if (console_x >= display_width_chars / FONT_MULTIPLIER - 1) {
+            console_x = 0;
+            goto new_line;
+        }
         console_x++;
     }
 
@@ -942,7 +950,7 @@ void console_translate_scancode(uint32_t scancode) { // convert ps2/com input in
         return;
     }
 
-    char is_shift = (scancode & KEY_MOD_LSHIFT_MASK || scancode & KEY_MOD_RSHIFT_MASK);
+    char is_shift = (scancode & KEY_MOD_LSHIFT_MASK) != 0 || (scancode & KEY_MOD_RSHIFT_MASK) != 0;
 
     if ((scancode & KEY_BASE_SCANCODE_MASK) >= KEY_MULTIMEDIA_PREV_TRACK) scancode = scancode - KEY_MULTIMEDIA_PREV_TRACK + TTY_OTHERS_START; // readjust scancode to lookup table
 
@@ -952,16 +960,18 @@ void console_translate_scancode(uint32_t scancode) { // convert ps2/com input in
     if (isalpha(scancode_to_char[(scancode & 0xFF)])) is_shift ^= (scancode & KEY_MOD_CAPSLOCK_MASK) != 0;  // capslock works only on alphabet characters
 
     translated_scancode = scancode_to_char[(scancode & 0xFF) + TTY_SHIFT_MOD_MASK*is_shift];
+    if (scancode & KEY_MOD_LALT_MASK     || scancode & KEY_MOD_RALT_MASK)
+        tty_write_to_tty("\e", 1, GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE));
 
-    if ((scancode & ~KEY_BASE_SCANCODE_MASK) == KEY_MOD_LCONTROL_MASK) { // if only holding ctrl (and or shift)
+    if (scancode & KEY_MOD_LCONTROL_MASK || scancode & KEY_MOD_RCONTROL_MASK) {
         if (toupper(translated_scancode) >= '@' && toupper(translated_scancode) <= '_') { // if char between C0 values
-            translated_scancode = toupper(translated_scancode) - '@'; // get C0 control char
+            translated_scancode = toupper(translated_scancode) & 0x1F; // get C0 control char
             if (translated_scancode == 0) explicit_nullbyte = 1; // ^@
         } else if (translated_scancode == '?') translated_scancode = 0x7F;
-        else {
-            tty_write_to_tty("^", 1, GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE)); // wasn't a valid ctrl escape, printing the raw escape value
-        }
+        //else {
+        //    tty_write_to_tty("^", 1, GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE)); // wasn't a valid ctrl escape, printing the raw escape value
+        //}
     }
-    if ((scancode & ~KEY_BASE_SCANCODE_MASK & ~(KEY_MOD_LSHIFT_MASK) & ~(KEY_MOD_RSHIFT_MASK)) == KEY_MOD_LCONTROL_MASK && translated_scancode == '?') translated_scancode = '\x7F'; // can't get to ? on english layout without shift
-    if (translated_scancode != '\0' || explicit_nullbyte) tty_write_to_tty(&translated_scancode, 1, GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE));
+    if (translated_scancode != '\0' || explicit_nullbyte)
+        tty_write_to_tty(&translated_scancode, 1, GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE));
 }

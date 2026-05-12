@@ -171,6 +171,10 @@ struct program {
 void thread_queue_unblock(thread_queue_t * thread_queue);
 void thread_queue_unblock_all(thread_queue_t * thread_queue);
 void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, enum pstatus_t new_status);
+// always "interruptible sleep" because we internally reuse sys_nanosleep
+// returns 1 if exited due to timer running out
+char thread_queue_add_with_timeout(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, struct timespec ts);
+
 struct sem_t {
     unsigned long used;
     unsigned long value;
@@ -188,6 +192,7 @@ void scheduler_print_processes();
 // kernel_sched_sleep_queue.c
 void sleep_sched_tick();
 ssize_t sys_nanosleep(process_t * pprocess, thread_t * thread, struct timespec requested, struct timespec * elapsed);
+void sleep_remove_thread(process_t * pprocess, thread_t * thread);
 
 void reschedule();
 

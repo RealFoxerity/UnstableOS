@@ -311,7 +311,7 @@ inode_t * tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname)
 
     if (pathlen == 0 || (pathlen == 1 && pathname[0] == '.')) {             // current directory
         result = prev;
-    } else if (pathlen == 2 && strncmp("..", pathname, 2) == 0) {  // parent directory
+    } else if (strcmp("..", pathname) == 0) {  // parent directory
         if (prev == root) return VFS_LOOKUP_ESCAPE;
         result = prev->upper;
     } else {
