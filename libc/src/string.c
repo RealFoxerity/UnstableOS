@@ -29,18 +29,18 @@ int atoi(const char * nptr) {
     return (int)atoll(nptr);
 }
 
-void itoad(uint32_t i, char * out) {
+void itoad(uint32_t num, char * out) {
     char temp;
     int ctr = 0;
-    if (i & 0x80000000) { // top bit, if set number is negative
+    if (num & 0x80000000) { // top bit, if set number is negative
         out[0] = '-';
         out++;
-        i *= -1;
+        num *= -1;
     }
     for (; ; ctr++) {
-        out[ctr] = '0' + i % 10;
-        i /= 10;
-        if (i == 0) break;
+        out[ctr] = '0' + num % 10;
+        num /= 10;
+        if (num == 0) break;
     }
 
     for (int i = 0; i <= ctr/2; i++) {
@@ -51,13 +51,13 @@ void itoad(uint32_t i, char * out) {
     out[ctr+1] = '\0';
 }
 
-void itoaud(uint32_t i, char * out) {
+void itoaud(uint32_t num, char * out) {
     char temp;
     int ctr = 0;
     for (; ; ctr++) {
-        out[ctr] = '0' + i % 10;
-        i /= 10;
-        if (i == 0) break;
+        out[ctr] = '0' + num % 10;
+        num /= 10;
+        if (num == 0) break;
     }
 
     for (int i = 0; i <= ctr/2; i++) {
@@ -73,21 +73,23 @@ static inline char get_nibble(char value) {
     else return '0' + value;
 }
 
-void itoax(uint32_t i, char * out) {
-    for (int j = 0; j < 8; j++) {
-        out[7-j] = get_nibble((i>>(j*4))&0xF);
+void itoax(uint32_t num, char * out) {
+    char temp;
+    int ctr = 0;
+    for (; ; ctr++) {
+        out[ctr] = get_nibble(num % 16);
+        num /= 16;
+        if (num == 0) break;
     }
+
+    for (int i = 0; i <= ctr/2; i++) {
+        temp = out[i];
+        out[i] = out[ctr-i];
+        out[ctr-i] = temp;
+    }
+    out[ctr+1] = '\0';
 }
-void ctoax(uint8_t i, char * out) {
-    out[0] = get_nibble(i >> 4);
-    out[1] = get_nibble(i&0xF);
-}
-void stoax(uint16_t i, char * out) {
-    out[0] = get_nibble((i >> 12)&0xF);
-    out[1] = get_nibble((i >> 8)&0xF);
-    out[2] = get_nibble((i >> 4)&0xF);
-    out[3] = get_nibble(i&0xF);
-}
+
 //void i64toad(uint64_t i, char * out) { // division for 64 bit isn't something gcc can do for us on 32 bit
 //    char temp;
 //    int ctr = 0;

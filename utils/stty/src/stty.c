@@ -347,6 +347,49 @@ int parse_special_char(char * arg) {
     if (val < 0 || val > 255) return -2;
 }
 
+char parse_modeline(const char * modeline, struct termios * out) {
+    unsigned int value = 0;
+    char * end = NULL;
+    value = strtoul(modeline, &end, 16);
+    if (modeline == end) return 0;
+    if (*end != ':') return 0;
+    modeline = end + 1;
+    out->c_iflag = value;
+
+    value = strtoul(modeline, &end, 16);
+    if (modeline == end) return 0;
+    if (*end != ':') return 0;
+    modeline = end + 1;
+    out->c_oflag = value;
+
+    value = strtoul(modeline, &end, 16);
+    if (modeline == end) return 0;
+    if (*end != ':') return 0;
+    modeline = end + 1;
+    out->c_lflag = value;
+
+    value = strtoul(modeline, &end, 16);
+    if (modeline == end) return 0;
+    if (*end != ':') return 0;
+    modeline = end + 1;
+    out->c_cflag = value;
+
+    for (int i = 0; i < NCCS - 1; i++) {
+        value = strtoul(modeline, &end, 16);
+        if (value > 255 || modeline == end) return 0;
+        if (*end != ':') return 0;
+        modeline = end + 1;
+        out->c_cc[i] = value;
+    }
+
+    value = strtoul(modeline, &end, 16);
+    if (value > 255 || modeline == end) return 0;
+    if (*end != '\0') return 0;
+    out->c_cc[NCCS-1] = value;
+
+    return 1;
+}
+
 int main(int argc, char *argv[]) {
     if (!isatty(STDIN_FILENO)) {
         perror("stty: standard input");
@@ -522,6 +565,8 @@ int main(int argc, char *argv[]) {
         }
         if (found_flag) continue;
 
+        if (parse_modeline(argv[i], &expected)) continue;
+
         errored:
         fprintf(stderr, "stty: invalid argument '%s'\n", argv[i]);
         fprintf(stderr, "'stty --help' for more information.\n");
@@ -533,7 +578,11 @@ int main(int argc, char *argv[]) {
         return 0;
     }
     if (show_modeline) {
-
+        printf("%x:%x:%x:%x:", expected.c_iflag, expected.c_oflag, expected.c_lflag, expected.c_cflag);
+        for (int i = 0; i < NCCS - 1; i++) {
+            printf("%hhx:", expected.c_cc[i]);
+        }
+        printf("%hhx\n", expected.c_cc[NCCS - 1]);
         return 0;
     }
     if (tcsetattr(STDIN_FILENO, TCSANOW, &expected) != 0) {

@@ -3,12 +3,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
-void itoad(uint32_t i, char * out); // signed int
-void itoaud(uint32_t i, char * out); // unsigned int
+void itoad(uint32_t num, char * out); // signed int
+void itoaud(uint32_t num, char * out); // unsigned int
 
-void ctoax(uint8_t i, char * out);
-void itoax(uint32_t i, char * out);
-void stoax(uint16_t i, char * out);
+void itoax(uint32_t num, char * out);
 void i64toax(uint64_t i, char * out);
 
 void * memcpy(void *__restrict dest, const void *__restrict src, size_t n);
