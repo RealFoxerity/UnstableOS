@@ -11,7 +11,7 @@
 
 void print_buffer(const unsigned char * buf, size_t size) {
     static size_t bytes_printed = 0;
-    printf("%0lx: ", bytes_printed);
+    printf("%.8lx: ", bytes_printed);
     for (int i = 0; i < 16; i++) {
         switch (buf[i]) {
             case '\t':

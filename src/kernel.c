@@ -35,7 +35,8 @@
 
 #define tty_write(buf, count) tty_write(buf, count); com_write(1, buf, count);
 
-#define KERNEL_PANIC_MSG "\n\e[0m\e[41m\n##############################\nKernel Panic:\n"
+// goes to 0 0 so that the scrolling of the panic message doesn't take forever
+#define KERNEL_PANIC_MSG "\e[H\e[0m\e[41m\n##############################\nKernel Panic:\n"
 void panic(char * reason) {
     scheduler_lock.state = SPINLOCK_LOCKED; // for future SMP endeavors
 
@@ -45,7 +46,7 @@ void panic(char * reason) {
     gfx_spinlock.state     = SPINLOCK_UNLOCKED; // in case panic happened during vga writes
     framebuffer_lock.state = SPINLOCK_UNLOCKED;
     kalloc_lock.state      = SPINLOCK_UNLOCKED;
-    back_framebuffer       = NULL;
+    back_framebuffer       = NULL; // in case it was a framebuffer page fault
 
     // the most supported graphics mode
     // good idea for panics in graphics code
