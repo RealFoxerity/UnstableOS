@@ -66,13 +66,13 @@ size_t fmt_handler_printf(const char * s, va_list * args) { // caller has to cal
             }
             itoax((unsigned long)temp_ptr, fmt_buf);
             fmt_buf[8] = '\0';
-            break;
+            goto int_prec;
         case 'x':
             hex:
             itoax(va_arg(*args, uint32_t), fmt_buf);
             fmt_buf[8] = '\0';
-            break;
-        case 'l': // explicitily 32+ bit numbers
+            goto int_prec;
+        case 'l': // explicitly 32+ bit numbers
             // since we do 32 bits by default, ld lu lx is the same as d u x
             s++;
             padding_delta++;
@@ -89,7 +89,7 @@ size_t fmt_handler_printf(const char * s, va_list * args) { // caller has to cal
                         case 'x': // 64 bit
                             i64toax(va_arg(*args, uint64_t), fmt_buf);
                             fmt_buf[16] = '\0';
-                            break;
+                            goto int_prec;
                         case 'd':
                         case 'u':
                             goto dec; // TODO: bigger ints?
@@ -104,9 +104,9 @@ size_t fmt_handler_printf(const char * s, va_list * args) { // caller has to cal
             padding_delta++;
             switch (*s) {
                 case 'x':
-                    stoax((unsigned short)va_arg(*args, uint32_t), fmt_buf);
+                    itoax((unsigned short)va_arg(*args, uint32_t), fmt_buf);
                     fmt_buf[4] = '\0';
-                    break;
+                    goto int_prec;
                 case 'u':
                 case 'd':
                     if (*s == 'u') itoaud((unsigned short)va_arg(*args, uint32_t), fmt_buf);
@@ -117,9 +117,9 @@ size_t fmt_handler_printf(const char * s, va_list * args) { // caller has to cal
                     padding_delta++;
                     switch (*s) {
                         case 'x':
-                            ctoax((unsigned char)va_arg(*args, uint32_t), fmt_buf);
+                            itoax((unsigned char)va_arg(*args, uint32_t), fmt_buf);
                             fmt_buf[2] = '\0';
-                            break;
+                            goto int_prec;
                         case 'u':
                         case 'd':
                             if (*s == 'u') itoaud((unsigned char)va_arg(*args, uint32_t), fmt_buf);

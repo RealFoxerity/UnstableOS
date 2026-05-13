@@ -62,6 +62,7 @@ int vsscanf(const char * restrict s, const char * restrict format, va_list args)
     char * conv_end = NULL; // for stuff like strtoll
 
     for (size_t i = 0; format[i] != '\0'; i++) {
+        conv_end = NULL;
         if (isspace(format[i])) {
             while (isspace(s[++soff]));
             continue;
@@ -70,93 +71,49 @@ int vsscanf(const char * restrict s, const char * restrict format, va_list args)
         void * temp = NULL;
         if (format[i] == '%') {
             i++;
-            switch (format[i]) {
-                case '%': // literal %
-                    if (s[soff] != '%') return matched_args;
-                    soff++;
-                    break;
-                case 'c': // char
-                    temp = va_arg(args, char *);
-                    if (temp == NULL) {
-                        errno = EINVAL;
-                        return -1;
-                    }
+            if (format[i] == '%') { // literal %
+                if (s[soff] != '%') return matched_args;
+                soff++;
+                continue;
+            }
 
+            temp = va_arg(args, unsigned short *);
+            if (temp == NULL) {
+                errno = EINVAL;
+                return -1;
+            }
+
+            switch (format[i]) {
+                case 'c': // char
                     *(char *)temp = s[soff];
                     soff++;
-                    matched_args ++;
                     break;
                 case 's': // string, not secure!
-                    temp = va_arg(args, char *);
-                    if (temp == NULL) {
-                        errno = EINVAL;
-                        return -1;
-                    }
-
                     for (char * j = temp; !isspace(s[soff]) && s[soff] != '\0'; soff++, j++) *j = s[soff];
-                    matched_args++;
                     break;
                 case 'h': // short
                     i++;
                     switch (format[i]) {
                         case 'd':
-                            if (!isdigit(s[soff]) && s[soff] != '-') return matched_args;
-
-                            temp = va_arg(args, short *);
-                            if (temp == NULL) {
-                                errno = EINVAL;
-                                return -1;
-                            }
-
                             *(short*)temp = strtol(s + soff, &conv_end, 10);
-                            if (s + soff == conv_end) return matched_args; // failed to parse
-                            soff = conv_end - s - 1;
-                            matched_args++;
                             break;
                         case 'u':
-                            if (!isdigit(s[soff])) return matched_args;
-
-                            temp = va_arg(args, unsigned short *);
-                            if (temp == NULL) {
-                                errno = EINVAL;
-                                return -1;
-                            }
-
-                            *(short*)temp = strtoul(s + soff, &conv_end, 10);
-                            if (s + soff == conv_end) return matched_args; // failed to parse
-                            soff = conv_end - s - 1;
-                            matched_args++;
+                            *(unsigned short*)temp = strtoul(s + soff, &conv_end, 10);
+                            break;
+                        case 'x':
+                            *(unsigned short*)temp = strtoul(s + soff, &conv_end, 16);
                             break;
                         case 'h': // char
                             i++;
                             switch (format[i]) {
                                 case 'd':
-                                    if (!isdigit(s[soff]) && s[soff] != '-') return matched_args;
-
-                                    temp = va_arg(args, char *);
-                                    if (temp == NULL) {
-                                        errno = EINVAL;
-                                        return -1;
-                                    }
-
-                                    *(char*)temp = (char)strtol(s + soff, &conv_end, 10);
-                                    if (s + soff == conv_end) return matched_args; // failed to parse
-                                    soff = conv_end - s - 1;
-                                    matched_args++;
+                                    *(char*)temp = strtol(s + soff, &conv_end, 10);
                                     break;
                                 case 'u':
-                                    if (!isdigit(s[soff])) return matched_args;
-
-                                    temp = va_arg(args, unsigned char *);
-                                    if (temp == NULL) {
-                                        errno = EINVAL;
-                                        return -1;
-                                    }
-
-                                    *(unsigned char*)temp = (unsigned char)strtoul(s + soff, &conv_end, 10);
-                                    if (s + soff == conv_end) return matched_args; // failed to parse
-                                    soff = conv_end - s - 1;
-                                    matched_args++;
+                                    *(unsigned char*)temp = strtoul(s + soff, &conv_end, 10);
+                                    break;
+                                case 'x':
+                                    *(unsigned char*)temp = strtoul(s + soff, &conv_end, 16);
                                     break;
                                 default:
                                     errno = EINVAL;
@@ -169,96 +126,37 @@ int vsscanf(const char * restrict s, const char * restrict format, va_list args)
                     }
                     break;
                 case 'd': // signed int
-                    normal_signed:
-                    if (!isdigit(s[soff]) && s[soff] != '-') return matched_args;
-
-                    temp = va_arg(args, int *);
-                    if (temp == NULL) {
-                        errno = EINVAL;
-                        return -1;
-                    }
-
-                    *(int*)temp = (int)strtol(s + soff, &conv_end, 10);
-                    if (s + soff == conv_end) return matched_args; // failed to parse
-                    soff = conv_end - s - 1;
-                    matched_args++;
+                    *(int*)temp = strtol(s + soff, &conv_end, 10);
                     break;
                 case 'u': // unsigned int
-                    normal_unsigned:
-                    if (!isdigit(s[soff])) return matched_args;
-
-                    temp = va_arg(args, unsigned int *);
-                    if (temp == NULL) {
-                        errno = EINVAL;
-                        return -1;
-                    }
-
-                    *(unsigned int*)temp = (unsigned int)strtoul(s + soff, &conv_end, 10);
-                    if (s + soff == conv_end) return matched_args; // failed to parse
-                    soff = conv_end - s - 1;
-                    matched_args++;
+                    *(unsigned int*)temp = strtoul(s + soff, &conv_end, 10);
+                    break;
+                case 'x':
+                    *(unsigned int*)temp = strtoul(s + soff, &conv_end, 16);
                     break;
                 case 'l': // 32+ bit numbers
                     i++;
                     switch (format[i]) {
                         case 'd':
-                            if (!isdigit(s[soff]) && s[soff] != '-') return matched_args;
-
-                            temp = va_arg(args, long *);
-                            if (temp == NULL) {
-                                errno = EINVAL;
-                                return -1;
-                            }
-
                             *(long*)temp = strtol(s + soff, &conv_end, 10);
-                            if (s + soff == conv_end) return matched_args; // failed to parse
-                            soff = conv_end - s - 1;
-                            matched_args++;
                             break;
                         case 'u':
-                            if (!isdigit(s[soff])) return matched_args;
-
-                            temp = va_arg(args, unsigned long *);
-                            if (temp == NULL) {
-                                errno = EINVAL;
-                                return -1;
-                            }
-
                             *(unsigned long*)temp = strtoul(s + soff, &conv_end, 10);
-                            if (s + soff == conv_end) return matched_args; // failed to parse
-                            soff = conv_end - s - 1;
-                            matched_args++;
+                            break;
+                        case 'x':
+                            *(unsigned long*)temp = strtoul(s + soff, &conv_end, 16);
                             break;
                         case 'l':
                             i++;
                             switch (format[i]) {
                                 case 'd':
-                                    if (!isdigit(s[soff]) && s[soff] != '-') return matched_args;
-
-                                    temp = va_arg(args, long long *);
-                                    if (temp == NULL) {
-                                        errno = EINVAL;
-                                        return -1;
-                                    }
-
-                                    *(long long*)temp = (long long)strtoll(s + soff, &conv_end, 10);
-                                    if (s + soff == conv_end) return matched_args; // failed to parse
-                                    soff = conv_end - s - 1;
-                                    matched_args++;
+                                    *(long long*)temp = strtoll(s + soff, &conv_end, 10);
                                     break;
                                 case 'u':
-                                    if (!isdigit(s[soff])) return matched_args;
-
-                                    temp = va_arg(args, unsigned long long *);
-                                    if (temp == NULL) {
-                                        errno = EINVAL;
-                                        return -1;
-                                    }
-
-                                    *(unsigned long long*)temp = (unsigned long long)strtoull(s + soff, &conv_end, 10);
-                                    if (s + soff == conv_end) return matched_args; // failed to parse
-                                    soff = conv_end - s - 1;
-                                    matched_args++;
+                                    *(unsigned long long*)temp = strtoull(s + soff, &conv_end, 10);
+                                    break;
+                                case 'x':
+                                    *(unsigned long long*)temp = strtoull(s + soff, &conv_end, 16);
                                     break;
                                 default:
                                     errno = EINVAL;
@@ -273,8 +171,11 @@ int vsscanf(const char * restrict s, const char * restrict format, va_list args)
                 default:
                     errno = EINVAL;
                     return -1;
-                // TODO: add hexadecimal, float, double
+                // TODO: float, double
             }
+            if (s + soff == conv_end) return matched_args; // failed to parse
+            if (conv_end != NULL) soff = conv_end - s - 1;
+            matched_args++;
             continue;
         }
 

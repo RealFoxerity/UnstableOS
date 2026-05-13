@@ -210,7 +210,7 @@ static char pci_init_dev(uint8_t bus, uint8_t device, uint8_t function) {
         .prog_if = prog_if
     };
 
-    kprintf("%hhx:%hhx.%hhx %hhx%hhx: %hx:%hx (rev %u)",
+    kprintf("%.2hhx:%.2hhx.%.2hhx %.2hhx%.2hhx: %.4hx:%.4hx (rev %u)",
         bus, device, function,
         class, subclass,
         vendor_id, device_id,

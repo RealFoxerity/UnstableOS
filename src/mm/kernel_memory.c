@@ -363,7 +363,7 @@ void setup_paging(unsigned long total_free, unsigned long ident_map_end) {
         dpanic("Not enough memory for page directory!\n");
     }
     memset(page_directory, 0, PAGE_DIRECTORY_ENTRIES*sizeof(PAGE_DIRECTORY_TYPE));
-    kprintf("Identity mapping 0x%x - 0x%lx...\n", 0, ident_map_top); // see TODO below, this will be wrong
+    kprintf("Identity mapping 0x%.8x - 0x%.8lx...\n", 0, ident_map_top); // see TODO below, this will be wrong
     for (int i = 0; i < ident_map_top/PAGE_SIZE_NO_PAE/PAGE_TABLE_ENTRIES + (ident_map_top/PAGE_SIZE_NO_PAE % PAGE_TABLE_ENTRIES != 0)?1:0; i++) {
         page_directory[i] = (uint32_t)pfalloc();
         if (page_directory[i] == 0) {
