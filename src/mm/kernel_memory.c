@@ -350,13 +350,10 @@ static unsigned long ident_map_top = IDENT_MAPPING_MAX_ADDR;
 
 PAGE_DIRECTORY_TYPE * kernel_address_space_paddr = NULL;
 
-void setup_paging(unsigned long total_free, unsigned long ident_map_end) {
+void setup_paging(unsigned long ident_map_end) {
     if (ident_map_end < IDENT_MAPPING_MAX_ADDR) ident_map_end = IDENT_MAPPING_MAX_ADDR;
     if (ident_map_end % PAGE_SIZE_NO_PAE != 0) ident_map_end += PAGE_SIZE_NO_PAE - (ident_map_end%PAGE_SIZE_NO_PAE);
     ident_map_top = ident_map_end;
-
-
-    if (total_free < 1<<21) panic("At least 3MB of memory is required for basic kernel functionality!\n");
 
     PAGE_DIRECTORY_TYPE * page_directory = pfalloc();
     if (page_directory == NULL) {

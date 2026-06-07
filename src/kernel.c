@@ -307,11 +307,12 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
             } else total_usable += mmmt->len;
         }
     }
-    kernel_mem_top = page_frame_alloc_init(mbd, total_usable, (void*)boot_mem_top);
+    if (total_usable < 1<<24) panic("At least 16MiB of usable memory is required for basic kernel functionality!\n");
+    kernel_mem_top = page_frame_alloc_init(mbd, (void*)boot_mem_top);
     kprintf("Kernel: Total usable RAM: %lu bytes\n", pf_get_free_memory()); //total_usable);
 
     // initialize basic stuff
-    setup_paging(total_usable, boot_mem_top);
+    setup_paging(boot_mem_top);
     construct_descriptor_tables();
     enable_interrupts();
 

@@ -25,7 +25,23 @@ static unsigned long page_frame_table_entries = 0;
 
 #define RESERVED_PAGE_FRAMES_END (PAGE_SIZE_NO_PAE) // 16MiB "reserved" for DMA allocations, will try to avoid to allocate for normal allocations if possible
 
-void * page_frame_alloc_init(multiboot_info_t* mbd, unsigned long free_memory, void * free_space_start_page) { // we may lose up to PAGE_SIZE_NO_PAE if the amount of memory taken up by PFT itself would lower the max entries and bring it the table down by one page
+void * page_frame_alloc_init(multiboot_info_t* mbd, void * free_space_start_page) { // we may lose up to PAGE_SIZE_NO_PAE if the amount of memory taken up by PFT itself would lower the max entries and bring it the table down by one page
+    void * highest_free_addr = free_space_start_page;
+
+    for (int i = 0; i < mbd->mmap_length; i+= sizeof(multiboot_memory_map_t)) {
+        multiboot_memory_map_t* mmmt = (multiboot_memory_map_t*) (mbd->mmap_addr + i);
+        if (mmmt->addr > UINT32_MAX) continue;
+        if (mmmt->addr + mmmt->len < (unsigned long)free_space_start_page) continue;
+        if (mmmt->type == MULTIBOOT_MEMORY_AVAILABLE) {
+            if (mmmt->addr + mmmt->len > UINT32_MAX) {
+                highest_free_addr = (void*)UINT32_MAX;
+            } else {
+                highest_free_addr = (void*)mmmt->addr + mmmt->len;
+            }
+        }
+    }
+    size_t free_memory = highest_free_addr - free_space_start_page;
+
     if (((unsigned long)free_space_start_page)%PAGE_SIZE_NO_PAE != 0) { // we need to deal with pages, so free memory has to be page aligned
         free_space_start_page += PAGE_SIZE_NO_PAE - ((unsigned long)free_space_start_page%PAGE_SIZE_NO_PAE);
         free_memory -= PAGE_SIZE_NO_PAE - ((unsigned long)free_space_start_page%PAGE_SIZE_NO_PAE);
@@ -44,6 +60,7 @@ void * page_frame_alloc_init(multiboot_info_t* mbd, unsigned long free_memory, v
 
     for (int i = 0; i < mbd->mmap_length; i+= sizeof(multiboot_memory_map_t)) {
         multiboot_memory_map_t* mmmt = (multiboot_memory_map_t*) (mbd->mmap_addr + i);
+        if (mmmt->addr > UINT32_MAX) continue;
         if (mmmt->addr + mmmt->len < (unsigned long)page_frame_table_start_addr) continue;
         if (mmmt->type != MULTIBOOT_MEMORY_AVAILABLE) {
             unsigned long start = mmmt->addr;
