@@ -16,8 +16,8 @@ spinlock_t tty_lock = {0};
 tty_t * terminals[TTY_LIMIT_KERNEL] = {0};
 
 static struct dev_operations tty_ops = {
-    .read = tty_read,
-    .write = tty_write,
+    .pread = tty_pread,
+    .pwrite = tty_pwrite,
     .ioctl = tty_ioctl,
 };
 
@@ -659,7 +659,10 @@ static size_t tty_translate_line_outgoing(const char * s, size_t n, tty_t * tty)
     return n;
 }
 
-ssize_t tty_read(file_descriptor_t * file, void * s, size_t n) {
+ssize_t tty_pread(file_descriptor_t * file, void * s, size_t n, off_t offset) {
+    if (offset < 0) return -EINVAL;
+    if (offset != 0) return -ESPIPE;
+
     // assuming now file is a valid pointer
     dev_t dev = file->inode->device;
     if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE)) dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_S0); // kernel console can only read (which shouldn't happen anyway) from first serial
@@ -751,7 +754,10 @@ ssize_t tty_read(file_descriptor_t * file, void * s, size_t n) {
 }
 
 
-ssize_t tty_write(file_descriptor_t * file, const void * s, size_t n) { // outputs data - writes data into write queue
+ssize_t tty_pwrite(file_descriptor_t * file, const void * s, size_t n, off_t offset) { // outputs data - writes data into write queue
+    if (offset < 0) return -EINVAL;
+    if (offset != 0) return -ESPIPE;
+
     // likewise assuming now file is a valid pointer
     dev_t dev = file->inode->device;
     if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE)) dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_0);

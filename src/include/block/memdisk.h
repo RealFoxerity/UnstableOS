@@ -42,8 +42,8 @@ ssize_t memdisk_read_internal(dev_t dev, size_t seek, void * s, size_t n);
 ssize_t memdisk_write_internal(dev_t dev, size_t seek, const void * s, size_t n);
 
 #include "../../include/fs/fs.h"
-ssize_t memdisk_read(file_descriptor_t * fd, void * s, size_t n);
-ssize_t memdisk_write(file_descriptor_t * fd, const void * s, size_t n);
+ssize_t memdisk_pread(file_descriptor_t * fd, void * s, size_t n, off_t offset);
+ssize_t memdisk_pwrite(file_descriptor_t * fd, const void * s, size_t n, off_t offset);
 off_t memdisk_seek(file_descriptor_t * fd, off_t off, int whence);
 
 #endif

@@ -13,8 +13,8 @@ spinlock_t memdisk_lock = {0};
 memdisk_t memdisks[MEMDISK_LIMIT_KERNEL] = {0};
 
 static struct dev_operations memdisk_ops = {
-    .read = memdisk_read,
-    .write = memdisk_write,
+    .pread = memdisk_pread,
+    .pwrite = memdisk_pwrite,
     .seek = memdisk_seek
 };
 
@@ -113,14 +113,14 @@ ssize_t memdisk_read_internal(dev_t dev, size_t seek, void * s, size_t n) {
         if (__builtin_expect(current_thread->sa_to_be_handled != 0, 0)) {
             __atomic_sub_fetch(&memdisks[MINOR(dev)].busy, 1, __ATOMIC_RELAXED);
             if (len == 0) return -EINTR;
-            return len + 1;
+            return len;
         }
         ((unsigned char *)s)[len] = *i;
     }
 
     __atomic_sub_fetch(&memdisks[MINOR(dev)].busy, 1, __ATOMIC_RELAXED);
 
-    return len++; // was working with indices before
+    return len; // was working with indices before
 }
 
 ssize_t memdisk_write_internal(dev_t dev, size_t seek, const void * s, size_t n) {
@@ -143,21 +143,22 @@ ssize_t memdisk_write_internal(dev_t dev, size_t seek, const void * s, size_t n)
         if (__builtin_expect(current_thread->sa_to_be_handled != 0, 0)) {
             __atomic_sub_fetch(&memdisks[MINOR(dev)].busy, 1, __ATOMIC_RELAXED);
             if (len == 0) return -EINTR;
-            return len + 1;
+            return len;
         }
         *i = ((unsigned char *)s)[len];
     }
 
     __atomic_sub_fetch(&memdisks[MINOR(dev)].busy, 1, __ATOMIC_RELAXED);
 
-    return len++;
+    return len;
 }
 
 
 
-ssize_t memdisk_read(file_descriptor_t * fd, void * s, size_t n) {
+ssize_t memdisk_pread(file_descriptor_t * fd, void * s, size_t n, off_t offset) {
     kassert(fd);
     kassert(s);
+    if (offset < 0) return -EINVAL;
     if (n == 0) return 0;
 #ifdef E2BIG_ON_2G
     if (n > SSIZE_MAX) return -E2BIG;
@@ -165,14 +166,15 @@ ssize_t memdisk_read(file_descriptor_t * fd, void * s, size_t n) {
     if (n > SSIZE_MAX) n = SSIZE_MAX;
 #endif
 
-    ssize_t read = memdisk_read_internal(fd->inode->device, fd->off, s, n);
-    if (read > 0) fd->off += read;
+    ssize_t read = memdisk_read_internal(fd->inode->device, offset, s, n);
+
     return read;
 }
 
-ssize_t memdisk_write(file_descriptor_t * fd, const void * s, size_t n) {
+ssize_t memdisk_pwrite(file_descriptor_t * fd, const void * s, size_t n, off_t offset) {
     kassert(fd);
     kassert(s);
+    if (offset < 0) return -EINVAL;
     if (n == 0) return 0;
 #ifdef E2BIG_ON_2G
     if (n > SSIZE_MAX) return -E2BIG;
@@ -180,8 +182,8 @@ ssize_t memdisk_write(file_descriptor_t * fd, const void * s, size_t n) {
     if (n > SSIZE_MAX) n = SSIZE_MAX;
 #endif
 
-    ssize_t write =  memdisk_write_internal(fd->inode->device, fd->off, s, n);
-    if (write > 0) fd->off += write;
+    ssize_t write =  memdisk_write_internal(fd->inode->device, offset, s, n);
+
     return write;
 }
 

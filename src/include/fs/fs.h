@@ -134,6 +134,8 @@ int sys_fstatat(int fd, const char * __restrict path, struct stat * __restrict b
 int sys_close(int fd);
 ssize_t sys_read(int fd, void * buf, size_t count);
 ssize_t sys_write(int fd, const void * buf, size_t count);
+ssize_t sys_pread(int fd, void * buf, size_t count, off_t offset);
+ssize_t sys_pwrite(int fd, const void * buf, size_t count, off_t offset);
 off_t sys_seek(int fd, off_t off, int whence);
 
 long sys_ioctl(int fd, unsigned long request, void * arg);
@@ -153,8 +155,12 @@ int close_file(file_descriptor_t * file); // primarily for closing on exit()
 // (for example the scheduler when destroying an application)
 // so that we don't have to needlessly wait
 int close_file_forced(file_descriptor_t * file);
+
 ssize_t read_file(file_descriptor_t * file, void * buf, size_t count);
 ssize_t write_file(file_descriptor_t * file, const void * buf, size_t count);
+ssize_t pread_file(file_descriptor_t * file, void * buf, size_t count, off_t offset);
+ssize_t pwrite_file(file_descriptor_t * file, const void * buf, size_t count, off_t offset);
+
 off_t seek_file(file_descriptor_t * file, off_t off, int whence);
 long fcntl_file(file_descriptor_t * file, int cmd, long arg);
 

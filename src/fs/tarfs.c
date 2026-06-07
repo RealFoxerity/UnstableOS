@@ -21,7 +21,7 @@ const struct vfs_ops tar_op = {
     .fs_deinit = tar_unload_fs,
     .lookup = tarfs_lookup,
     .seek = tarfs_seek,
-    .read = tarfs_read,
+    .pread = tarfs_pread,
     .readdir = tarfs_readdir,
     .stat = tarfs_stat
 };
@@ -339,7 +339,9 @@ inode_t * tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname)
     return ret;
 }
 
-ssize_t tarfs_read(file_descriptor_t * fd, void * buf, size_t n) {
+ssize_t tarfs_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) {
+    if (offset < 0) return -EINVAL;
+
     if (n == 0) return 0;
 #ifdef E2BIG_ON_2G
     if (n > SSIZE_MAX) return -E2BIG;
@@ -363,19 +365,18 @@ ssize_t tarfs_read(file_descriptor_t * fd, void * buf, size_t n) {
 
     if (!is_valid_node(root, this)) panic("Invalid this/root TARFS node combo!");
 
-    if (fd->off >= this->size) return 0;
-    if (fd->off + n >= this->size || fd->off + n < n) {
-        n = this->size - fd->off;
+    if (offset >= this->size) return 0;
+    if (offset + n >= this->size || offset + n < n) {
+        n = this->size - offset;
     }
 
     spinlock_acquire_interruptible(&sb->lock); // so that we can't race for the file descriptor
     kassert(sb->is_mounted);
-    seek_file(tar_fd, this->record_offset + sizeof(ustar_hdr) + fd->off, SEEK_SET);
+    seek_file(tar_fd, this->record_offset + sizeof(ustar_hdr) + offset, SEEK_SET);
     read = read_file(tar_fd, buf, n); // read technically not needed here, but just in case
 
     spinlock_release(&sb->lock);
 
-    if (read > 0) fd->off += read;
     return read;
 }
 

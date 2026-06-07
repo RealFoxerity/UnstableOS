@@ -30,12 +30,6 @@
 #include "pci/pci.h"
 #include "block/ata/ata.h"
 
-// clang is insanely annoying, used because uint32_t is smaller than native pointer size (64 bit int) on my machine
-#pragma clang diagnostic ignored "-Wint-to-pointer-cast"
-#pragma clang diagnostic ignored "-Wpointer-to-int-cast"
-
-#define tty_write(buf, count) tty_write(buf, count); com_write(1, buf, count);
-
 // goes to 0 0 so that the scrolling of the panic message doesn't take forever
 #define KERNEL_PANIC_MSG "\e[H\e[0m\e[41m\n##############################\nKernel Panic:\n"
 void panic(char * reason) {

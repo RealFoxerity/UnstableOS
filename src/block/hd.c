@@ -172,7 +172,7 @@ static long hd_read_and_cache_ata(const struct ata_drive * drive, dev_t device, 
     return 0;
 }
 
-ssize_t hd_read_ata(file_descriptor_t *file, void *buf, size_t count) {
+ssize_t hd_read_ata(file_descriptor_t *file, void *buf, size_t count, off_t offset) {
     kassert(file);
     kassert(S_ISBLK(file->inode->mode));
 
@@ -188,8 +188,8 @@ ssize_t hd_read_ata(file_descriptor_t *file, void *buf, size_t count) {
 
     size_t read = 0;
 
-    for (uint64_t lba = file->off / drive->sector_size;
-        lba < (file->off + count + drive->sector_size - 1) / drive->sector_size &&
+    for (uint64_t lba = offset / drive->sector_size;
+        lba < (offset + count + drive->sector_size - 1) / drive->sector_size &&
             lba <= drive->sector_count;
         lba++
     ) {
@@ -209,13 +209,13 @@ ssize_t hd_read_ata(file_descriptor_t *file, void *buf, size_t count) {
 
         // because of how we do this, this means the first iteration
         // theoretically +read is not required
-        if ((file->off + read) % drive->sector_size) {
-            if (drive->sector_size - (file->off + read) % drive->sector_size < count - read) {
-                memcpy(buf + read, cached->data + (file->off + read) % drive->sector_size,
-                    drive->sector_size - (file->off + read) % drive->sector_size);
-                read += drive->sector_size - (file->off + read) % drive->sector_size;
+        if ((offset + read) % drive->sector_size) {
+            if (drive->sector_size - (offset + read) % drive->sector_size < count - read) {
+                memcpy(buf + read, cached->data + (offset + read) % drive->sector_size,
+                    drive->sector_size - (offset + read) % drive->sector_size);
+                read += drive->sector_size - (offset + read) % drive->sector_size;
             } else { // also means the last iteration
-                memcpy(buf + read, cached->data + (file->off + read) % drive->sector_size,
+                memcpy(buf + read, cached->data + (offset + read) % drive->sector_size,
                     count - read);
                 read += count;
             }
@@ -232,12 +232,10 @@ ssize_t hd_read_ata(file_descriptor_t *file, void *buf, size_t count) {
         rw_spinlock_release_read(&hd_cache_lock);
     }
 
-    file->off += read;
-
     return (ssize_t)read;
 }
 
-ssize_t hd_write_ata(file_descriptor_t *file, const void *buf, size_t count) {
+ssize_t hd_write_ata(file_descriptor_t *file, const void *buf, size_t count, off_t offset) {
     kassert(file);
     kassert(S_ISBLK(file->inode->mode));
 
@@ -253,8 +251,8 @@ ssize_t hd_write_ata(file_descriptor_t *file, const void *buf, size_t count) {
 
     size_t written = 0;
 
-    for (uint64_t lba = file->off / drive->sector_size;
-        lba < (file->off + count + drive->sector_size - 1) / drive->sector_size &&
+    for (uint64_t lba = offset / drive->sector_size;
+        lba < (offset + count + drive->sector_size - 1) / drive->sector_size &&
             lba <= drive->sector_count;
         lba++
     ) {
@@ -265,7 +263,7 @@ ssize_t hd_write_ata(file_descriptor_t *file, const void *buf, size_t count) {
             rw_spinlock_release_read(&hd_cache_lock);
 
             // aligned write of the entire block
-            if ((file->off + written) % drive->sector_size == 0 &&
+            if ((offset + written) % drive->sector_size == 0 &&
                 count - written >= drive->sector_size
             ) {
                 void * block = kalloc(drive->sector_size);
@@ -301,14 +299,14 @@ ssize_t hd_write_ata(file_descriptor_t *file, const void *buf, size_t count) {
 
         // because of how we do this, this means the first iteration
         // theoretically +read is not required
-        if ((file->off + written) % drive->sector_size) {
-            if (drive->sector_size - (file->off + written) % drive->sector_size < count - written) {
-                memcpy(cached->data + (file->off + written) % drive->sector_size,
+        if ((offset + written) % drive->sector_size) {
+            if (drive->sector_size - (offset + written) % drive->sector_size < count - written) {
+                memcpy(cached->data + (offset + written) % drive->sector_size,
                     buf + written,
-                    drive->sector_size - (file->off + written) % drive->sector_size);
-                written += drive->sector_size - (file->off + written) % drive->sector_size;
+                    drive->sector_size - (offset + written) % drive->sector_size);
+                written += drive->sector_size - (offset + written) % drive->sector_size;
             } else { // also means the last iteration
-                memcpy(cached->data + (file->off + written) % drive->sector_size,
+                memcpy(cached->data + (offset + written) % drive->sector_size,
                     buf + written,
                     count - written);
                 written += count;
@@ -337,8 +335,6 @@ ssize_t hd_write_ata(file_descriptor_t *file, const void *buf, size_t count) {
 
         if (ret <= 0) return -EIO;
     }
-
-    file->off += written;
 
     return (ssize_t)written;
 }
@@ -374,8 +370,8 @@ off_t hd_seek_ata(file_descriptor_t *file, off_t off, int whence) {
 }
 
 static const struct dev_operations ata_ops = {
-    .read  = hd_read_ata,
-    .write = hd_write_ata,
+    .pread  = hd_read_ata,
+    .pwrite = hd_write_ata,
     .seek  = hd_seek_ata,
 };
 
