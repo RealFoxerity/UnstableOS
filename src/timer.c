@@ -10,7 +10,7 @@
 
 #define kprintf(fmt, ...) kprintf("Timer: "fmt, ##__VA_ARGS__)
 
-char timer_init(char channel_id, uint16_t frequency_reload_val, uint8_t timer_mode) {
+char timer_init(char channel_id, uint16_t frequency, uint8_t timer_mode) {
     if (channel_id > 2) {
         kprintf("Tried to set up invalid channel (%d)\n", channel_id);
         return -1;
@@ -29,7 +29,7 @@ char timer_init(char channel_id, uint16_t frequency_reload_val, uint8_t timer_mo
 
     disable_interrupts();
 
-    uint16_t reload_value = frequency_reload_val;
+    uint16_t reload_value = frequency;
     if (timer_mode >= TIMER_RATE) reload_value = (unsigned long)PIT_BASE_FREQUENCY/reload_value;
 
     kprintf("Setting channel %d to %u\n", channel_id, reload_value);

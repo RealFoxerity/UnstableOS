@@ -136,6 +136,8 @@ struct process_t {
     struct rt_siginfo_ll * sa_rt_queue;
     struct rt_siginfo_ll * sa_rt_queue_last;
 
+    mode_t umask;
+    
     inode_t * pwd, * root; // chdir(), chroot()
 
     file_descriptor_t * fds[FD_LIMIT_PROCESS];
@@ -170,6 +172,11 @@ struct program {
 // these unfortunately have to be here so that process_t and thread_t work
 void thread_queue_unblock(thread_queue_t * thread_queue);
 void thread_queue_unblock_all(thread_queue_t * thread_queue);
+
+// the nonreentrant versions do not reschedule on completion - for use in IRQs and such
+void thread_queue_unblock_nonreentrant(thread_queue_t * thread_queue);
+void thread_queue_unblock_all_nonreentrant(thread_queue_t * thread_queue);
+
 void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, enum pstatus_t new_status);
 // always "interruptible sleep" because we internally reuse sys_nanosleep
 // returns 1 if exited due to timer running out
@@ -198,7 +205,7 @@ void reschedule();
 
 // 0 = couldn't destroy - not safe to destroy a kernel thread
 // both assume a locked scheduler (and by extension a critical section)
-char kernel_destroy_thread(process_t * parent_process, thread_t * current_thread);
+char kernel_destroy_thread(process_t * parent_process, thread_t * thread);
 thread_t *  kernel_create_thread(process_t * parent_process, void (* entry_point)(void*), void * arg);
 
 extern process_t * process_list;

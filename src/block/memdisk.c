@@ -99,7 +99,11 @@ ssize_t memdisk_read_internal(dev_t dev, size_t seek, void * s, size_t n) {
     if (MINOR(dev) > DEV_MEM_MEMDISK3) return -EINVAL;
 
     if (!memdisks[MINOR(dev)].used) return -EINVAL;
-    if (seek > INT32_MAX) return -E2BIG;
+#ifdef E2BIG_ON_2G
+    if (n > SSIZE_MAX) return -E2BIG;
+#else
+    if (n > SSIZE_MAX) n = SSIZE_MAX;
+#endif
     if (seek >= memdisks[MINOR(dev)].size) return 0;
 
     __atomic_add_fetch(&memdisks[MINOR(dev)].busy, 1, __ATOMIC_RELAXED);
@@ -124,7 +128,11 @@ ssize_t memdisk_write_internal(dev_t dev, size_t seek, const void * s, size_t n)
     if (MINOR(dev) > DEV_MEM_MEMDISK3) return -EINVAL;
 
     if (!memdisks[MINOR(dev)].used) return -EINVAL;
-    if (seek > INT32_MAX) return -E2BIG;
+#ifdef E2BIG_ON_2G
+    if (n > SSIZE_MAX) return -E2BIG;
+#else
+    if (n > SSIZE_MAX) n = SSIZE_MAX;
+#endif
     if (seek > memdisks[MINOR(dev)].size) return -EFBIG;
     if (seek == memdisks[MINOR(dev)].size) return 0;
 
@@ -151,7 +159,11 @@ ssize_t memdisk_read(file_descriptor_t * fd, void * s, size_t n) {
     kassert(fd);
     kassert(s);
     if (n == 0) return 0;
-    if (n > INT32_MAX) n = INT32_MAX;
+#ifdef E2BIG_ON_2G
+    if (n > SSIZE_MAX) return -E2BIG;
+#else
+    if (n > SSIZE_MAX) n = SSIZE_MAX;
+#endif
 
     ssize_t read = memdisk_read_internal(fd->inode->device, fd->off, s, n);
     if (read > 0) fd->off += read;
@@ -162,7 +174,11 @@ ssize_t memdisk_write(file_descriptor_t * fd, const void * s, size_t n) {
     kassert(fd);
     kassert(s);
     if (n == 0) return 0;
-    if (n > INT32_MAX) n = INT32_MAX;
+#ifdef E2BIG_ON_2G
+    if (n > SSIZE_MAX) return -E2BIG;
+#else
+    if (n > SSIZE_MAX) n = SSIZE_MAX;
+#endif
 
     ssize_t write =  memdisk_write_internal(fd->inode->device, fd->off, s, n);
     if (write > 0) fd->off += write;

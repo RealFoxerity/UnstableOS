@@ -46,7 +46,7 @@ struct {
 
     inode_t * inode;
 
-    size_t off; // even though we return off_t, which is signed, we use unsigned ints for the internal offset so that we can overcome 31 bits
+    off_t off;
 
     spinlock_t access_lock; // so that thread io operations are atomic
 } typedef file_descriptor_t; // userspace will use an int as an index to per-process array of file_descriptor_t pointers
@@ -138,6 +138,8 @@ off_t sys_seek(int fd, off_t off, int whence);
 
 long sys_ioctl(int fd, unsigned long request, void * arg);
 
+long sys_fcntl(int fd, int cmd, long arg);
+
 #include <dirent.h>
 ssize_t sys_readdir(int fd, struct dirent * dent, size_t dent_size);
 
@@ -154,16 +156,19 @@ int close_file_forced(file_descriptor_t * file);
 ssize_t read_file(file_descriptor_t * file, void * buf, size_t count);
 ssize_t write_file(file_descriptor_t * file, const void * buf, size_t count);
 off_t seek_file(file_descriptor_t * file, off_t off, int whence);
+long fcntl_file(file_descriptor_t * file, int cmd, long arg);
 
 ssize_t ps2_mouse_read(void * buf, size_t n);
 
 // here because we need to access file_descriptor_t
-int sys_pipe(int fildes[2]);
+int sys_pipe(int fildes[2], int flags);
 ssize_t pipe_write(const file_descriptor_t * file, const void * s, size_t n);
 ssize_t pipe_read(const file_descriptor_t * file, void * s, size_t n);
 
+file_descriptor_t * get_dup_file(file_descriptor_t * file); // lock kernel_fd_lock
+long dup_file(file_descriptor_t * old_file, int startfd, int flags); // primarily for fcntl
 int sys_dup(int oldfd);
-int sys_dup2(int oldfd, int newfd);
+int sys_dup3(int oldfd, int newfd, int flags);
 
 #define MOUNT_RDONLY 1
 

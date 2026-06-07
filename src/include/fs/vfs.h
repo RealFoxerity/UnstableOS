@@ -38,7 +38,7 @@ struct vfs_ops {
     // if last == NULL, last is assumed to be mounted /
     // implementations should accept empty string and "." to mean the current directory
     inode_t * (*lookup) (superblock_t * sb, inode_t * last, const char * pathname);
-    int (*release)   (struct inode_t *); // closing of the very last instance of an inode
+    int (*release)   (inode_t *); // closing of the very last instance of an inode
 
     int (*stat)      (inode_t * file, struct stat * buf);
 

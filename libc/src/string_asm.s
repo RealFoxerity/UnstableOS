@@ -9,17 +9,14 @@ memset:
     push %edi
     push %esi
 
-    mov 0x8(%ebp),  %edi /* s */
-    mov 0xC(%ebp),  %eax /* c */
-    mov 0x10(%ebp), %ecx /* n */
+    movl 0x8(%ebp),  %edi /* s */
+    movl 0xC(%ebp),  %eax /* c */
+    movl 0x10(%ebp), %ecx /* n */
 
     cmp $0x8, %ecx
     jg 0f
     rep stosb
-    pop %esi
-    pop %edi
-    pop %ebp
-    ret
+    jmp 4f
 
     0:
     /* set unaligned first bytes */
@@ -30,33 +27,38 @@ memset:
     mov $0x4, %esi
     sub %edx, %esi
     sub %esi, %ecx
-
-    2:
-        mov %al, (%edi, %esi, 1)
-        dec %esi
-        jnz 2b
+    pushl %ecx
+    mov %esi, %ecx
+    rep stosb
+    pop %ecx
 
 
     /* main memset */
     1:
+
+    /* distribute the c byte into all positions so that stosl works */
+    movl %eax, %esi
+    shl $0x8, %esi
+    orl %esi, %eax
+    movl %eax, %esi
+    shl $0x10, %eax
+    orl %esi, %eax
+
     mov %ecx, %esi
-    and $0x3, %esi
     shr $0x2, %ecx;
     rep stosl
     and $0x3, %esi
     jz 4f
 
     /* set unaligned last bytes */
-    3:
-        mov %al, (%edi, %esi, 1)
-        dec %esi
-        jnz 3b
+    mov %esi, %ecx
+    rep stosb
 
     4:
     pop %esi
     pop %edi
+    mov 0x8(%ebp), %eax
     pop %ebp
-    mov (%ebp), %eax
     ret
 
 

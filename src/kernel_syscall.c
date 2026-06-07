@@ -138,24 +138,49 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
             asm volatile ("sti;");
             return_value = sys_read(arg1, (void*)arg2, arg3);
             break;
-        case SYSCALL_PIPE:
+        case SYSCALL_FCNTL:
+            asm volatile("sti;");
+            return_value = sys_fcntl(arg1, arg2, arg3);
+            break;
+        case SYSCALL_SYNC:
+            asm volatile("sti;");
+            return_value = 0;
+            extern void hd_cache_flush();
+            hd_cache_flush();
+            break;
+        case SYSCALL_PIPE2:
             if (!paging_check_address_range((int *)arg1, 2*sizeof(int), 1, in_kernel)) {
                 return_value = -EFAULT;
                 break;
             }
-            return_value = sys_pipe((int *)arg1);
+            return_value = sys_pipe((int *)arg1, arg2);
             break;
         case SYSCALL_DUP:
             asm volatile ("sti;");
             return_value = sys_dup(arg1);
             break;
-        case SYSCALL_DUP2:
+        case SYSCALL_DUP3:
             asm volatile ("sti;");
-            return_value = sys_dup2(arg1, arg2);
+            return_value = sys_dup3(arg1, arg2, arg3);
             break;
         case SYSCALL_SEEK:
+            if (!paging_check_address_range((off_t*)arg2, sizeof(off_t), 0, in_kernel)) {
+                return_value = -EFAULT;
+                break;
+            }
+            if (!paging_check_address_range((off_t*)arg4, sizeof(off_t), 1, in_kernel)) {
+                return_value = -EFAULT;
+                break;
+            }
             asm volatile ("sti;");
-            return_value = sys_seek(arg1, arg2, arg3);
+
+            off_t out = sys_seek(arg1, *(off_t*)arg2, arg3);
+            if (out >= 0) {
+                *(off_t*)arg4 = out;
+                return_value = 0;
+            } else {
+                return_value = (long)out; // negative errors
+            }
             break;
         case SYSCALL_READDIR:
             if (!paging_check_address_range((void*)arg2, arg3, 1, in_kernel)) {
@@ -256,6 +281,13 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
         case SYSCALL_OPENAT:
             asm volatile ("sti;");
             return_value = sys_openat(arg1, (const char *)arg2, arg3, arg4);
+            break;
+        case SYSCALL_UMASK:
+            arg1 &= 0777;
+            mode_t old_umask = current_process->umask;
+            current_process->umask = arg1;
+            // even though mode_t is an uint, this should never wrap as we don't use that many bits
+            return_value = (long)old_umask;
             break;
         case SYSCALL_CLOSE:
             asm volatile ("sti;");
@@ -415,9 +447,9 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
 
     asm volatile ("cli;");
 
-    memcpy(&current_thread->context, &ctx, sizeof(mcontext_t) - (ctx->iret_frame.cs & 3 ? 0 : 2*sizeof(void *)));
+    memcpy(&current_thread->context, ctx, sizeof(mcontext_t) - (ctx->iret_frame.cs & 3 ? 0 : 2*sizeof(void *)));
     signal_dispatch_sa(current_process, current_thread);
-    memcpy(&ctx, &current_thread->context, sizeof(mcontext_t) - (ctx->iret_frame.cs & 3 ? 0 : 2*sizeof(void *)));
+    memcpy(ctx, &current_thread->context, sizeof(mcontext_t) - (ctx->iret_frame.cs & 3 ? 0 : 2*sizeof(void *)));
 
 #ifdef SYSCALLS_RESCHEDULE
     reschedule();

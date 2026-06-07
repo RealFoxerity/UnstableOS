@@ -71,14 +71,14 @@ void spinlock_acquire_interruptible(spinlock_t * lock) {
         return;
     }
 
-    if (__atomic_compare_exchange_n(&lock->state, &(unsigned long){SPINLOCK_UNLOCKED}, SPINLOCK_LOCKED, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
+    if (__atomic_compare_exchange_n(&lock->state, &(unsigned long){SPINLOCK_UNLOCKED}, SPINLOCK_LOCKED, 0, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED))
         return; // in case we don't even need the sti
 
     asm volatile("sti");
     do {
         //asm volatile ("pause");
         reschedule();
-    } while (lock->state != SPINLOCK_UNLOCKED || !__atomic_compare_exchange_n(&lock->state, &(unsigned long){SPINLOCK_UNLOCKED}, SPINLOCK_LOCKED, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST));
+    } while (lock->state != SPINLOCK_UNLOCKED || !__atomic_compare_exchange_n(&lock->state, &(unsigned long){SPINLOCK_UNLOCKED}, SPINLOCK_LOCKED, 0, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED));
 }
 
 // WARNING NO WAY TO DETECT DEADLOCKS FOR SPINLOCKING
@@ -96,10 +96,46 @@ void spinlock_acquire_nonreentrant(spinlock_t * lock) {
 
     do {
         asm volatile ("pause");
-    } while (!__atomic_compare_exchange_n(&lock->state, &(unsigned long){SPINLOCK_UNLOCKED}, SPINLOCK_LOCKED, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST));
+    } while (!__atomic_compare_exchange_n(&lock->state, &(unsigned long){SPINLOCK_UNLOCKED}, SPINLOCK_LOCKED, 0, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED));
 }
 
 void spinlock_release(spinlock_t * lock) {if (!lock) panic("Tried to release NULL spinlock"); CRIT_SEC_END __atomic_store_n(&lock->state, SPINLOCK_UNLOCKED, __ATOMIC_RELEASE); asm volatile ("push %0; popf;" :: "R"(lock->eflags));}
+
+
+// maybe we don't need the vlock?
+
+void rw_spinlock_acquire_read(rw_spinlock_t * lock) {
+    if (!lock) panic("Tried to lock a NULL rw spinlock");
+    spinlock_acquire_interruptible(&lock->vlock);
+
+    if (__atomic_add_fetch(&lock->value, 1, __ATOMIC_RELAXED) == 1)
+        spinlock_acquire_interruptible(&lock->wlock);
+
+    spinlock_release(&lock->vlock);
+}
+
+void rw_spinlock_release_read(rw_spinlock_t * lock) {
+    if (!lock) panic("Tried to lock a NULL rw spinlock");
+    spinlock_acquire_interruptible(&lock->vlock);
+
+    if (lock->value == 0)
+        panic("Tried to release a read rw spinlock with 0 instances");
+
+    if (__atomic_sub_fetch(&lock->value, 1, __ATOMIC_RELAXED) == 0)
+        spinlock_release(&lock->wlock);
+
+    spinlock_release(&lock->vlock);
+}
+
+void rw_spinlock_acquire_write(rw_spinlock_t * lock) {
+    if (!lock) panic("Tried to lock a NULL rw spinlock");
+    spinlock_acquire_interruptible(&lock->wlock);
+}
+
+void rw_spinlock_release_write(rw_spinlock_t * lock) {
+    if (!lock) panic("Tried to lock a NULL rw spinlock");
+    spinlock_release(&lock->wlock);
+}
 
 void kernel_sem_post(process_t * calling_process, int sem_idx) {
     kassert(calling_process->semaphores[sem_idx]);

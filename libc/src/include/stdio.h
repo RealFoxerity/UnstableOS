@@ -19,6 +19,9 @@ void __attribute__((format(printf, 2, 3))) fprintf(int fd, const char * format, 
 void vsprintf(char * s, const char * format, va_list args);
 void __attribute__((format(printf, 2, 3))) sprintf(char * s, const char * format, ...);
 
+void vsnprintf(char * s, size_t size, const char * format, va_list args);
+void __attribute__((format(printf, 3, 4))) snprintf(char * s, size_t size, const char * format, ...);
+
 void __attribute__((format(printf, 1, 2))) printf(const char * format, ...);
 
 int __attribute__((format(scanf, 1, 2))) scanf(const char * format, ...);

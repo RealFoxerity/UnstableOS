@@ -29,10 +29,9 @@
 - no baud/speed settings, delays, and control flags in termios
 ### Known console issues (compared to a VT102 excluding DEC escapes)
 ---
-- not setting bg for the rest of a line when encountering `\r\n`
 - no "computer editing" or insertions
 - no programmable tab stops (constant 8)
 - no double widths/heights
 - no underlines
 - no "bolds" (but we do support 16 colors like xterm)
-- no blinks (though i am working on that)
+- no blinks (though I am working on that)

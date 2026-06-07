@@ -20,7 +20,7 @@ void yield();
 void free(void * p);
 void * __attribute__((malloc, malloc(free))) malloc(size_t size);
 void * __attribute__((malloc, malloc(free))) calloc(size_t size);
-
+void * realloc(void * p, size_t size);
 
 #define EXIT_SUCCESS 0
 #define EXIT_FAILURE 1

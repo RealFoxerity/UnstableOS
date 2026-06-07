@@ -11,7 +11,10 @@ typedef unsigned short dev_t; // major << 10 | minor   major is then 0-32 with t
 
 enum dev_maj {
     DEV_MAJ_MEM,
-    DEV_MAJ_BLOCK,
+    DEV_MAJ_BLOCK0,
+    DEV_MAJ_BLOCK1,
+    DEV_MAJ_BLOCK2,
+    DEV_MAJ_BLOCK3,
     DEV_MAJ_EPHEMERAL, // numbers incrementing so that st_dev in stat is different for virtual file systems
 
     DEV_MAJ_TTY = 0b100000, // first char device
@@ -27,6 +30,18 @@ enum dev_mem_min {
     DEV_MEM_MEMDISK1,
     DEV_MEM_MEMDISK2,
     DEV_MEM_MEMDISK3,
+};
+
+#define DRIVE_PART_LIMIT 128
+enum dev_block_min {
+    DEV_BLOCK_DRIVE0,
+    DEV_BLOCK_DRIVE1 = DRIVE_PART_LIMIT,
+    DEV_BLOCK_DRIVE2 = DRIVE_PART_LIMIT * 2,
+    DEV_BLOCK_DRIVE3 = DRIVE_PART_LIMIT * 3,
+    DEV_BLOCK_DRIVE4 = DRIVE_PART_LIMIT * 4,
+    DEV_BLOCK_DRIVE5 = DRIVE_PART_LIMIT * 5,
+    DEV_BLOCK_DRIVE6 = DRIVE_PART_LIMIT * 6,
+    DEV_BLOCK_DRIVE7 = DRIVE_PART_LIMIT * 7,
 };
 
 enum dev_misc_min {

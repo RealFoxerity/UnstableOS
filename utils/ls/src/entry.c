@@ -1,10 +1,10 @@
-#include "../../../libc/src/include/stdio.h"
-#include "../../../libc/src/include/dirent.h"
-#include "../../../libc/src/include/sys/stat.h"
-#include "../../../libc/src/include/fcntl.h"
-#include "../../../libc/src/include/stdlib.h"
-#include "../../../libc/src/include/string.h"
-#include "../../../libc/src/include/time.h"
+#include <stdio.h>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
 #include <stddef.h>
 
 #define COLOR_DIR "\e[36m"
@@ -91,7 +91,7 @@ void print_file_info(const struct stat * info, const char * name) {
 
         char * datestr = ctime(&info->st_mtime);
         datestr[strlen(datestr)-1] = '\0';
-        printf("\t%lu\t%lu\t%lu\t%lu\t%s ", info->st_nlink, info->st_uid, info->st_gid, info->st_size, datestr);
+        printf("\t%lu\t%lu\t%lu\t%lld\t%s ", info->st_nlink, info->st_uid, info->st_gid, info->st_size, datestr);
 
         switch (info->st_mode & S_IFMT) {
             case S_IFREG:
@@ -128,11 +128,14 @@ int main(int argc, char ** argv) {
         path = argv[1];
     }
     int dirfd = open(path, O_RDONLY, 0);
-
+    if (dirfd < 0) {
+        perror("ls: open()");
+        return 1;
+    }
     struct stat file_info = {0};
     int ret = 0;
     if ((ret = fstat(dirfd, &file_info)) < 0) {
-        printf("ls: cannot access %s, errno %d\n", path, ret);
+        perror("ls: fstat()");
         return 1;
     }
 
@@ -143,7 +146,7 @@ int main(int argc, char ** argv) {
 
     DIR * this = NULL;
     if ((this = opendir(path)) == NULL) {
-        printf("ls: cannot access %s, errno %d\n", path, ret);
+        perror("ls: opendir()");
         return 1;
     }
     struct dirent * entry = readdir(this);

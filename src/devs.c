@@ -5,7 +5,7 @@
 // one of the registered ones is the first TTY
 
 #include "kernel.h"
-#include "../libc/src/include/UnstableOS/devs.h"
+#include <UnstableOS/devs.h>
 #include "dev_ops.h"
 #include "fs/fs.h"
 #include "mm/kernel_memory.h"

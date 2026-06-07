@@ -16,7 +16,7 @@ struct dev_operations {
 ssize_t read_dev(file_descriptor_t *file, void *buf, size_t count);
 ssize_t write_dev(file_descriptor_t *file, const void *buf, size_t count);
 off_t seek_dev(file_descriptor_t * file, off_t offset, int whence);
-off_t ioctl_dev(file_descriptor_t *file, unsigned long request, void * arg);
+long ioctl_dev(file_descriptor_t *file, unsigned long request, void * arg);
 
 // if one already exists, it gets overwritten!
 void dev_register_ops(dev_t dev, const struct dev_operations * dev_ops);

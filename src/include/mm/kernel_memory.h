@@ -48,6 +48,8 @@ extern spinlock_t address_spaces_lock;
 #define PCI_MMIO_START ((void *)0xE0000000)
 #define PCI_MMIO_END   ((void *)0xFEFFFFFF)
 
+#define PCI_PORT_BASE (0x1000)
+
 #define ___PDE_VADDR_BASE 0xFFFFF000
 #define ___PTE_VADDR_BASE ((uint32_t)0-PAGE_TABLE_ENTRIES*PAGE_DIRECTORY_ENTRIES*sizeof(PAGE_TABLE_TYPE))
 #define PDE_ADDR_VIRT ((uint32_t*)___PDE_VADDR_BASE)
@@ -97,6 +99,7 @@ void kalloc_prepare(void * heap_struct_start, void * allocated_heap_top, void * 
 //#pragma clang diagnostic ignored "-Wignored-attributes"
 void kfree(void * p);
 void * __attribute__((malloc /*, malloc(kfree)*/)) kalloc(size_t size);
+void * krealloc(void * p, size_t size);
 
 void kalloc_print_heap_objects();
 size_t kalloc_get_free_memory();

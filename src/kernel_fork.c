@@ -43,6 +43,7 @@ static PAGE_DIRECTORY_TYPE * fork_dup_address_space() {
     PAGE_DIRECTORY_TYPE * page_directory = paging_map_phys_addr_unspecified(page_directory_phys, PTE_PDE_PAGE_WRITABLE);
     kassert(page_directory);
     memset(page_directory, 0, PAGE_SIZE_NO_PAE);
+    memcpy(page_directory, KERNEL_ADDRESS_SPACE_VADDR, PAGE_DIRECTORY_ENTRIES * sizeof(PAGE_DIRECTORY_TYPE));
 
     // we don't directly copy stacks and there isn't anything there after them anyway
     memcpy(page_directory, PDE_ADDR_VIRT,
@@ -183,8 +184,10 @@ pid_t sys_fork(mcontext_t * ctx) {
 
     // "duplicate" all file descriptors and semaphores, TODO: fix the UINT32_MAX :3
     for (int i = 0; i < FD_LIMIT_PROCESS; i++) {
-        if (current_process->fds[i])
-            kassert(__atomic_add_fetch(&current_process->fds[i]->instances, 1, __ATOMIC_RELAXED) != UINT32_MAX);
+        if (new_proc->fds[i] && !(new_proc->fds[i]->flags & O_CLOFORK))
+            kassert(__atomic_add_fetch(&new_proc->fds[i]->instances, 1, __ATOMIC_RELAXED) != UINT32_MAX);
+        else
+            new_proc->fds[i] = NULL;
     }
 
     for (int i = 0; i < SEM_NSEMS_MAX; i++) {

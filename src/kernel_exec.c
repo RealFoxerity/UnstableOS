@@ -1,15 +1,15 @@
-#include "include/kernel_exec.h"
-#include "../libc/src/include/errno.h"
-#include "include/fs/fs.h"
-#include "include/elf.h"
-#include "include/kernel.h"
-#include "include/kernel_interrupts.h"
-#include "include/kernel_sched.h"
-#include "include/kernel_spinlock.h"
-#include "include/kernel_tty_io.h"
-#include "include/mm/kernel_memory.h"
-#include "../libc/src/include/string.h"
-#include "../libc/src/include/fcntl.h"
+#include "kernel_exec.h"
+#include <errno.h>
+#include "fs/fs.h"
+#include "elf.h"
+#include "kernel.h"
+#include "kernel_interrupts.h"
+#include "kernel_sched.h"
+#include "kernel_spinlock.h"
+#include "kernel_tty_io.h"
+#include "mm/kernel_memory.h"
+#include <string.h>
+#include <fcntl.h>
 
 
 extern ssize_t exec_safe_argv_dup(char * const* argv, char * const* envp, void * stack_top_addr, char ** stack_out);
@@ -42,6 +42,12 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
     while (current_process->threads->next != NULL) {
         current_process->do_cleanup = 1; // just in case
         reschedule(); // allow for the termination
+    }
+
+    for (int i = 0; i < FD_LIMIT_PROCESS; i++) {
+        if (current_process->fds[i] && current_process->fds[i]->flags & O_CLOEXEC) {
+            sys_close(i);
+        }
     }
 
     spinlock_acquire(&scheduler_lock);
@@ -199,13 +205,19 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
 
     memset(proc->semaphores, 0, sizeof(proc->semaphores));
     memset(proc->thread_stacks, 0, sizeof(proc->thread_stacks));
-    memset(proc->fds, 0, sizeof(proc->fds));
 
-    // copy stdin, stdout, stderr
-    memcpy(proc->fds, current_process->fds, 3 * sizeof(file_descriptor_t *));
-    for (int i = 0; i < 3; i++)
-        if (proc->fds[i])
+
+    // to not leak kernel fds on spawn
+    memset(proc->fds, 0, sizeof(proc->fds));
+    if (process_list->next == NULL)
+        memcpy(proc->fds, current_process->fds, 3 * sizeof(file_descriptor_t *));
+    else
+        memcpy(proc->fds, current_process->fds, FD_LIMIT_PROCESS * sizeof(file_descriptor_t *));
+
+    for (int i = 0; i < FD_LIMIT_PROCESS; i++)
+        if (proc->fds[i] && !(proc->fds[i]->flags & O_CLOEXEC) && !(proc->fds[i]->flags & O_CLOFORK))
             __atomic_add_fetch(&proc->fds[i]->instances, 1, __ATOMIC_RELAXED);
+        else proc->fds[i] = NULL;
 
     __atomic_add_fetch(&proc->pwd->instances, 1, __ATOMIC_RELAXED);
     __atomic_add_fetch(&proc->root->instances, 1, __ATOMIC_RELAXED);

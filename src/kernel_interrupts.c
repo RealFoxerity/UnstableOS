@@ -514,7 +514,7 @@ static inline char pic_is_spurious(uint8_t irq) {
     outb(port, PIC_OCW3_READ_REG | PIC_OCW3_READ_ISR | PIC_OCW3_ALWAYS_1);
     uint8_t isr = inb(port);
 
-    return (isr & (1 << irq)) != 0;
+    return (isr & (1 << irq)) == 0;
 }
 
 __attribute__((no_caller_saved_registers)) void pic_send_eoi(uint8_t irq) {
@@ -630,7 +630,9 @@ __attribute__((interrupt, no_caller_saved_registers)) void interr_cmos_rtc(struc
         console_blink_cursor();
     }
     if (called_ints & RTC_INT_ALARM) {
-        kprintf("Recieved RTC alarm interrupt\n");
+        // some platforms set up the alarm even when we don't want it
+        // and then we get framebuffer deadlocks on such interrupts if printing
+        //kprintf("Recieved RTC alarm interrupt\n");
     }
     if (called_ints & RTC_INT_UPDATE_ENDED) {
         system_time_sec ++;
@@ -642,9 +644,18 @@ __attribute__((interrupt, no_caller_saved_registers)) void interr_cmos_rtc(struc
     pic_send_eoi(PIC_INTERR_CMOS_RTC);
 }
 
+#include "block/ata/ata.h"
+__attribute__((interrupt, no_caller_saved_registers)) void interr_pic_pri_ata(struct interr_frame * interrupt_frame) {
+    ata_irq_handler(PIC_INTERR_PRIMARY_ATA);
+
+    // drives hold back on IRQs themselves until the status register is read
+    pic_send_eoi(PIC_INTERR_PRIMARY_ATA);
+}
+
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_sec_ata(struct interr_frame * interrupt_frame) {
     if (pic_is_spurious(PIC_INTERR_SECONDARY_ATA)) return;
 
+    ata_irq_handler(PIC_INTERR_SECONDARY_ATA);
     pic_send_eoi(PIC_INTERR_SECONDARY_ATA);
 }
 
@@ -663,7 +674,7 @@ const void * pic_interr_handlers[PIC_INTERR_COUNT] = {
     //[PIC_INTERR_USER_3] =
     [PIC_INTERR_PS2_MOUSE] = interr_pic_mouse,
     //[PIC_INTERR_COPROCESSOR] =
-    //[PIC_INTERR_PRIMARY_ATA] =
+    [PIC_INTERR_PRIMARY_ATA]   = interr_pic_pri_ata,
     [PIC_INTERR_SECONDARY_ATA] = interr_pic_sec_ata, // spurious
 };
 

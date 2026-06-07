@@ -15,16 +15,18 @@
 
 #define kabort() {asm volatile ("mov %0, %%eax; int $" STR(SYSCALL_INTERR) :: "r"(SYSCALL_ABORT)); asm volatile ("1:; hlt; jmp 1b");} // hlt loop if interrupts were disabled and thus syscall wouldn't fire
 
+// do {...} while (0); to work in if something; else something;
+
 // most probably it doesn't matter anyway, so just kill the kernel at that point...
-#define kassert(cond) {\
+#define kassert(cond) do {\
     if (!(cond)) {\
         char errmsg[128];\
         sprintf(errmsg, "Kernel assertion `"#cond"` failed in %s()! [" __FILE__ ":" STR(__LINE__) "]\n", __func__);\
         panic(errmsg);\
     }\
-}
+} while (0)
 
-#define UNLINK_DOUBLE_LINKED_LIST(item, list) {     \
+#define UNLINK_DOUBLE_LINKED_LIST(item, list) do {  \
     if (item->next != NULL)                         \
         item->next->prev = item->prev;              \
     else                                            \
@@ -33,9 +35,9 @@
         item->prev->next = item->next;              \
     else                                            \
         list = item->next;                          \
-}
+} while (0);
 
-#define APPEND_DOUBLE_LINKED_LIST(item, list) {     \
+#define APPEND_DOUBLE_LINKED_LIST(item, list) do {  \
     item->next = NULL;                              \
     if (list == NULL) {                             \
         list = item;                                \
@@ -44,7 +46,7 @@
         list->prev->next = item;                    \
     }                                               \
     list->prev = item;                              \
-}
+} while (0);
 
 #include <UnstableOS/syscalls.h>
 
@@ -103,4 +105,7 @@ if not selected, reschedule only happens on cleanup and non-running thread state
  */
 //#define POSIX_LIKE_IOCTL_ERRORS
 
+// linux and similar just truncate the read/write size to 0x7ffff000
+// we can either do the same, or return -E2BIG on such ints
+//#define E2BIG_ON_2G
 #endif

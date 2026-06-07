@@ -9,21 +9,24 @@ enum syscalls {
     SYSCALL_BRK, // same as linux, returns the current end on error
     SYSCALL_OPENAT,
     SYSCALL_CLOSE,
+    SYSCALL_FCNTL,
 
     SYSCALL_DUP,
-    SYSCALL_DUP2,
+    SYSCALL_DUP3, // use flags -1 to act as dup2
 
     SYSCALL_MKDIR,
     //SYSCALL_CREATE, handled by OPEN
     SYSCALL_UNLINK,
+    SYSCALL_UMASK,
 
     SYSCALL_READ,
     SYSCALL_WRITE,
-    SYSCALL_SEEK,
+    SYSCALL_SEEK, // fd, const off_t * off, int whence, off_t * off_out; needed because 64 bit offsets
+    SYSCALL_SYNC,
 
     SYSCALL_READDIR, // theoretically could be implemented in read()
 
-    SYSCALL_PIPE,
+    SYSCALL_PIPE2,
 
     SYSCALL_CHDIR,
     SYSCALL_CHROOT,

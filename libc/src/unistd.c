@@ -7,7 +7,15 @@
 #include <UnstableOS/syscalls.h>
 #include <sys/ioctl.h>
 
-#include "assert.h"
+#include <assert.h>
+#include <endian.h>
+
+void swab(const void *restrict src, void *restrict dest, ssize_t nbytes) {
+    if (nbytes < 2) return;
+    for (size_t i = 0; i < nbytes/2; i++) {
+        ((uint16_t*)dest)[i] = htobe16(((uint16_t*)src)[i]);
+    }
+}
 
 int brk(void * addr) {
     void * old_break = (void *)syscall(SYSCALL_BRK, NULL);
@@ -56,22 +64,30 @@ ssize_t read (int fd, void * buf, size_t count) {
     return ret;
 }
 
-int pipe(int fildes[2]) {
-    int ret = syscall(SYSCALL_PIPE, fildes);
+void sync() {
+    syscall(SYSCALL_SYNC);
+}
+
+int pipe2(int fildes[2], int flags) {
+    int ret = syscall(SYSCALL_PIPE2, fildes, flags);
     if (ret < 0) {
         errno = -ret;
         return -1;
     }
     return ret;
 }
+int pipe(int fildes[2]) {
+    return pipe2(fildes, 0);
+}
 
 off_t lseek(int fd, off_t offset, int whence) {
-    off_t ret = syscall(SYSCALL_SEEK, fd, offset, whence);
+    off_t out = 0;
+    off_t ret = syscall(SYSCALL_SEEK, fd, &offset, whence, &out);
     if (ret < 0) {
-        errno = -ret;
+        errno = (long)-ret;
         return -1;
     }
-    return ret;
+    return out;
 }
 
 int dup(int fd) {
@@ -82,8 +98,13 @@ int dup(int fd) {
     }
     return ret;
 }
+
 int dup2(int oldfd, int newfd) {
-    int ret = syscall(SYSCALL_DUP2, oldfd, newfd);
+    return dup3(oldfd, newfd, -1);
+}
+
+int dup3(int oldfd, int newfd, int flag) {
+    int ret = syscall(SYSCALL_DUP3, oldfd, newfd, flag);
     if (ret < 0) {
         errno = -ret;
         return -1;
@@ -159,6 +180,7 @@ long syscall(unsigned long syscall_number, ...) { // interrupt handler in kernel
 
     unsigned long arg1 = va_arg(args, unsigned long), arg2 = va_arg(args, unsigned long),
                     arg3 = va_arg(args, unsigned long), arg4 = va_arg(args, unsigned long);
+    va_end(args);
 
     long out = syscall_number;
     asm volatile (
@@ -175,6 +197,7 @@ int ioctl(int fildes, unsigned long request, ...) {
     va_list args;
     va_start(args, request);
     unsigned long arg = va_arg(args, unsigned long);
+    va_end(args);
 
     long ret = syscall(SYSCALL_IOCTL, fildes, request, arg);
     if (ret < 0) {

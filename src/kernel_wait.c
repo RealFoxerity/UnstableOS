@@ -21,6 +21,7 @@ static process_t * find_in_list(pid_t pid, process_t * list) {
 
 
 pid_t sys_waitpid(pid_t pid, int * wstatus, int options) {
+    if (pid == current_process->pid) return -ECHILD;
     process_t * child = NULL;
 
     // get the most up-to-date info

@@ -345,6 +345,7 @@ int parse_special_char(char * arg) {
     long val = strtol(arg, NULL, 0);
     if (errno != 0) return -1;
     if (val < 0 || val > 255) return -2;
+    return val;
 }
 
 char parse_modeline(const char * modeline, struct termios * out) {

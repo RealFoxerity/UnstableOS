@@ -8,6 +8,9 @@
 #include <ctype.h>
 #include <assert.h>
 #include <sys/wait.h>
+#include <fcntl.h>
+
+#include "include/args.h"
 
 void show_help() {
     printf("\n"
@@ -21,126 +24,6 @@ void show_help() {
 #define MAX_INPUT_BUFFER 128
 extern char ** environ;
 
-char ** extract_args(char * args_start) {
-    size_t arg_counter = 0;
-
-    char seen_space = 1;
-    char seen_escape = 0;
-    char literal_section = 0;
-    char seen_quote = 0;
-
-    for (int i = 0; args_start[i] != '\0'; i++) {
-        if (args_start[i] == '\\' && !seen_escape && !literal_section) {
-            seen_escape = 1;
-            continue;
-        }
-        if (seen_escape) {
-            seen_escape = 0;
-            goto pre_escaped;
-        }
-        seen_escape = 0;
-
-        switch (args_start[i]) {
-            case '\'':
-                if (seen_quote) break;
-                if (!literal_section) arg_counter++;
-                literal_section = !literal_section;
-                continue;
-            case '\"':
-                if (literal_section) break;
-                if (!seen_quote) arg_counter++;
-                seen_quote = !seen_quote;
-                continue;
-            default: break;
-        }
-
-        pre_escaped:
-        if (literal_section || seen_quote) continue;
-        if (isspace(args_start[i])) {
-            seen_space = 1;
-        } else {
-            if (seen_space) {
-                arg_counter ++;
-                seen_space = 0;
-            }
-        }
-    }
-
-    if (arg_counter == 0) return NULL;
-
-    if (seen_escape) {
-        printf("Unterminated escape character in input!\n");
-        return NULL;
-    }
-    if (seen_quote || literal_section) {
-        printf("Unterminated quote in input!\n");
-        return NULL;
-    }
-
-    char ** args = malloc((arg_counter+1) * sizeof(char *));
-    if (args == NULL) return NULL;
-    args[arg_counter] = NULL;
-
-    seen_space = 1;
-    arg_counter = 0;
-    seen_escape = 0;
-    literal_section = 0;
-    seen_quote = 0;
-
-    for (int i = 0; args_start[i] != '\0'; i++) {
-        if (args_start[i] == '\\' && !seen_escape && !literal_section) {
-            seen_escape = 1;
-            continue;
-        }
-        if (seen_escape) {
-            memcpy(args_start + i - 1, args_start + i, strlen(args_start + i) + 1);
-            i--;
-            seen_escape = 0;
-            goto escaped;
-        }
-        seen_escape = 0;
-
-        switch (args_start[i]) {
-            case '\'':
-                if (seen_quote) break;
-                if (!literal_section) {
-                    args[arg_counter] = args_start + i + 1;
-                    arg_counter++;
-                } else {
-                    args_start[i] = '\0';
-                }
-                literal_section = !literal_section;
-                continue;
-            case '\"':
-                if (literal_section) break;
-                if (!seen_quote) {
-                    args[arg_counter] = args_start + i + 1;
-                    arg_counter++;
-                } else {
-                    args_start[i] = '\0';
-                }
-                seen_quote = !seen_quote;
-                continue;
-            default: break;
-        }
-
-        escaped:
-        if (literal_section || seen_quote) continue;
-        if (isspace(args_start[i])) {
-            args_start[i] = '\0';
-            seen_space = 1;
-        } else {
-            if (seen_space) {
-                args[arg_counter] = args_start+i;
-                arg_counter ++;
-                seen_space = 0;
-            }
-        }
-    }
-
-    return args;
-}
-
 int main(int argc, char ** argv) {
     printf("\n\nArguments:\n");
     for (int i = 0; i < argc; i++) {
@@ -151,24 +34,34 @@ int main(int argc, char ** argv) {
     for (int i = 0; environ[i] != NULL; i++) {
         printf("%s ", environ[i]);
     }
-    printf("\nTesting shell env, help for help\n");
+    printf("\n\n");
     char input_buf[MAX_INPUT_BUFFER];
     ssize_t read_bytes = 0;
-    int wstatus;
 
     signal(SIGINT, SIG_IGN);
+    signal(SIGTSTP, SIG_IGN);
+    signal(SIGTTOU, SIG_IGN);
+    signal(SIGTTIN, SIG_IGN);
 
     while(1) {
         memset(input_buf, 0, MAX_INPUT_BUFFER);
         printf("> ");
         read_bytes = read(0, input_buf, MAX_INPUT_BUFFER - 1);
         if (read_bytes == -1 && errno == EINTR) continue; // ctrl+c input cancel
-        if (read_bytes < 0) perror("read()");
-        assert(read_bytes > 0);
+        if (read_bytes < 0) {
+            perror("read()");
+            exit(1);
+        }
+        if (read_bytes == 0) return 0;
+
+        input_buf[read_bytes - 1] = '\0'; // get rid of newline and allow for string operations
+
 
         // strcmp here ok since we don't read into the last null byte
-        if (strcmp("help\n", input_buf) == 0) {
+        if (strcmp("help", input_buf) == 0) {
             show_help();
+        } else if (strcmp("sync", input_buf) == 0) {
+            sync();
         } else if (strcmp("exit ", input_buf) == 0) {
             long exitcode;
             if (sscanf(input_buf, "exit %lu", &exitcode) != 1) {
@@ -176,83 +69,107 @@ int main(int argc, char ** argv) {
                 continue;
             }
             exit(exitcode);
-        } else if (strcmp("cd ", input_buf) == 0) {
-            input_buf[read_bytes - 1] = '\0';
-            char * path = input_buf + 3;
-            printf("chdir: %d\n", chdir(path));
-        } else if (strcmp("chroot ", input_buf) == 0) {
-            input_buf[read_bytes - 1] = '\0';
+        } else if (strncmp("cd", input_buf, 2) == 0) {
+            char * path = NULL;
+            if (read_bytes == 3) {
+                path = getenv("HOME");
+                if (path == NULL)
+                    path = "/";
+            } else
+                path = input_buf + 3;
+
+            int ret = chdir(path);
+            if (ret < 0)
+                perror("cd");
+        } else if (strncmp("chroot ", input_buf, 7) == 0) {
             char * path = input_buf + 7;
             printf("chroot: %d\n", chroot(path));
-        }  else {
-            input_buf[read_bytes - 1] = '\0'; // get rid of newline
-            char * prompt = NULL;
-            for (int i = 0; input_buf[i] != '\0'; i++) {
-                if (!isspace(input_buf[i])) {
-                    prompt = input_buf + i;
-                    break;
-                }
-            }
+        } else {
+            struct token * tokens = tokenize_buffer(input_buf);
+            if (tokens == NULL) continue;
 
-            if (prompt == NULL) {
-                printf("? ");
-                continue;
-            }
+            struct redirection ** redirs = NULL;
+            char * const ** argvs = extract_args(tokens, &redirs);
+            free(tokens);
+            if (argvs == NULL) continue;
 
-            char ** new_argv = extract_args(prompt);
-            if (new_argv == NULL) {
-                printf("? ");
-                continue;
-            }
+            pid_t last_pid = 0; // return codes are based on the last process in a given pipeline
+            pid_t read_pid = 0;
+            int wstatus = 0;
+            int last_wstatus = -1;
 
-            // find pipes
-            char ** process2 = NULL;
-            for (int i = 0; new_argv[i] != NULL; i++) {
-                if (strlen(new_argv[i]) == 1 && new_argv[i][0] == '|') {
-                    if (new_argv[i + 1] == NULL || *new_argv[i + 1] == 0) {
-                        printf("Unterminated pipe in input!\n");
-                        goto fail;
+            int last_read_fd = -1; // what fd to dup2 to STDIN_FILENO in a forked process
+
+            // used CLOEXEC both here and in the parser to avoid needing to close each descriptor in the fork branch
+            // (just in case to not leak extra descriptors)
+            for (size_t arg_idx = 0; argvs[arg_idx] != NULL; arg_idx++) {
+                int pipe_fds[2] = {-1, -1};
+                if (argvs[arg_idx + 1] != NULL) {
+                    if (pipe2(pipe_fds, O_CLOEXEC) == -1) {
+                        printf("ysh: error on argv[0]: %s: pipe2(): %s\n", argvs[arg_idx][0], strerror(errno));
+                        goto command_cleanup;
                     }
-                    new_argv[i] = NULL;
-                    process2 = &new_argv[i + 1];
                 }
-            }
 
-            int pipefd[2] = {-1};
-            switch (fork()) {
-                case 0:
-                    if (process2) {
-                        assert(pipe(pipefd) == 0);
-                        switch (fork()) {
-                            case 0:
-                                close(pipefd[1]);
-                                close(STDIN_FILENO);
-                                dup2(pipefd[0], STDIN_FILENO);
-                                execvp(process2[0], process2);
-                                free(new_argv);
-                                return 127;
-                            default:
-                                close(pipefd[0]);
-                                close(STDOUT_FILENO);
-                                dup2(pipefd[1], STDOUT_FILENO);
-                                close(pipefd[1]);
+                switch (read_pid = fork()) {
+                    case -1:
+                        printf("ysh: error on argv[0]: %s: fork(): %s\n", argvs[arg_idx][0], strerror(errno));
+                        close(pipe_fds[0]);
+                        close(pipe_fds[1]);
+                        goto command_cleanup;
+
+                    case 0:
+                        if (last_read_fd != -1)
+                            dup2(last_read_fd, STDIN_FILENO);
+
+                        for (struct redirection * redirect = redirs[arg_idx]; redirect->redir_type != REDIR_END; redirect++)
+                            dup2(redirect->fd_r, redirect->fd_l);
+
+                        if (pipe_fds[1] != -1)
+                            dup2(pipe_fds[1], STDOUT_FILENO);
+
+                        execvp(argvs[arg_idx][0], argvs[arg_idx]);
+                        printf("ysh: %s: %s\n", argvs[arg_idx][0], strerror(errno));
+                        exit(127);
+
+                    default:
+                        if (argvs[arg_idx + 1] == NULL)
+                            last_pid = read_pid;
+                        close(pipe_fds[1]);
+                        close(last_read_fd);
+                        last_read_fd = pipe_fds[0];
+
+                        // close now to have as much free FDs for pipes
+                        for (struct redirection * redirect = redirs[arg_idx]; redirect->redir_type != REDIR_END; redirect++) {
+                            if (redirect->redir_type == REDIR_FD_FILE) {
+                                close(redirect->fd_r);
+                                redirect->fd_r = -1;
+                            }
                         }
-                    }
-                    execvp(prompt, new_argv);
-
-                    free(new_argv);
-                    return 127;
-                default:
-                    wstatus = 0;
-                    while (wait(&wstatus) == -1 && errno == EINTR) {}
-                    if (WIFSIGNALED(wstatus)) {
-                        printf("WSIG: %d ", WTERMSIG(wstatus));
-                        break;
-                    }
-                    printf("%d ", WEXITSTATUS(wstatus));
+                }
             }
-            fail:
-            free(new_argv);
+
+            command_cleanup:
+            free((void*)argvs[0]);
+            free(argvs);
+
+            for (struct redirection ** redirects = redirs; *redirects != NULL; redirects++) {
+                for (struct redirection * redirect = *redirects; redirect->redir_type != REDIR_END; redirect++) {
+                    if (redirect->redir_type == REDIR_FD_FILE) {
+                        close(redirect->fd_r);
+                    }
+                }
+            }
+
+            free(redirs[0]);
+            free(redirs);
+
+            while (1) {
+                read_pid = wait(&wstatus);
+                if (read_pid == -1 && errno == ECHILD) break;
+                if (read_pid == last_pid) last_wstatus = wstatus;
+            }
+            continue;
         }
     }
 }

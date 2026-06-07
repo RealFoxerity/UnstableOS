@@ -139,6 +139,9 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
         return -EINVAL;
     }
     if (path == NULL) return -EINVAL;
+
+    mode &= ~current_process->umask;
+
     kassert(root_mountpoint);
     int ret = 0;
 
@@ -223,13 +226,6 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
         *next_slash = '\0';
 
         lookup_escape_again:
-        if (last_fragment) {
-            if (sb->mount_options & MOUNT_RDONLY && mode & O_WRONLY) {
-                close_inode(prev);
-                ret = -EROFS;
-                goto err;
-            }
-        }
         if (next_slash - final_path == 2 &&
             strcmp(PATH_PARENT, final_path) == 0 &&
             prev == current_process->root) {
@@ -247,7 +243,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
                 sb->funcs->create != NULL &&
                 flags & O_CREAT)
             {
-                if ((sb->mount_options & O_RDONLY)) {
+                if (sb->mount_options & MOUNT_RDONLY) {
                     close_inode(prev);
                     ret = -EROFS;
                     goto err;
@@ -259,6 +255,14 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
             close_inode(prev);
             ret = -ENOENT;
             goto err;
+        }
+        // has to be below because we prefer returning ENOENT
+        if (last_fragment) {
+            if (sb->mount_options & MOUNT_RDONLY && mode & O_WRONLY) {
+                close_inode(prev);
+                ret = -EROFS;
+                goto err;
+            }
         }
         if (new == VFS_LOOKUP_ESCAPE) {
             new = sb->mountpoint;
