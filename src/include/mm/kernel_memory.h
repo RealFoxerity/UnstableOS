@@ -60,7 +60,7 @@ extern spinlock_t address_spaces_lock;
 
 #define IDENT_MAPPING_MAX_ADDR (10*PAGE_TABLE_ENTRIES*PAGE_SIZE_NO_PAE) // 40MB, for initrd
 
-void * page_frame_alloc_init(multiboot_info_t* mbd, unsigned long free_memory, void * free_space_start_page); // returns pointer to end of frame table
+void * page_frame_alloc_init(multiboot_info_t* mbd, void * free_space_start_page); // returns pointer to end of frame table
 unsigned long pf_get_free_memory();
 void * pfalloc(); // page frame last_access, returns the amount of free space left after physical page housekeeping
 void * pfalloc_1M(); // gets a 1M contiguous memory region, for dma and such
@@ -92,7 +92,7 @@ char paging_check_address_range(const void * addr, size_t n, char writable, char
 
 void print_page_table_entry(const void * pte);
 
-void setup_paging(unsigned long total_free, unsigned long ident_map_end);
+void setup_paging(unsigned long ident_map_end);
 
 void kalloc_prepare(void * heap_struct_start, void * allocated_heap_top, void * maximum_heap_top);
 
