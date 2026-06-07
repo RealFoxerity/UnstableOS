@@ -99,8 +99,8 @@ int tty_queue_getch(struct tty_queue * tq, struct timespec timeout);
 // onlret being the same as the termios flag, that is resetting tty column to 0 on \n, \v
 int tty_queue_putch(struct tty_queue * tq, char c, char onlret);
 
-ssize_t tty_write(file_descriptor_t * file, const void * s, size_t n);
-ssize_t tty_read(file_descriptor_t * file, void * s, size_t n);
+ssize_t tty_pwrite(file_descriptor_t * file, const void * s, size_t n, off_t offset);
+ssize_t tty_pread(file_descriptor_t * file, void * s, size_t n, off_t offset);
 long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg);
 
 long tty_write_to_tty(const char * s, size_t n, dev_t dev);

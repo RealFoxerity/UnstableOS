@@ -7,14 +7,14 @@
 // each ioctl implementation must check that the memory area is valid
 // for example with paging_check_address_range()
 struct dev_operations {
-    ssize_t (*read) (file_descriptor_t *file, void *buf, size_t count);
-    ssize_t (*write)(file_descriptor_t *file, const void *buf, size_t count);
+    ssize_t (*pread) (file_descriptor_t *file, void *buf, size_t count, off_t offset);
+    ssize_t (*pwrite)(file_descriptor_t *file, const void *buf, size_t count, off_t pread);
     off_t   (*seek) (file_descriptor_t *file, off_t offset, int whence);
     long    (*ioctl)(file_descriptor_t *file, unsigned long request, void * arg);
 };
 
-ssize_t read_dev(file_descriptor_t *file, void *buf, size_t count);
-ssize_t write_dev(file_descriptor_t *file, const void *buf, size_t count);
+ssize_t pread_dev(file_descriptor_t *file, void *buf, size_t count, off_t offset);
+ssize_t pwrite_dev(file_descriptor_t *file, const void *buf, size_t count, off_t offset);
 off_t seek_dev(file_descriptor_t * file, off_t offset, int whence);
 long ioctl_dev(file_descriptor_t *file, unsigned long request, void * arg);
 

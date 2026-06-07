@@ -42,8 +42,8 @@ struct vfs_ops {
 
     int (*stat)      (inode_t * file, struct stat * buf);
 
-    ssize_t (*read)  (file_descriptor_t * fd, void * buf, size_t n);
-    ssize_t (*write) (file_descriptor_t * fd, const void * buf, size_t n);
+    ssize_t (*pread) (file_descriptor_t * fd, void * buf, size_t n, off_t offset);
+    ssize_t (*pwrite)(file_descriptor_t * fd, const void * buf, size_t n, off_t offset);
     off_t (*seek)    (file_descriptor_t * fd, off_t off, int whence);
 
 

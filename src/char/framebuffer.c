@@ -75,41 +75,41 @@ ssize_t framebuffer_write(file_descriptor_t *file, const void *buf, size_t count
     return i * 4;
 }
 #else
-ssize_t framebuffer_read(file_descriptor_t *file, void *buf, size_t count) {
+ssize_t framebuffer_pread(file_descriptor_t *file, void *buf, size_t count, off_t offset) {
+    if (offset < 0) return -EINVAL;
+
     spinlock_acquire_interruptible(&framebuffer_lock);
     size_t max_off = framebuffer_size;
-    if (file->off >= max_off) {
+    if (offset >= max_off) {
         spinlock_release(&framebuffer_lock);
         return 0;
     }
 
-    if (file->off + count >= max_off) {
-        count = max_off - file->off;
+    if (offset + count >= max_off) {
+        count = max_off - offset;
     }
 
-    memcpy(buf, LINEAR_FRAMEBUFFER_START + file->off, count);
-
-    file->off += count;
+    memcpy(buf, LINEAR_FRAMEBUFFER_START + offset, count);
 
     spinlock_release(&framebuffer_lock);
     return count;
 }
 
-ssize_t framebuffer_write(file_descriptor_t *file, const void *buf, size_t count) {
+ssize_t framebuffer_pwrite(file_descriptor_t *file, const void *buf, size_t count, off_t offset) {
+    if (offset < 0) return -EINVAL;
+
     spinlock_acquire_interruptible(&framebuffer_lock);
     size_t max_off = framebuffer_size;
-    if (file->off >= max_off) {
+    if (offset >= max_off) {
         spinlock_release(&framebuffer_lock);
         return 0;
     }
 
-    if (file->off + count >= max_off) {
-        count = max_off - file->off;
+    if (offset + count >= max_off) {
+        count = max_off - offset;
     }
 
-    memcpy(LINEAR_FRAMEBUFFER_START + file->off, buf, count);
-
-    file->off += count;
+    memcpy(LINEAR_FRAMEBUFFER_START + offset, buf, count);
 
     spinlock_release(&framebuffer_lock);
     return count;
@@ -121,8 +121,8 @@ long framebuffer_ioctl(file_descriptor_t *file, unsigned long cmd, void * arg) {
 }
 */
 struct dev_operations framebuffer_ops = {
-    .read = framebuffer_read,
-    .write = framebuffer_write,
+    .pread = framebuffer_pread,
+    .pwrite = framebuffer_pwrite,
     .seek = framebuffer_seek,
     //.ioctl = framebuffer_ioctl,
 };

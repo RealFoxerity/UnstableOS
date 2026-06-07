@@ -109,29 +109,33 @@ void dev_ops_remove(dev_t dev) {
 }
 
 
-ssize_t read_dev(file_descriptor_t *file, void *buf, size_t count) {
+ssize_t pread_dev(file_descriptor_t *file, void *buf, size_t count, off_t offset) {
+    if (offset < 0) return -EINVAL;
+
     kassert(file);
     kassert(file->inode);
     kassert(S_ISCHR(file->inode->mode) || S_ISBLK(file->inode->mode));
     kassert(buf);
 
     struct dev_operations dev_ops = dev_ops_lookup(file->inode->device);
-    if (dev_ops.read == NULL) return -EINVAL;
+    if (dev_ops.pread == NULL) return -EINVAL;
     if (count == 0) return 0;
 
-    return dev_ops.read(file, buf, count);
+    return dev_ops.pread(file, buf, count, offset);
 }
-ssize_t write_dev(file_descriptor_t *file, const void *buf, size_t count) {
+ssize_t pwrite_dev(file_descriptor_t *file, const void *buf, size_t count, off_t offset) {
+    if (offset < 0) return -EINVAL;
+
     kassert(file);
     kassert(file->inode);
     kassert(S_ISCHR(file->inode->mode) || S_ISBLK(file->inode->mode));
     kassert(buf);
 
     struct dev_operations dev_ops = dev_ops_lookup(file->inode->device);
-    if (dev_ops.write == NULL) return -EINVAL;
+    if (dev_ops.pwrite == NULL) return -EINVAL;
     if (count == 0) return 0;
 
-    return dev_ops.write(file, buf, count);
+    return dev_ops.pwrite(file, buf, count, offset);
 }
 off_t seek_dev(file_descriptor_t * file, off_t offset, int whence) {
     kassert(file);

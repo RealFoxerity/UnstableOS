@@ -123,7 +123,9 @@ int close_file(file_descriptor_t * file) {
     return 0;
 }
 
-ssize_t read_file(file_descriptor_t *file, void *buf, size_t count) {
+ssize_t pread_file(file_descriptor_t *file, void *buf, size_t count, off_t offset) {
+    if (offset < 0) return -EINVAL;
+
     int test = check_file(file);
     if (test != 0) return test;
     if (file->flags & O_SEARCH) return -EBADF;
@@ -137,6 +139,9 @@ ssize_t read_file(file_descriptor_t *file, void *buf, size_t count) {
 #else
     if (count > SSIZE_MAX) count = SSIZE_MAX;
 #endif
+
+    if ((S_ISFIFO(file->inode->mode) || S_ISCHR(file->inode->mode)) && offset != 0) return -ESPIPE;
+
     ssize_t ret = 0;
     spinlock_acquire_interruptible(&file->access_lock);
     if (S_ISFIFO(file->inode->mode)) {
@@ -144,20 +149,38 @@ ssize_t read_file(file_descriptor_t *file, void *buf, size_t count) {
     } else if (!(S_ISBLK(file->inode->mode) || S_ISCHR(file->inode->mode))) {
         kassert(file->inode->backing_superblock);
         kassert(file->inode->backing_superblock->funcs);
-        if (file->inode->backing_superblock->funcs->read == NULL)
+        if (file->inode->backing_superblock->funcs->pread == NULL)
             ret = -EINVAL;
         else
-            ret = file->inode->backing_superblock->funcs->read(file, buf, count);
+            ret = file->inode->backing_superblock->funcs->pread(file, buf, count, offset);
     } else {
         if (file->inode->device == GET_DEV(DEV_MAJ_MISC, DEV_MISC_PS2MOUSE))
             ret = ps2_mouse_read(buf, count);
-        else ret = read_dev(file, buf, count);
+        else ret = pread_dev(file, buf, count, offset);
     }
     spinlock_release(&file->access_lock);
     return ret;
 }
 
-ssize_t write_file(file_descriptor_t *file, const void *buf, size_t count) {
+ssize_t read_file(file_descriptor_t *file, void *buf, size_t count) {
+    int test = check_file(file);
+    if (test != 0) return test;
+
+    off_t old_off = file->off;
+    if (S_ISFIFO(file->inode->mode))
+        old_off = 0;
+
+    ssize_t ret = pread_file(file, buf, count, old_off);
+    if (ret < 0 || S_ISFIFO(file->inode->mode) || S_ISCHR(file->inode->mode)) return ret;
+
+    old_off += ret;
+    __atomic_store_n(&file->off, old_off, __ATOMIC_RELAXED);
+    return ret;
+}
+
+ssize_t pwrite_file(file_descriptor_t *file, const void *buf, size_t count, off_t offset) {
+    if (offset < 0) return -EINVAL;
+
     int test = check_file(file);
     if (test != 0) return test;
     if (file->flags & O_SEARCH) return -EBADF;
@@ -173,6 +196,8 @@ ssize_t write_file(file_descriptor_t *file, const void *buf, size_t count) {
 #endif
     if (count == 0) return 0;
 
+    if ((S_ISFIFO(file->inode->mode) || S_ISCHR(file->inode->mode)) && offset != 0) return -ESPIPE;
+
     ssize_t ret = 0;
     spinlock_acquire_interruptible(&file->access_lock);
 
@@ -187,7 +212,7 @@ ssize_t write_file(file_descriptor_t *file, const void *buf, size_t count) {
             spinlock_release(&file->access_lock);
             return -EINVAL;
         }
-        if (file->inode->backing_superblock->funcs->write == NULL)
+        if (file->inode->backing_superblock->funcs->pwrite == NULL)
             ret = -EINVAL;
         else {
             // O_APPEND doesn't make sense in any other case, so that's why here
@@ -195,13 +220,29 @@ ssize_t write_file(file_descriptor_t *file, const void *buf, size_t count) {
                 file->inode->backing_superblock->funcs->seek != NULL)
                     file->inode->backing_superblock->funcs->seek(file, 0, SEEK_END);
 
-            ret = file->inode->backing_superblock->funcs->write(file, buf, count);
+            ret = file->inode->backing_superblock->funcs->pwrite(file, buf, count, offset);
         }
     } else {
-        ret = write_dev(file, buf, count);
+        ret = pwrite_dev(file, buf, count, offset);
     }
 
     spinlock_release(&file->access_lock);
+    return ret;
+}
+
+ssize_t write_file(file_descriptor_t *file, const void *buf, size_t count) {
+    int test = check_file(file);
+    if (test != 0) return test;
+
+    off_t old_off = file->off;
+    if (S_ISFIFO(file->inode->mode))
+        old_off = 0;
+
+    ssize_t ret = pwrite_file(file, buf, count, old_off);
+    if (ret < 0 || S_ISFIFO(file->inode->mode) || S_ISCHR(file->inode->mode)) return ret;
+
+    old_off += ret;
+    __atomic_store_n(&file->off, old_off, __ATOMIC_RELAXED);
     return ret;
 }
 
@@ -249,7 +290,24 @@ ssize_t sys_write(int fd, const void * buf, size_t count) {
     if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
 
     file_descriptor_t * file = current_process->fds[fd];
+
     return write_file(file, buf, count);
+}
+
+ssize_t sys_pread(int fd, void * buf, size_t count, off_t offset) {
+    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
+
+    file_descriptor_t * file = current_process->fds[fd];
+
+    return pread_file(file, buf, count, offset);
+}
+
+ssize_t sys_pwrite(int fd, const void * buf, size_t count, off_t offset) {
+    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
+
+    file_descriptor_t * file = current_process->fds[fd];
+
+    return pwrite_file(file, buf, count, offset);
 }
 
 off_t sys_seek(int fd, off_t off, int whence) {
