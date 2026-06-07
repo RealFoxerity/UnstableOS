@@ -172,6 +172,29 @@ void kfree(void * p) {
     spinlock_release(&kalloc_lock);
 }
 
+void * krealloc(void * p, size_t size) {
+    if (size == 0) {
+        kfree(p);
+        return NULL;
+    }
+    if (p == NULL) {
+        return kalloc(size);
+    }
+
+    size_t old_size = 0;
+    spinlock_acquire(&kalloc_lock);
+    struct heap_header * hdr = p - sizeof(struct heap_header);
+    old_size = hdr->next_chunk - hdr;
+    spinlock_release(&kalloc_lock);
+
+    void * new_chunk = kalloc(size);
+    if (new_chunk == NULL) return NULL;
+
+    memcpy(new_chunk, p, old_size > size ? size : old_size);
+
+    kfree(p);
+    return new_chunk;
+}
 
 static void print_chunk_info(struct heap_header * header) {
     kprintf("kalloc: 0x%p - 0x%p (%lx), prev: 0x%p, a.by: %p, ",

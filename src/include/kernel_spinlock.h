@@ -13,4 +13,16 @@ void spinlock_acquire(spinlock_t * lock); // reschedules instead of busy loop ch
 void spinlock_acquire_interruptible(spinlock_t * lock); // same as spinlock_acquire, but doesn't disable interrupts
 void spinlock_acquire_nonreentrant(spinlock_t * lock); // busy loop, also disables interrupts
 void spinlock_release(spinlock_t * lock); // reenables interrupts if they were enabled when acquiring the lock
+
+
+struct {
+    unsigned long value;
+    spinlock_t    vlock;
+    spinlock_t    wlock;
+} typedef rw_spinlock_t;
+// rw locks are always interruptible (calling spinlock_acquire_interruptible)
+void rw_spinlock_acquire_read (rw_spinlock_t * lock);
+void rw_spinlock_release_read (rw_spinlock_t * lock);
+void rw_spinlock_acquire_write(rw_spinlock_t * lock);
+void rw_spinlock_release_write(rw_spinlock_t * lock);
 #endif

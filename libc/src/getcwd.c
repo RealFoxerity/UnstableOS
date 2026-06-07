@@ -99,4 +99,5 @@ char *getcwd(char *buf, size_t size) {
         // move stuff back to the buffer beginning
         memmove(buf, buf + remaining, size - remaining);
     }
+    return buf;
 }

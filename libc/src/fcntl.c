@@ -9,6 +9,7 @@ int open(const char * path, unsigned short flags, ...) {
     va_start(args, flags);
 
     mode_t mode = va_arg(args, mode_t);
+    va_end(args);
 
     int ret = syscall(SYSCALL_OPENAT, AT_FDCWD, path, flags, mode);
     if (ret < 0) {
@@ -32,6 +33,20 @@ int openat(int fd, const char * path, unsigned short flags, ...) {
     mode_t mode = va_arg(args, mode_t);
 
     int ret = syscall(SYSCALL_OPENAT, fd, path, flags, mode);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return ret;
+}
+
+int fcntl(int fildes, int cmd, ...) {
+    va_list args;
+    va_start(args, cmd);
+    long arg = va_arg(args, long);
+    va_end(args);
+
+    int ret = syscall(SYSCALL_FCNTL, fildes, cmd, arg);
     if (ret < 0) {
         errno = -ret;
         return -1;

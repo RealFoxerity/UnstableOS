@@ -852,7 +852,6 @@ static __attribute__((noreturn)) void ps2_driver_loop() {
 }
 
 void ps2_driver(char device_num) {
-    //kprintf("HEEEELLPPPP\n");
     if (__builtin_expect(ps2_driver_state == PS2_UNINITIALIZED, 0)) {
         fallback:
         inb(PS2_DATA_PORT); // flush the input
@@ -870,11 +869,10 @@ void ps2_driver(char device_num) {
     }
     pic_mask_irq(PIC_INTERR_KEYBOARD);
     pic_mask_irq(PIC_INTERR_PS2_MOUSE);
+
     asm volatile ("sti");
-    //if (pending_device != -1) {
-        //kprintf("Warning: PS/2 driver not keeping up with user input!\n");
-        while (pending_device != -1) {} // since spinlock_acquire disables interrupts, only way this could happen is in a different core and so this is safe
-    //}
+
+    while (pending_device != -1) {ps2_driver_thread->status = SCHED_RUNNABLE; reschedule();}
 
     spinlock_acquire(&ps2_driver_lock);
     pending_device = device_num;

@@ -7,10 +7,23 @@ enum com_errors {
     COM_ERR_INVALID_PORT = -1,
     COM_ERR_INVALID_BAUDRATE = -2,
     COM_ERR_BAUDRATE_TOO_LOW = -3,
-    COM_ERR_INVALID_DATA_BITS = -4,
-    COM_ERR_INVALID_STOP_BITS = -5,
-    COM_ERR_INVALID_PARITY = -6,
-    COM_ERR_INVALID_CACHING = -7
+    COM_ERR_BAUDRATE_TOO_HIGH = -3,
+    COM_ERR_INVALID_DATA_BITS = -5,
+    COM_ERR_INVALID_STOP_BITS = -6,
+    COM_ERR_INVALID_PARITY = -7,
+    COM_ERR_INVALID_CACHING = -8
+};
+
+enum com_data_bits {
+    COM_DATA_BITS_5,
+    COM_DATA_BITS_6,
+    COM_DATA_BITS_7,
+    COM_DATA_BITS_8,
+};
+
+enum com_stop_bits {
+    COM_STOP_BITS_1,
+    COM_STOP_BITS_2,
 };
 
 enum com_parity { // don't move around
@@ -28,9 +41,8 @@ enum com_fifo { // don't move around, see COM_FCR_IRQ_LEVEL
     COM_BUFFER_14
 };
 
-char com_init(unsigned char com, unsigned int baudrate, unsigned char data_bits, unsigned char stop_bits, unsigned char parity, unsigned char buffered_bytes);
+char com_init(unsigned char com, unsigned int baudrate, enum com_data_bits data_bits, enum com_stop_bits stop_bits, enum com_parity parity, enum com_fifo buffered_bytes);
 long com_write(unsigned char com, const char * data, unsigned long len);
-long com_read(unsigned char com, char * data_out, unsigned long len);
 
 #define COM_DELTA_RX 0
 #define COM_DELTA_TX 0

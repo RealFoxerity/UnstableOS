@@ -146,6 +146,7 @@ void pci_disable_mem(uint8_t bus, uint8_t device, uint8_t function);
 
 struct pci_bar pci_get_bar(uint8_t bus, uint8_t device, uint8_t function, unsigned char bar_number);
 void * pci_map_mmio(void * phys_start, size_t size, unsigned int page_flags);
+uint16_t pci_get_ioport(unsigned int port_block_size);
 
 struct pci_device {
     uint8_t bus, device, function;
@@ -160,10 +161,13 @@ struct pci_driver {
     uint16_t vendor_id;
     uint16_t device_id;
 
+    uint8_t class, subclass;
+
     // >= 0 success, < 0 error
     char (*init)(struct pci_device);
 };
 extern const struct pci_driver pci_drivers[];
+extern const struct pci_driver pci_generic_drivers[];
 
 void pci_init();
 #endif

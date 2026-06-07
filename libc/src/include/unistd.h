@@ -18,16 +18,20 @@
 // but posix says so...
 #define _POSIX_VDISABLE 0xF0
 
+void swab(const void *__restrict src, void *__restrict dest, ssize_t nbytes);
+
 int brk(void * addr);
 void * sbrk(intptr_t increment);
 
 int close(int fd);
 ssize_t write(int fd, const void * buf, size_t count);
 ssize_t read (int fd, void * buf, size_t count);
+void sync();
 
 char *getcwd(char *buf, size_t size);
 
 int pipe(int fildes[2]);
+int pipe2(int fildes[2], int flags);
 
 int isatty(int fildes); // termios.c
 pid_t tcgetpgrp(int fildes); // termios.c
@@ -37,6 +41,7 @@ off_t lseek(int fd, off_t offset, int whence);
 
 int dup(int fd);
 int dup2(int oldfd, int newfd);
+int dup3(int oldfd, int newfd, int flag);
 
 int chdir(const char * path);
 int chroot(const char * path);

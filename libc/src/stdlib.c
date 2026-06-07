@@ -55,10 +55,9 @@ pid_t waitpid(pid_t pid, int * wstatus, int options) {
 extern char ** environ;
 char * getenv(const char * name) {
     for (int i = 0; environ[i] != NULL; i++) {
-        if (strcmp(name, environ[i]) == 0) {
-            for (int j = 0; environ[i][j] != '\0'; j++) {
-                if (environ[i][j] == '=') return &environ[i][j + 1];
-            }
+        char * equals = strchrnul(environ[i], '=');
+        if (strncmp(name, environ[i], equals - environ[i]) == 0) {
+            return equals + 1;
         }
     }
     return NULL;

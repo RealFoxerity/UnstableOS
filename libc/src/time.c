@@ -43,7 +43,7 @@ struct tm * gmtime(const time_t *timer) {
 }
 
 // credit to @nikifemme on discord for this wonderful implementation
-struct tm * gmtime_r(const time_t * __restrict timer, struct tm * __restrict tm) {
+struct tm * gmtime_r(const time_t * __restrict timer, struct tm * __restrict result) {
     time_t d = *timer / 86400;
     int sod = *timer % 86400;
 
@@ -54,13 +54,13 @@ struct tm * gmtime_r(const time_t * __restrict timer, struct tm * __restrict tm)
     }
 
     // hh:mm:ss
-    tm->tm_sec = sod % 60;
-    tm->tm_min = (sod / 60) % 60;
-    tm->tm_hour = sod / 3600;
+    result->tm_sec = sod % 60;
+    result->tm_min = (sod / 60) % 60;
+    result->tm_hour = sod / 3600;
 
     // day of week
     int wday = (d + 4) % 7;
-    tm->tm_wday = wday < 0 ? wday + 7 : wday;
+    result->tm_wday = wday < 0 ? wday + 7 : wday;
 
     // shift epoch to 0000-03-01
     time_t z = d + 719468;
@@ -75,22 +75,22 @@ struct tm * gmtime_r(const time_t * __restrict timer, struct tm * __restrict tm)
 
     // 153-day month bullshit
     time_t mp = (5 * doy + 2) / 153;
-    tm->tm_mday = doy - (153 * mp + 2) / 5 + 1;
+    result->tm_mday = doy - (153 * mp + 2) / 5 + 1;
 
     // map back to posix
     int is_jan_feb = (mp >= 10) ? 1 : 0;
-    tm->tm_mon = is_jan_feb ? mp - 10 : mp + 2;
+    result->tm_mon = is_jan_feb ? mp - 10 : mp + 2;
 
     y += is_jan_feb;
-    tm->tm_year = y - 1900;
+    result->tm_year = y - 1900;
 
     // yday leap adjust
     int leap_adj = ((y % 4 == 0 && y % 100 != 0) || (y % 400 == 0)) ? 1 : 0;
-    tm->tm_yday = is_jan_feb ? doy - 306 : doy + 59 + leap_adj;
+    result->tm_yday = is_jan_feb ? doy - 306 : doy + 59 + leap_adj;
 
-    tm->tm_isdst = -1; // not available
+    result->tm_isdst = -1; // not available
 
-    return tm;
+    return result;
 }
 
 // TODO: we don't yet support timezones

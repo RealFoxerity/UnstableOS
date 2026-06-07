@@ -30,3 +30,12 @@ int fstatat(int fd, const char * __restrict path, struct stat * __restrict buf, 
     }
     return ret;
 }
+
+mode_t umask(mode_t mask) {
+    int ret = syscall(SYSCALL_UMASK);
+    if (ret < 0) { // should never happen, but in case we want portability or smth
+        errno = -ret;
+        return -1;
+    }
+    return ret;
+}

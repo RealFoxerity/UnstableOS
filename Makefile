@@ -13,7 +13,7 @@ LDFLAGS	:=-T src/linker.ld -lgcc
 OBJS=$(shell find src/ -name "*.[cs]" | sed 's/[cs]$$/o/g') $(shell $(CC) --print-libgcc-file-name)
 
 .PHONY: all kernel
-all: kernel utils build/memdisk.tar
+all: kernel utils build/memdisk.tar build/hda.dd
 kernel: $(OBJS) libc
 	mkdir -p build
 	$(CC) $(CFLAGS) $(OBJS) libc/build/libc.a -o build/UnstableOS.bin
@@ -65,3 +65,7 @@ build/memdisk.tar: utils
 	cp build/initmd/bin/ysh build/initmd/init
 	cp -r utils build/initmd
 	tar -C build/initmd -cf build/memdisk.tar init utils bin dev usr
+
+PHONY: build/hda.dd
+build/hda.dd:
+	dd if=/dev/zero of=build/hda.dd bs=50M count=1

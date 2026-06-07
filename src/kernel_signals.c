@@ -625,6 +625,7 @@ int sys_sigprocmask(int how, const sigset_t * __restrict set, sigset_t * oset) {
         case SIG_BLOCK:
         case SIG_SETMASK:
         case SIG_UNBLOCK:
+            break;
     }
 
     if (oset != NULL)

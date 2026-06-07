@@ -1,16 +1,18 @@
-#include "include/kernel_semaphore.h"
-#include "include/kernel_spinlock.h"
-#include "include/kernel_sched.h"
-#include "include/fs/fs.h"
-#include "include/kernel.h"
-#include "../libc/src/include/string.h"
-#include "include/kernel_interrupts.h"
-#include "include/mm/kernel_memory.h"
-#include "include/elf.h"
-#include "include/lowlevel.h"
-#include "include/kernel_gdt_idt.h"
-#include "include/gfx/vga.h"
+#include "kernel_semaphore.h"
+#include "kernel_spinlock.h"
+#include "kernel_sched.h"
+#include "fs/fs.h"
+#include "kernel.h"
+#include <string.h>
+#include "kernel_interrupts.h"
+#include "mm/kernel_memory.h"
+#include "elf.h"
+#include "lowlevel.h"
+#include "kernel_gdt_idt.h"
+#include "gfx/vga.h"
 #include <stddef.h>
+
+#include <sys/wait.h>
 
 // all static functions assume locked scheduler
 // NEVER alter scheduler process lists with enabled interrupts on the same core, WILL DEADLOCK
@@ -310,6 +312,11 @@ void schedule(mcontext_t * context) {
             if (checked_process->pid == 0) {
                 panic("Tried to kill kernel");
             } else if (checked_process->pid == 1) {
+                if (WIFEXITED(checked_process->postmortem_wstatus)) {
+                    char errmsg[128] = {0};
+                    snprintf(errmsg, 128, "Tried to kill init (exitcode: %ld)", checked_process->exitcode);
+                    panic(errmsg);
+                }
                 panic("Tried to kill init");
             }
             if (!scheduler_remove_process(checked_process))
@@ -359,8 +366,8 @@ void schedule(mcontext_t * context) {
         }
         signal_retry_process(checked_process);
 
-        partial_cleanup:
         PAGE_DIRECTORY_TYPE * v86_as;
+        partial_cleanup:
         for (thread_t * checked_thread = checked_process->threads; checked_thread != NULL; checked_thread = checked_thread->next) {
             if (checked_thread->instances == 0) panic("Encountered thread with instances 0, UAF?");
             if (checked_thread == idle_task) continue;

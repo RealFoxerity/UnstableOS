@@ -4,7 +4,7 @@
 
 #include "block/memdisk.h"
 #include "debug/backtrace.h"
-#include "../libc/src/include/UnstableOS/devs.h"
+#include <UnstableOS/devs.h>
 #include <errno.h>
 #include "fs/fs.h"
 #include "fs/vfs.h"
@@ -28,6 +28,7 @@
 #include "gfx/vga.h"
 #include "include/gfx/vbe.h"
 #include "pci/pci.h"
+#include "block/ata/ata.h"
 
 // clang is insanely annoying, used because uint32_t is smaller than native pointer size (64 bit int) on my machine
 #pragma clang diagnostic ignored "-Wint-to-pointer-cast"
@@ -144,11 +145,11 @@ void kernel_print_cpu_info() {
 
     if (family_id <= CPUID_PROCESSOR_LIST_LEN) {
         if (memcmp(vendor_id, CPUID_MANUFACTURER_AMD, 12) == 0) {
-                if (cpuid_processor_family_ids_amd[family_id] != NULL)
+                if (family_id <= 32 && cpuid_processor_family_ids_amd[family_id] != NULL)
                     kprintf("Family: %s ", cpuid_processor_family_ids_amd[family_id]);
                 else goto unknown_name;
         } else if (memcmp(vendor_id, CPUID_MANUFACTURER_INTEL, 12) == 0) {
-                if (cpuid_processor_family_ids_intel[family_id] != NULL)
+                if (family_id <= 32 && cpuid_processor_family_ids_intel[family_id] != NULL)
                     kprintf("Family: %s ", cpuid_processor_family_ids_intel[family_id]);
                 else goto unknown_name;
         } else goto unknown_name;
@@ -236,7 +237,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
 
     vga_init_graphics(); // preliminary setup to get any gfx output
 
-    com_init(0, 115200, 8, 1, COM_PARITY_NONE, COM_BUFFER_1);
+    com_init(0, 115200, COM_DATA_BITS_8, COM_STOP_BITS_1, COM_PARITY_NONE, COM_BUFFER_1);
 
     kprintf("Running " KERNEL_VERSION ", compiled at "__TIMESTAMP__"\n");
 
@@ -313,7 +314,10 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     setup_paging(total_usable, boot_mem_top);
     construct_descriptor_tables();
     enable_interrupts();
+
     scheduler_init();
+    idle_task = kernel_create_thread(current_process, idle_func, NULL);
+    idle_task->status = SCHED_UNINTERR_SLEEP;
 
     timer_init(0, 1000/KERNEL_TIMER_RESOLUTION_MSEC, TIMER_RATE); // kernel scheduler timer, also enables pic interrupts
     rtc_init();
@@ -325,9 +329,6 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     init_inodes();
     init_superblocks();
 
-    extern void dev_initialize_static_devices();
-    dev_initialize_static_devices();
-
     // assuming that by some miracle the gpu doesn't support vga emulation,
     // no text will be visible up until this point
     vbe_gather_info();
@@ -335,6 +336,16 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     kernel_print_cpu_info();
 
     pci_init();
+
+    ata_init_port(ATA_LEGACY_P_BASE, ATA_LEGACY_P_C_BASE,
+        ATA_LEGACY_S_BASE, ATA_LEGACY_S_C_BASE
+    );
+
+    extern void hd_initialize_drive_devices();
+    hd_initialize_drive_devices();
+
+    extern void dev_initialize_static_devices();
+    dev_initialize_static_devices();
 
     if (initrd_start + initrd_len > (void*)IDENT_MAPPING_MAX_ADDR)
         panic("initrd too large");
@@ -364,17 +375,15 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
 
     switch (sys_spawn("/init", (char *[]){"/init", "root=memdisk", NULL}, (char * []){"PATH=/bin:/sbin", "PWD=/", "HOME=/",NULL})) {
         case 1: break; // success, pid 1
-        case-ENOEXEC: panic("Exec format error on init process!");
-        case-ENOENT: panic("Failed to locate /init!");
-        case-EISDIR: panic("/init is a directory!");
+        case -ENOEXEC: panic("Exec format error on init process!");
+        case -ENOENT: panic("Failed to locate /init!");
+        case -EISDIR: panic("/init is a directory!");
         default:
             panic("Failed to load /init!\n");
     }
 
     enable_interrupts();
 
-
-    idle_task = kernel_create_thread(current_process, idle_func, NULL);
     current_thread->status = SCHED_UNINTERR_SLEEP;
     while (1) {
         // kernel thread serves as the idle task

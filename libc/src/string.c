@@ -4,21 +4,17 @@
 #include <stddef.h>
 #include <stdint.h>
 
-long long atoll(const char * nptr) {
-    long long out = 0;
-    unsigned long off = 0;
-    char negative = 0; // even though -0 should be a thing, somehow it doesn't work
-    if (nptr[off] == '-') {
-        off++;
-        negative = 1;
-    }
-    while (nptr[off] != '\0' && isdigit(nptr[off])) {
+#include <errno.h>
 
-        out *= 10;
-        out += nptr[off] - '0';
-        off++;
+long long atoll(const char * nptr) {
+    int old_errno = errno;
+    errno = 0;
+    long long out = strtoll(nptr, NULL, 0);
+    if (errno != 0) {
+        errno = old_errno;
+        return 0;
     }
-    if (negative) out *= -1;
+    errno = old_errno;
     return out;
 }
 
@@ -29,10 +25,10 @@ int atoi(const char * nptr) {
     return (int)atoll(nptr);
 }
 
-void itoad(uint32_t num, char * out) {
+void itoad(uint64_t num, char * out) {
     char temp;
     int ctr = 0;
-    if (num & 0x80000000) { // top bit, if set number is negative
+    if (num & (uint64_t)1 << 63) { // top bit, if set number is negative
         out[0] = '-';
         out++;
         num *= -1;
@@ -51,7 +47,7 @@ void itoad(uint32_t num, char * out) {
     out[ctr+1] = '\0';
 }
 
-void itoaud(uint32_t num, char * out) {
+void itoaud(uint64_t num, char * out) {
     char temp;
     int ctr = 0;
     for (; ; ctr++) {

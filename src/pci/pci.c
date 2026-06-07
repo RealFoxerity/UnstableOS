@@ -174,10 +174,19 @@ void pci_set_bar(uint8_t bus, uint8_t device, uint8_t function, unsigned char ba
     );
 }
 
-static struct pci_driver pci_get_driver(uint16_t vendor_id, uint16_t device_id) {
+static struct pci_driver pci_get_driver(uint16_t vendor_id, uint16_t device_id, uint8_t class, uint8_t subclass) {
+    // find a specific
     for (int i = 0; pci_drivers[i].init != NULL; i++) {
-        if (pci_drivers[i].vendor_id == vendor_id && pci_drivers[i].device_id == device_id) {
+        if (pci_drivers[i].vendor_id == vendor_id && pci_drivers[i].device_id == device_id &&
+            pci_drivers[i].class     == class     && pci_drivers[i].subclass  == subclass) {
             return pci_drivers[i];
+        }
+    }
+
+    // trying generic driver
+    for (int i = 0; pci_generic_drivers[i].init != NULL; i++) {
+        if (pci_generic_drivers[i].class == class && pci_generic_drivers[i].subclass == subclass) {
+            return pci_generic_drivers[i];
         }
     }
 
@@ -217,7 +226,7 @@ static char pci_init_dev(uint8_t bus, uint8_t device, uint8_t function) {
         revision
     );
     if ((type & 0x7F) == PCI_HEADER_GENERAL && class != 0x6 && class != 0xB) { // 6 is bridge, 0xB is CPU
-        struct pci_driver driver = pci_get_driver(vendor_id, device_id);
+        struct pci_driver driver = pci_get_driver(vendor_id, device_id, class, subclass);
         if (driver.init != NULL) {
             kprintf("\n");
             driver.init(pci_device);
@@ -290,4 +299,22 @@ void * pci_map_mmio(void * phys_start, size_t size, unsigned int page_flags) {
 
     spinlock_release(&mmio_spinlock);
     return old_mmio;
+}
+
+static uint16_t current_port_top = PCI_PORT_BASE;
+static spinlock_t port_spinlock = {0};
+uint16_t pci_get_ioport(unsigned int port_block_size) {
+    if (port_block_size == 0) return 0;
+    if (port_block_size > 0xFFFF - PCI_PORT_BASE) return 0;
+
+    spinlock_acquire(&port_spinlock);
+    if (current_port_top + port_block_size < current_port_top) {
+        spinlock_release(&port_spinlock);
+        return 0;
+    }
+
+    uint16_t out = current_port_top;
+    current_port_top += port_block_size;
+    spinlock_release(&port_spinlock);
+    return out;
 }

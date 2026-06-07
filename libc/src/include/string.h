@@ -3,8 +3,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-void itoad(uint32_t num, char * out); // signed int
-void itoaud(uint32_t num, char * out); // unsigned int
+void itoad (uint64_t num, char * out); // signed int
+void itoaud(uint64_t num, char * out); // unsigned int
 
 void itoax(uint32_t num, char * out);
 void i64toax(uint64_t i, char * out);

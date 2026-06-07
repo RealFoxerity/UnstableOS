@@ -19,11 +19,14 @@
 #define INC(pipe) ((pipe)->tail = ((pipe)->tail+1)%PIPE_BUF) // lengthens queue
 #define DEC(pipe) ((pipe)->head = ((pipe)->head+1)%PIPE_BUF) // shortens queue by removing oldest element
 
-int sys_pipe(int fildes[2]) {
+int sys_pipe(int fildes[2], int flags) {
+    flags &= O_CLOEXEC | O_CLOFORK;
+
     struct pipe * new_pipe = kalloc(sizeof(struct pipe));
     if (new_pipe == NULL) return -ENOMEM;
     memset(new_pipe, 0, sizeof(struct pipe));
     new_pipe->readers = 1;
+    new_pipe->writers = 1;
 
     spinlock_acquire(&kernel_inode_lock);
 
@@ -35,14 +38,14 @@ int sys_pipe(int fildes[2]) {
 
     pipe_inode->pipe = new_pipe;
 
-    const int fd1 = get_fd_from_inode(pipe_inode, O_RDONLY);
+    const int fd1 = get_fd_from_inode(pipe_inode, O_RDONLY | flags);
     if (fd1 == -1) {
         kfree(new_pipe);
         spinlock_release(&kernel_inode_lock);
         return fd1;
     }
 
-    const int fd2 = get_fd_from_inode(pipe_inode, O_WRONLY);
+    const int fd2 = get_fd_from_inode(pipe_inode, O_WRONLY | flags);
     if (fd2 == -1) {
         sys_close(fd1);
         kfree(new_pipe);
@@ -58,10 +61,10 @@ int sys_pipe(int fildes[2]) {
 
 static int pipe_put_ch(struct pipe * pq, const unsigned char c) {
     kassert(pq->head < PIPE_BUF && pq->tail < PIPE_BUF);
-    if (pq->readers < 1) {
+    if (pq->readers == 0) {
         thread_queue_unblock_all(&pq->write_queue); // force SIGPIPE to all
         signal_process(current_process, &(siginfo_t) {.si_signo = SIGPIPE});
-        return 257;
+        return -2;
     }
 
     spinlock_acquire_interruptible(&pq->pipe_lock);
@@ -71,10 +74,10 @@ static int pipe_put_ch(struct pipe * pq, const unsigned char c) {
 
         thread_queue_add(&pq->write_queue, current_process, current_thread, SCHED_INTERR_SLEEP);
 
-        if (pq->readers < 1) {
+        if (pq->readers == 0) {
             thread_queue_unblock_all(&pq->write_queue); // force SIGPIPE to all
             signal_process(current_process, &(siginfo_t) {.si_signo = SIGPIPE});
-            return 257;
+            return -2;
         }
         if (current_thread->sa_to_be_handled) {
             return 256;
@@ -109,7 +112,7 @@ ssize_t pipe_write(const file_descriptor_t * file, const void * s, size_t n) {
             thread_queue_unblock(&file->inode->pipe->read_queue);
             return i == 0 ? -EINTR : i;
         }
-        if (out == 257) return -EPIPE;
+        if (out == -2) return -EPIPE;
     }
     thread_queue_unblock(&file->inode->pipe->read_queue);
     return n;
@@ -118,15 +121,18 @@ ssize_t pipe_write(const file_descriptor_t * file, const void * s, size_t n) {
 static int pipe_get_ch(struct pipe * pq) {
     kassert(pq->head < PIPE_BUF && pq->tail < PIPE_BUF);
 
-    if (pq->writers == 0) return -2;
-
-    if (EMPTY(pq)) return -1;
+    if (EMPTY(pq)) {
+        if (pq->writers == 0) return -2;
+        return -1;
+    }
     if (current_thread->sa_to_be_handled) return 256;
 
     unsigned char out = 0;
     spinlock_acquire_interruptible(&pq->pipe_lock);
     if (EMPTY(pq)) { // race by multiple consumers
         spinlock_release(&pq->pipe_lock);
+        if (pq->writers == 0) return -2;
+
         thread_queue_unblock(&pq->write_queue); // force writing just in case
         return -1;
     }
@@ -139,14 +145,20 @@ static int pipe_get_ch(struct pipe * pq) {
 
 ssize_t pipe_read(const file_descriptor_t * file, void * s, size_t n) {
     if (n == 0) return 0;
-    if (n > SSIZE_MAX) { return -E2BIG; }
+#ifdef E2BIG_ON_2G
+    if (n > SSIZE_MAX) return -E2BIG;
+#else
+    if (n > SSIZE_MAX) n = SSIZE_MAX;
+#endif
     kassert(file);
     kassert(file->inode);
     kassert(S_ISFIFO(file->inode->mode));
     kassert(file->inode->pipe);
     kassert(s);
 
-    if (file->inode->pipe->writers == 0) return 0;
+    // ideally we want to drain the buffer to 0 before quitting
+    // this check is then again in pipe_get_ch in the EMPTY branch
+    //if (file->inode->pipe->writers == 0) return 0;
 
     for (unsigned char * i = s; i < (unsigned char*)s + n; i++) {
         int out = pipe_get_ch(file->inode->pipe);
@@ -160,8 +172,9 @@ ssize_t pipe_read(const file_descriptor_t * file, void * s, size_t n) {
             if (i - (unsigned char *)s == 0) {
                 // pipes are by default unbuffered
                 // that would be highly inefficient so we build up a slight buffering system
-                // pipe reading should however block until any byte is recieved
+                // pipe reading should however block until any byte is received
                 thread_queue_add(&file->inode->pipe->read_queue, current_process, current_thread, SCHED_INTERR_SLEEP);
+
                 i--;
                 continue;
             }

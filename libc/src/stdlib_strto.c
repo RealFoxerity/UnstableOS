@@ -54,7 +54,6 @@ unsigned long long strtoull(const char * restrict start, char ** restrict end_ou
     unsigned long long acc = 0;
     while (isalnum(*iter)) {
         char val = _strto_get_value(*iter);
-        iter ++; // ++ here to return the first invalid char in end_out
 
         if (val == -1 || val >= base) break;
         if (acc * base + val < acc) { // overflow
@@ -64,6 +63,7 @@ unsigned long long strtoull(const char * restrict start, char ** restrict end_ou
             acc *= base;
             acc += val;
         }
+        iter ++;
     }
 
     if (end_out != NULL) *end_out = (char *)iter;
@@ -121,7 +121,6 @@ long long strtoll(const char * restrict start, char ** restrict end_out, int bas
     long long acc = 0;
     while (isalnum(*iter)) {
         char val = _strto_get_value(*iter);
-        iter ++; // ++ here to return the first invalid char in end_out
 
         if (val == -1 || val >= base) break;
         if (acc * base + val < acc) { // overflow
@@ -131,6 +130,7 @@ long long strtoll(const char * restrict start, char ** restrict end_out, int bas
             acc *= base;
             acc += val;
         }
+        iter ++;
     }
 
     if (end_out != NULL) *end_out = (char *)iter;

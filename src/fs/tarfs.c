@@ -212,7 +212,7 @@ int tar_load_fs(superblock_t * sb) {
     file_descriptor_t * tar_fd = sb->fd;
 
     off_t tarfs_size = seek_file(tar_fd, 0, SEEK_END);
-    kprintf("tar fs size: %lu\n", tarfs_size);
+    kprintf("tar fs size: %llu\n", tarfs_size);
 
     if (tarfs_size < sizeof(ustar_hdr)) {
         kprintf("Tar archive truncated!\n");
@@ -230,7 +230,7 @@ int tar_load_fs(superblock_t * sb) {
     memset(path, 0, MAX_PATH_TAR + 1);
 
     while ((read_bytes = read_file(tar_fd, &hdr, sizeof(ustar_hdr))) == sizeof(ustar_hdr)) {
-        ssize_t curr_offset = seek_file(tar_fd, 0, SEEK_CUR);
+        off_t curr_offset = seek_file(tar_fd, 0, SEEK_CUR);
 
         if (memcmp(hdr.ustar_magic, USTAR_MAGIC, sizeof(USTAR_MAGIC)-1) != 0 &&
             memcmp(hdr.ustar_magic, USTAR_MAGIC_ALT, sizeof(USTAR_MAGIC_ALT)-1) != 0
@@ -240,7 +240,7 @@ int tar_load_fs(superblock_t * sb) {
             nullblock_count ++;
             if (nullblock_count == 2) {
                 if (curr_offset != tarfs_size)
-                    kprintf("Info: %lu bytes of unused padding after USTAR initramfs\n", tarfs_size - curr_offset);
+                    kprintf("Info: %llu bytes of unused padding after USTAR initramfs\n", tarfs_size - curr_offset);
                 break;
             }
             continue;
@@ -254,7 +254,7 @@ int tar_load_fs(superblock_t * sb) {
         memcpy(path + sizeof(hdr.file_name), hdr.filename_prefix, sizeof(hdr.filename_prefix));
         size_t file_length = oct2int(hdr.file_size, sizeof(hdr.file_size));
         if (curr_offset + file_length > tarfs_size) {
-            kprintf("Warning: USTAR entry %s truncated by %lu bytes, skipping remaining!\n",
+            kprintf("Warning: USTAR entry %s truncated by %llu bytes, skipping remaining!\n",
                 path, curr_offset + file_length - tarfs_size);
             break;
         }
@@ -341,13 +341,17 @@ inode_t * tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname)
 
 ssize_t tarfs_read(file_descriptor_t * fd, void * buf, size_t n) {
     if (n == 0) return 0;
-    if (n > INT32_MAX) n = INT32_MAX;
+#ifdef E2BIG_ON_2G
+    if (n > SSIZE_MAX) return -E2BIG;
+#else
+    if (n > SSIZE_MAX) n = SSIZE_MAX;
+#endif
     ssize_t read = 0;
 
     kassert(buf);
     kassert(fd);
     kassert(fd->inode);
-    kassert(fd->inode->id)
+    kassert(fd->inode->id);
     kassert(fd->inode->backing_superblock);
 
     superblock_t * sb = fd->inode->backing_superblock;

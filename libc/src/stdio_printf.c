@@ -92,7 +92,9 @@ size_t fmt_handler_printf(const char * s, va_list * args) { // caller has to cal
                             goto int_prec;
                         case 'd':
                         case 'u':
-                            goto dec; // TODO: bigger ints?
+                            if (*s == 'u') itoaud(va_arg(*args, uint64_t), fmt_buf);
+                            else itoad(va_arg(*args, uint64_t), fmt_buf);
+                            goto int_prec;
                         default: goto inv_spec;
                     }
                     break;
@@ -178,17 +180,27 @@ void __attribute__((format(printf, 1, 2))) printf(const char * format, ...) {
     va_list args;
     va_start(args, format);
     vfprintf(STDOUT_FILENO, format, args);
+    va_end(args);
 }
 void __attribute__((format(printf, 2, 3))) fprintf(int fd, const char * format, ...) {
     va_list args;
     va_start(args, format);
     vfprintf(fd, format, args);
+    va_end(args);
 }
 
 void __attribute__((format(printf, 2, 3))) sprintf(char * s, const char * format, ...) {
     va_list args;
     va_start(args, format);
     vsprintf(s, format, args);
+    va_end(args);
+}
+
+void __attribute__((format(printf, 3, 4))) snprintf(char * s, size_t size, const char * format, ...) {
+    va_list args;
+    va_start(args, format);
+    vsprintf(s, format, args);
+    va_end(args);
 }
 
 void vsprintf(char * s, const char * format, va_list args) {
@@ -223,9 +235,64 @@ void vsprintf(char * s, const char * format, va_list args) {
         i = next_percent;
     }
     s[off] = '\0';
-    va_end(args);
 }
 
+void vsnprintf(char * s, size_t size, const char * format, va_list args) {
+    const char * next_percent = strchrnul(format, '%');
+    size --; // to do s[size] for \0
+
+    size_t off = 0;
+    if (next_percent-format >= size) {
+        memcpy(s+off, format, size);
+        s[size] = '\0';
+        return;
+    }
+
+    memcpy(s+off, format, next_percent-format);
+    off += next_percent-format;
+
+    const char * temp_ptr;
+    for (const char * i = next_percent; i < format + strlen(format); ) {
+        i++; // character immediately following the %
+
+        if (*i == 's') {
+            temp_ptr = va_arg(args, const char *);
+            if (off + strlen(temp_ptr) >= size) {
+                memcpy(s+off, temp_ptr, size - off);
+                s[size] = '\0';
+                return;
+            }
+            memcpy(s+off, temp_ptr, strlen(temp_ptr));
+            off += strlen(temp_ptr);
+            i++;
+        } else {
+            size_t inc = fmt_handler_printf(i, &args);
+            i += inc;
+
+            if (off + strlen(fmt_buf) >= size) {
+                memcpy(s+off, fmt_buf, size - off);
+                s[size] = '\0';
+                return;
+            }
+
+            memcpy(s+off, fmt_buf, strlen(fmt_buf));
+            off += strlen(fmt_buf);
+        }
+
+        next_percent = strchrnul(i, '%');
+
+        if (off + next_percent-i >= size) {
+            memcpy(s+off, i, size - off);
+            s[size] = '\0';
+            return;
+        }
+        memcpy(s+off, i, next_percent-i);
+        off += next_percent-i;
+
+        i = next_percent;
+    }
+    s[off] = '\0';
+}
 
 
 void vfprintf(int fd, const char * format, va_list args) {
@@ -252,5 +319,4 @@ void vfprintf(int fd, const char * format, va_list args) {
         write(fd, i, next_percent-i);
         i = next_percent;
     }
-    va_end(args);
 }

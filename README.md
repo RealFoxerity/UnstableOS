@@ -21,7 +21,7 @@ It is not meant as a production OS, there is no testing, there is no fuzzing. I 
 - Lame and lacking custom libc
 - Custom (lame and lacking) shell
 
-List of defined syscalls can be found in [kernel.h](./src/include/kernel.h)
+List of defined syscalls can be found in [<UnstableOS/syscalls.h>](./libc/src/include/UnstableOS/syscalls.h)
 
 ## Drivers
 ---
@@ -32,10 +32,11 @@ List of defined syscalls can be found in [kernel.h](./src/include/kernel.h)
 - RTC
 - VGA, VBE, BGA
 - PCI
+- ATA PIO using the legacy ports (4 drive max)
 
 ## Building
 ---
-Currently you need:
+Currently, you need:
 - make
 - i686-gcc-elf (and associated liker and assembler)
 - tar
@@ -70,7 +71,9 @@ see [caveats.md](./caveats.md) for info
 - [ ] some missing `time.h` functions
 - [ ] HPET timer
 - [ ] shared memory (basic IPC)
-- [ ] ATA PIO
+- [x] ATA PIO with read cache
+- [ ] ATA DMA
+- [ ] AHCI
 - [ ] VFAT
 - [ ] ATAPI
 - [ ] ISO9660

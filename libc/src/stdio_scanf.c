@@ -8,19 +8,25 @@
 int __attribute__((format(scanf, 1, 2))) scanf(const char * restrict format, ...) {
     va_list args;
     va_start(args, format);
-    return vscanf(format, args);
+    int ret =  vscanf(format, args);
+    va_end(args);
+    return ret;
 }
 
 int __attribute__((format(scanf, 2, 3))) fscanf(int fd, const char * restrict format, ...) {
     va_list args;
     va_start(args, format);
-    return vfscanf(fd, format, args);
+    int ret = vfscanf(fd, format, args);
+    va_end(args);
+    return ret;
 }
 
 int __attribute__((format(scanf, 2, 3))) sscanf(const char * restrict s, const char * restrict format, ...) {
     va_list args;
     va_start(args, format);
-    return vsscanf(s, format, args);
+    int ret = vsscanf(s, format, args);
+    va_end(args);
+    return ret;
 }
 int vscanf(const char * restrict format, va_list args) {return vfscanf(STDIN_FILENO, format, args);}
 
@@ -77,7 +83,7 @@ int vsscanf(const char * restrict s, const char * restrict format, va_list args)
                 continue;
             }
 
-            temp = va_arg(args, unsigned short *);
+            temp = va_arg(args, unsigned long *);
             if (temp == NULL) {
                 errno = EINVAL;
                 return -1;
@@ -174,7 +180,7 @@ int vsscanf(const char * restrict s, const char * restrict format, va_list args)
                 // TODO: float, double
             }
             if (s + soff == conv_end) return matched_args; // failed to parse
-            if (conv_end != NULL) soff = conv_end - s - 1;
+            if (conv_end != NULL) soff = conv_end - s;
             matched_args++;
             continue;
         }

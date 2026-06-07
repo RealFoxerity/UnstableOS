@@ -47,6 +47,34 @@ static struct devfs_node devfs_files[] = {
         }
     },
     {
+        .name = "hd0",
+        {
+            .st_rdev = GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE0),
+            .st_mode = S_IFBLK | S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP,
+        }
+    },
+    {
+        .name = "hd1",
+        {
+            .st_rdev = GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE1),
+            .st_mode = S_IFBLK | S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP,
+        }
+    },
+    {
+        .name = "hd2",
+        {
+            .st_rdev = GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE2),
+            .st_mode = S_IFBLK | S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP,
+        }
+    },
+    {
+        .name = "hd3",
+        {
+            .st_rdev = GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE3),
+            .st_mode = S_IFBLK | S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP,
+        }
+    },
+    {
         .name = "tty",
         {
             .st_rdev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_CURRENT),
@@ -152,7 +180,7 @@ inode_t * devfs_lookup(superblock_t * sb, inode_t * last, const char * pathname)
 // only for readdir
 off_t devfs_seek(file_descriptor_t * fd, off_t off, int whence) {
     kassert(fd);
-    kassert(fd->inode)
+    kassert(fd->inode);
     if (!S_ISDIR(fd->inode->mode)) return -EINVAL;
 
     switch (whence) {

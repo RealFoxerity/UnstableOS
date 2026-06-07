@@ -124,8 +124,13 @@ void vbe_gather_info() {
             vbe_mode_info->attributes.color_mode ? 'C':'M',
             vbe_mode_info->framebuffer_paddr
         );
-        */
 
+        kprintf("VBE: rm %d ro %d gm %d go %d bm %d bo %d model %d\n",
+            vbe_mode_info->red_mask, vbe_mode_info->red_position,
+            vbe_mode_info->green_mask, vbe_mode_info->green_position,
+            vbe_mode_info->blue_mask, vbe_mode_info->blue_position,
+            vbe_mode_info->memory_model);
+        */
         switch (vbe_mode_info->memory_model) {
             case VBE_MEMORY_MODEL_PACKED:
             case VBE_MEMORY_MODEL_DIRECT:
@@ -135,8 +140,9 @@ void vbe_gather_info() {
         }
         continue;
 
+        struct VBE_modes_list * this;
         ok:
-        struct VBE_modes_list * this = kalloc(sizeof(struct VBE_modes_list));
+        this = kalloc(sizeof(struct VBE_modes_list));
         kassert(this != NULL);
         this->mode_num = *video_modes;
         this->info = *vbe_mode_info;
@@ -445,16 +451,16 @@ void gather_EDID_info_and_set_mode() {
 __attribute__((optimize("O3"))) static uint32_t vbe_get_direct_color(uint32_t color) {
     uint32_t direct_color = 0;
     direct_color =
-            (color >> 24) >>
-            (8 - vbe_current_mode->info.red_mask) <<
+            ((color >> 24) >>
+            (8 - vbe_current_mode->info.red_mask)) <<
             (vbe_current_mode->info.red_position);
     direct_color |=
-            (color >> 16 & 0xFF) >>
-            (8 - vbe_current_mode->info.green_mask) <<
+            ((color >> 16 & 0xFF) >>
+            (8 - vbe_current_mode->info.green_mask)) <<
             (vbe_current_mode->info.green_position);
     direct_color |=
-            (color >> 8 & 0xFF) >>
-            (8 - vbe_current_mode->info.blue_mask) <<
+            ((color >> 8 & 0xFF) >>
+            (8 - vbe_current_mode->info.blue_mask)) <<
             (vbe_current_mode->info.blue_position);
     return direct_color;
 }
@@ -476,6 +482,18 @@ __attribute__((optimize("O3"))) void vbe_swap_region(unsigned int start_x, unsig
                 for (unsigned int x = start_x; x <= end_x; x++) {
                     ((uint32_t *)LINEAR_FRAMEBUFFER_START)[y * vbe_current_mode->info.pitch / 4 + x] =
                         back_framebuffer[y * back_framebuffer_w + x];
+                }
+            }
+            break;
+        case 24:
+            for (unsigned int y = start_y; y <= end_y; y++) {
+                for (unsigned int x = start_x; x <= end_x; x++) {
+                    ((uint8_t *)LINEAR_FRAMEBUFFER_START)[y * vbe_current_mode->info.pitch + x] =
+                        back_framebuffer[y * back_framebuffer_w + x] & 0xFF;
+                    ((uint8_t *)LINEAR_FRAMEBUFFER_START)[y * vbe_current_mode->info.pitch + x] =
+                        back_framebuffer[y * back_framebuffer_w + x] >> 8 & 0xFF;
+                    ((uint8_t *)LINEAR_FRAMEBUFFER_START)[y * vbe_current_mode->info.pitch + x] =
+                        back_framebuffer[y * back_framebuffer_w + x] >> 16 & 0xFF;
                 }
             }
             break;

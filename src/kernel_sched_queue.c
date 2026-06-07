@@ -18,6 +18,7 @@ static void __thread_queue_unblock(thread_queue_t * thread_queue) {
     // see the comment in kernel_sched.h
     if (thread_queue->queue.magic_queue_value == thread_queue->queue.thread->magic_queue_value) {
         thread_queue->queue.thread->status = SCHED_RUNNABLE;
+        //__atomic_add_fetch(&thread_queue->queue.magic_queue_value, 1, __ATOMIC_RELAXED);
     } else {
         rerun = 1;
     }
@@ -35,18 +36,26 @@ static void __thread_queue_unblock(thread_queue_t * thread_queue) {
     if (rerun) __thread_queue_unblock(thread_queue);
 }
 
-void thread_queue_unblock(thread_queue_t * thread_queue) {
+void thread_queue_unblock_nonreentrant(thread_queue_t * thread_queue) {
     spinlock_acquire(&thread_queue->queue_lock);
     __thread_queue_unblock(thread_queue);
     spinlock_release(&thread_queue->queue_lock);
+}
+
+void thread_queue_unblock(thread_queue_t * thread_queue) {
+    thread_queue_unblock_nonreentrant(thread_queue);
     reschedule();
 }
 
-void thread_queue_unblock_all(thread_queue_t * thread_queue) {
+void thread_queue_unblock_all_nonreentrant(thread_queue_t * thread_queue) {
     spinlock_acquire(&thread_queue->queue_lock);
     while (thread_queue->queue.parent_process != NULL)
         __thread_queue_unblock(thread_queue);
     spinlock_release(&thread_queue->queue_lock);
+}
+
+void thread_queue_unblock_all(thread_queue_t * thread_queue) {
+    thread_queue_unblock_all_nonreentrant(thread_queue);
     reschedule();
 }
 

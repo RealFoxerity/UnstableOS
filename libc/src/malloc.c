@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdalign.h>
 
+#include "unistd.h"
 #include "include/string.h"
 #include "include/stdio.h"
 #include "include/stdlib.h"
@@ -17,7 +18,7 @@ enum malloc_flags {
 };
 
 #define MALLOC_ALIGNMENT sizeof(unsigned long)
-
+#define MALLOC_OOM_INCREASE (0x10000)
 struct malloc_heap_header { // aligning so that we try to avoid alignment check
     char magic[3];
     uint8_t flags;
@@ -43,15 +44,20 @@ void * __attribute__((malloc, malloc(free))) malloc(size_t size) {
     mutex_lock(allocator_mutex);
     if (size % MALLOC_ALIGNMENT != 0) size = size + MALLOC_ALIGNMENT - size%MALLOC_ALIGNMENT;
 
-    struct malloc_heap_header * current_heap_object = heap_base;
+    struct malloc_heap_header * current_heap_object;
+    again:
+    current_heap_object = heap_base;
     while (current_heap_object->flags & MALLOC_CHUNK_USED || (void *)current_heap_object->next_chunk - (void *)current_heap_object < size + sizeof(struct malloc_heap_header)*2) { // one for the current struct, one for the newly generated at the start of the next chunk
         if (current_heap_object->next_chunk == NULL) {
             printf("malloc() current_heap_object->next_chunk == NULL\n");
             exit(255);
         }
         if (current_heap_object->flags & MALLOC_LAST_CHUNK) {
-            mutex_unlock(allocator_mutex);
-            return NULL; // not enough free space on the stack and considering we do overcommitment, there's nothing we can do
+            if (sbrk(MALLOC_OOM_INCREASE) == (void *)-1) {
+                mutex_unlock(allocator_mutex);
+                return NULL; // -ENOMEM usually
+            }
+            goto again;
         }
         current_heap_object = current_heap_object->next_chunk;
     }
@@ -142,6 +148,30 @@ void free(void * p) {
 
     end:
     mutex_unlock(allocator_mutex);
+}
+
+void * realloc(void * p, size_t size) {
+    if (size == 0) {
+        free(p);
+        return NULL;
+    }
+    if (p == NULL) {
+        return malloc(size);
+    }
+
+    size_t old_size = 0;
+    mutex_lock(allocator_mutex);
+    struct malloc_heap_header * hdr = p - sizeof(struct malloc_heap_header);
+    old_size = hdr->next_chunk - hdr;
+    mutex_unlock(allocator_mutex);
+
+    void * new_chunk = malloc(size);
+    if (new_chunk == NULL) return NULL;
+
+    memcpy(new_chunk, p, old_size > size ? size : old_size);
+
+    free(p);
+    return new_chunk;
 }
 
 static void print_chunk_info(struct malloc_heap_header * header) {

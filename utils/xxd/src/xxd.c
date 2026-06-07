@@ -12,7 +12,7 @@
 void print_buffer(const unsigned char * buf, size_t size) {
     static size_t bytes_printed = 0;
     printf("%.8lx: ", bytes_printed);
-    for (int i = 0; i < 16; i++) {
+    for (int i = 0; i < size; i++) {
         switch (buf[i]) {
             case '\t':
             case '\n':
@@ -32,8 +32,13 @@ void print_buffer(const unsigned char * buf, size_t size) {
         }
         printf("%02hhx\e[0m ", buf[i]);
     }
+
+    for (int i = 0; i < 16 - size; i++)
+        printf("   ");
+
     printf(" ");
-    for (int i = 0; i < 16; i++) {
+
+    for (int i = 0; i < size; i++) {
         switch (buf[i]) {
             case '\t':
             case '\n':
