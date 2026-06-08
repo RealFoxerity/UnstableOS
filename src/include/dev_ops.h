@@ -22,4 +22,7 @@ long ioctl_dev(file_descriptor_t *file, unsigned long request, void * arg);
 void dev_register_ops(dev_t dev, const struct dev_operations * dev_ops);
 struct dev_operations dev_ops_lookup(dev_t dev);
 void dev_ops_remove(dev_t dev);
+
+// 32 chars should be plenty
+char * dev2string(dev_t device, char * buf_out);
 #endif

@@ -46,7 +46,7 @@ inode_t * get_free_inode() {
     //return NULL;
 }
 
-static inode_t * __get_inode_raw_device(dev_t device) {
+inode_t * __get_inode_raw_device(dev_t device) {
     kassert(kernel_inodes);
 
     inode_t * inode = NULL;
@@ -67,7 +67,7 @@ static inode_t * __get_inode_raw_device(dev_t device) {
 inode_t * get_inode_raw_device(dev_t device) { // gets the inode representing a raw device instead of a file
     spinlock_acquire(&kernel_inode_lock);
 
-    inode_t * inode =  __get_inode_raw_device(device);
+    inode_t * inode = __get_inode_raw_device(device);
 
     spinlock_release(&kernel_inode_lock);
     return inode;
@@ -96,23 +96,30 @@ inode_t * get_inode(superblock_t * sb, void * inode_number) {
     spinlock_release(&kernel_inode_lock);
     return inode;
 }
-inode_t * create_inode(superblock_t * sb, void * inode_number) {
+inode_t * register_inode(const inode_t * inode) {
+    if (inode == NULL) return NULL;
     spinlock_acquire(&kernel_inode_lock);
-    inode_t * inode = __get_inode(sb, inode_number);
-    if (inode != NULL) {
-        __atomic_add_fetch(&inode->instances, 1, __ATOMIC_RELAXED);
+    inode_t * new_inode = __get_inode(inode->backing_superblock, inode->id);
+    if (new_inode != NULL) {
+        __atomic_add_fetch(&new_inode->instances, 1, __ATOMIC_RELAXED);
         goto ret;
     }
 
-    inode = get_free_inode();
-    kassert(inode);
-
-    inode->backing_superblock = sb;
-    inode->id = inode_number;
+    new_inode = get_free_inode();
+    kassert(new_inode);
 
     ret:
+    // can't do a memcpy in case we found the old one and it's mounted, or has a different instance count...
+    new_inode->id = inode->id;
+    new_inode->mode = inode->mode;
+    new_inode->size = inode->size;
+    new_inode->backing_superblock = inode->backing_superblock;
+    if (S_ISCHR(inode->mode) || S_ISBLK(inode->mode))
+        new_inode->device = inode->device;
+    else if S_ISFIFO(inode->mode)
+        new_inode->pipe   = inode->pipe;
     spinlock_release(&kernel_inode_lock);
-    return inode;
+    return new_inode;
 }
 
 void close_inode(inode_t *inode) {

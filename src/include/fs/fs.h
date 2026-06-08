@@ -104,6 +104,7 @@ file_descriptor_t * get_free_fd(); // lock file descriptor lock beforehand, sets
 superblock_t * get_free_superblock(); // locks superblock lock itself, sets is_mounted to 1
 
 inode_t * get_inode_raw_device(dev_t device); // get an existing structure for a given raw device, NULL if not open
+inode_t * __get_inode_raw_device(dev_t device); // the same but caller has to lock kernel_inode_lock
 inode_t * inode_from_device(dev_t device); // locks inode lock itself, finds an existing structure and increments, or creates one and sets instances to 1
 
 // considering there can't (shouldn't) be 2 inodes with the same id and sb pointer,
@@ -111,7 +112,7 @@ inode_t * inode_from_device(dev_t device); // locks inode lock itself, finds an 
 // locks inode lock itself
 inode_t * get_inode(superblock_t * sb, void * inode_number);
 // exactly the same but increases instances if found and creates if not
-inode_t * create_inode(superblock_t * sb, void * inode_number);
+inode_t * register_inode(const inode_t * inode);
 void close_inode(inode_t * inode);
 int open_raw_device(dev_t device, unsigned short flags, file_descriptor_t ** file_out); // locks file descriptor lock itself
 int open_raw_device_fd(dev_t device, unsigned short flags); // locks file descriptor lock itself
@@ -182,4 +183,6 @@ long mount_dev(dev_t dev, inode_t * mount_point, unsigned char type, unsigned sh
 long mount_root(dev_t dev, unsigned char type, unsigned short options);
 long sys_mount(const char * dev_path, const char * mount_path, unsigned char type, unsigned short options);
 
+
+off_t generic_seek(file_descriptor_t *file, off_t off, int whence, off_t max_off);
 #endif

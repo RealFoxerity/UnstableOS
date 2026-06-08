@@ -32,7 +32,7 @@ enum dev_mem_min {
     DEV_MEM_MEMDISK3,
 };
 
-#define DRIVE_PART_LIMIT 128
+#define DRIVE_PART_LIMIT 128 // actually 127, because partition 0 is the drive itself
 enum dev_block_min {
     DEV_BLOCK_DRIVE0,
     DEV_BLOCK_DRIVE1 = DRIVE_PART_LIMIT,

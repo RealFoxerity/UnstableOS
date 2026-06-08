@@ -14,7 +14,7 @@
 #include <errno.h>
 #include <sys/ioctl.h>
 
-static spinlock_t devs_lock = {0};
+static rw_spinlock_t devs_lock = {0};
 
 #define DEVS_BUCKETS 32
 
@@ -35,11 +35,11 @@ void dev_register_ops(dev_t dev, const struct dev_operations * dev_ops) {
     kassert(dev_ops);
     struct dev_operations_node * hash_entry = &dev_hashmap[dev_get_key(dev)];
 
-    spinlock_acquire(&devs_lock);
+    rw_spinlock_acquire_write(&devs_lock);
     if (hash_entry->dev_ops == NULL) {
         hash_entry->dev_ops = dev_ops;
         hash_entry->dev = dev;
-        spinlock_release(&devs_lock);
+        rw_spinlock_release_write(&devs_lock);
         return;
     }
 
@@ -47,7 +47,7 @@ void dev_register_ops(dev_t dev, const struct dev_operations * dev_ops) {
     for (; hash_entry != NULL; last = hash_entry, hash_entry = hash_entry->next) {
         if (hash_entry->dev == dev) { // found the entry, current behavior is to overwrite
             hash_entry->dev_ops = dev_ops;
-            spinlock_release(&devs_lock);
+            rw_spinlock_release_write(&devs_lock);
             return;
         }
     }
@@ -56,31 +56,31 @@ void dev_register_ops(dev_t dev, const struct dev_operations * dev_ops) {
     last->next->dev = dev;
     last->next->dev_ops = dev_ops;
     last->next->next = NULL;
-    spinlock_release(&devs_lock);
+    rw_spinlock_release_write(&devs_lock);
 }
 
-// full of NULL pointers so that every operation fails with EINVAL/EISPIPE
-static struct dev_operations stub = {0};
+// special value to throw ENODEV on
+static struct dev_operations stub = {.seek = (void*)1};
 // passing by value to avoid potential UAF on ->dev_ops
 // dev_ops should be static and not heap allocated, but to be sure
 struct dev_operations dev_ops_lookup(dev_t dev) {
-    spinlock_acquire(&devs_lock);
+    rw_spinlock_acquire_read(&devs_lock);
     for (
         const struct dev_operations_node * hash_entry = &dev_hashmap[dev_get_key(dev)];
         hash_entry != NULL;
         hash_entry = hash_entry->next
     ) {
         if (hash_entry->dev == dev) {
-            spinlock_release(&devs_lock);
+            rw_spinlock_release_read(&devs_lock);
             return *hash_entry->dev_ops;
         }
     }
-    spinlock_release(&devs_lock);
+    rw_spinlock_release_read(&devs_lock);
     return stub;
 }
 
 void dev_ops_remove(dev_t dev) {
-    spinlock_acquire(&devs_lock);
+    rw_spinlock_acquire_write(&devs_lock);
     struct dev_operations_node * last = NULL;
     for (
         struct dev_operations_node *hash_entry = &dev_hashmap[dev_get_key(dev)];
@@ -101,11 +101,11 @@ void dev_ops_remove(dev_t dev) {
                     kfree(old);
                 }
             }
-            spinlock_release(&devs_lock);
+            rw_spinlock_release_write(&devs_lock);
             return;
         }
     }
-    spinlock_release(&devs_lock);
+    rw_spinlock_release_write(&devs_lock);
 }
 
 
@@ -118,6 +118,8 @@ ssize_t pread_dev(file_descriptor_t *file, void *buf, size_t count, off_t offset
     kassert(buf);
 
     struct dev_operations dev_ops = dev_ops_lookup(file->inode->device);
+    if (dev_ops.seek == (void*)1) return -ENODEV;
+
     if (dev_ops.pread == NULL) return -EINVAL;
     if (count == 0) return 0;
 
@@ -132,6 +134,8 @@ ssize_t pwrite_dev(file_descriptor_t *file, const void *buf, size_t count, off_t
     kassert(buf);
 
     struct dev_operations dev_ops = dev_ops_lookup(file->inode->device);
+    if (dev_ops.seek == (void*)1) return -ENODEV;
+
     if (dev_ops.pwrite == NULL) return -EINVAL;
     if (count == 0) return 0;
 
@@ -143,6 +147,8 @@ off_t seek_dev(file_descriptor_t * file, off_t offset, int whence) {
     kassert(S_ISCHR(file->inode->mode) || S_ISBLK(file->inode->mode));
 
     struct dev_operations dev_ops = dev_ops_lookup(file->inode->device);
+    if (dev_ops.seek == (void*)1) return -ENODEV;
+
     if (dev_ops.seek == NULL) return -ESPIPE;
 
     return dev_ops.seek(file, offset, whence);
@@ -170,6 +176,8 @@ long ioctl_dev(file_descriptor_t *file, unsigned long request, void * arg) {
 #endif
 
     struct dev_operations dev_ops = dev_ops_lookup(file->inode->device);
+    if (dev_ops.seek == (void*)1) return -ENODEV;
+
     if (dev_ops.ioctl == NULL) return -ENODEV;
 
     return dev_ops.ioctl(file, request, arg);
@@ -186,4 +194,79 @@ void dev_initialize_static_devices() {
 dev_t dev_get_ephemeral() {
     static unsigned short last_id = 0;
     return GET_DEV(DEV_MAJ_EPHEMERAL, __atomic_fetch_add(&last_id, 1, __ATOMIC_RELAXED) % 1024);
+}
+
+
+
+char * dev2string(dev_t device, char * buf_out) {
+    if (buf_out == NULL) return NULL;
+
+    switch (MAJOR(device)) {
+        case DEV_MAJ_MEM:
+            sprintf(buf_out, "mem%d", MINOR(device));
+            break;
+        case DEV_MAJ_BLOCK0:
+        case DEV_MAJ_BLOCK1:
+        case DEV_MAJ_BLOCK2:
+        case DEV_MAJ_BLOCK3:
+            if (MINOR(device)%DRIVE_PART_LIMIT == 0)
+                sprintf(buf_out, "hd%d",
+                    (MAJOR(device) - DEV_MAJ_BLOCK0) * (1024/DRIVE_PART_LIMIT) + MINOR(device) / DRIVE_PART_LIMIT);
+            else
+                sprintf(buf_out, "hd%dp%d",
+                    (MAJOR(device) - DEV_MAJ_BLOCK0) * (1024/DRIVE_PART_LIMIT) + MINOR(device) / DRIVE_PART_LIMIT,
+                    MINOR(device) % DRIVE_PART_LIMIT);
+            break;
+        case DEV_MAJ_EPHEMERAL:
+            sprintf(buf_out, "?eph%d", MINOR(device));
+            break;
+        case DEV_MAJ_TTY:
+            switch (MINOR(device)) {
+                case 0 ... __TTY_CONSOLE - 1:
+                    sprintf(buf_out, "tty%d", MINOR(device)+1);
+                    break;
+                case __TTY_CONSOLE ... __TTY_CONSOLE + __TTY_SERIAL - 1:
+                    sprintf(buf_out, "ttyS%d", MINOR(device)+1);
+                    break;
+                case __TTY_CONSOLE + __TTY_SERIAL ... DEV_TTY_CURRENT - 1:
+                    sprintf(buf_out, "pty%d", MINOR(device)+1);
+                    break;
+                case DEV_TTY_CURRENT:
+                    strcpy(buf_out, "tty");
+                    break;
+                case DEV_TTY_CONSOLE:
+                    strcpy(buf_out, "console");
+                    break;
+                default:
+                    sprintf(buf_out, "?tty%d", MINOR(device));
+                    break;
+            }
+            break;
+        case DEV_MAJ_FB:
+            sprintf(buf_out, "fb%d", MINOR(device));
+            break;
+        case DEV_MAJ_MISC:
+            switch (MINOR(device)) {
+                case DEV_MISC_PS2MOUSE:
+                    strcpy(buf_out, "psaux");
+                    break;
+                case DEV_MISC_ZERO:
+                    strcpy(buf_out, "zero");
+                    break;
+                case DEV_MISC_NULL:
+                    strcpy(buf_out, "null");
+                    break;
+                case DEV_MISC_RANDOM:
+                    strcpy(buf_out, "random");
+                    break;
+                default:
+                    sprintf(buf_out, "?misc%d", MINOR(device));
+                    break;
+            }
+        default:
+            sprintf(buf_out, "?maj%dmin%d\n", MAJOR(device), MINOR(device));
+            break;
+    }
+
+    return buf_out;
 }

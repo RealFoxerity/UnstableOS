@@ -30,4 +30,5 @@ static const char * __errno_msgs[] = {
     [ENODEV]    = "No such device",
     [ENOTTY]    = "Inappropriate I/O control operation",
     [EPERM]     = "Operation not permitted",
+    [EEXIST]    = "File exists",
 };

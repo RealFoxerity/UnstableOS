@@ -72,7 +72,7 @@ dev_t memdisk_alloc() { // allocates a memdisk of DEFAULT_MEMDISK_SIZE size
     dev_register_ops(GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0 + new_memdisk), &memdisk_ops);
 
     spinlock_release(&memdisk_lock);
-    kprintf("Allocated a new memdisk of size %u maj %d min %d\n", DEFAULT_MEMDISK_SIZE, DEV_MAJ_MEM, DEV_MEM_MEMDISK0 + new_memdisk);
+    kprintf("Allocated mem%d of size %u\n", new_memdisk, DEFAULT_MEMDISK_SIZE);
     return GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0 + new_memdisk);
 }
 
@@ -90,7 +90,7 @@ dev_t memdisk_from_range(void * vaddr, size_t n) {
     dev_register_ops(GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0 + new_memdisk), &memdisk_ops);
 
     spinlock_release(&memdisk_lock);
-    kprintf("Mapped a new memdisk vaddr 0x%p - 0x%p maj %d min %d\n", vaddr, vaddr+n, DEV_MAJ_MEM, DEV_MEM_MEMDISK0 + new_memdisk);
+    kprintf("Mapped mem%d vaddr 0x%p - 0x%p\n", new_memdisk, vaddr, vaddr+n);
     return GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0 + new_memdisk);
 }
 
@@ -198,25 +198,5 @@ off_t memdisk_seek(file_descriptor_t * fd, off_t off, int whence) { // offsets o
     memdisk_t * memdisk = &memdisks[MINOR(dev)];
     if (!memdisk->used) return -EINVAL;
 
-    switch (whence) {
-        case SEEK_SET:
-            if (off < 0) return -EINVAL;
-            return fd->off = off;
-        case SEEK_CUR:
-            if (fd->off + off > fd->off && off < 0) return -EINVAL; // underflow - negative offset
-            if (fd->off + off < fd->off && off > 0) return -E2BIG; // overflow
-
-            return fd->off = fd->off + off;
-        case SEEK_END:
-            if (off == 0) return fd->off = memdisk->size;
-            if (off >= 0) {
-                if (fd->off + off < fd->off && off > 0) return -E2BIG; // overflow
-                return fd->off = memdisk->size + off;
-            }
-
-            if (-off <= fd->off) return fd->off = fd->off - off;
-            return -EINVAL; // negative offset
-        default:
-            return -EINVAL;
-    }
+    return generic_seek(fd, off, whence, memdisk->size);
 }

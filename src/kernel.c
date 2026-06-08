@@ -51,7 +51,13 @@ void panic(char * reason) {
     disable_interrupts();
     kprintf(KERNEL_PANIC_MSG);
     unwind_stack();
-    kprintf("Reason: %s\e[0m", reason); // SGR reset for serial consoles
+    kprintf("Reason: %s\n", reason); // SGR reset for serial consoles
+    kprintf("Trying to sync drive caches...\n");
+    enable_interrupts();
+    extern void hd_cache_flush();
+    hd_cache_flush();
+    kprintf("Synced; safe to reboot\n");
+    disable_interrupts();
     //kalloc_print_heap_objects();
     asm volatile (
         "cli\n\t"
@@ -356,13 +362,13 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     int initrd_fd = -1;
     kassert((initrd_fd = open_raw_device_fd(GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0), O_RDONLY)) >= 0);
 
-    mount_root(GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0), FS_TARFS, 0);
+    mount_root(GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0), FS_TARFS, MOUNT_RDONLY);
 
     inode_t * dev_inode = NULL;
     if (openat_inode(current_process->root, "/dev", O_DIRECTORY | O_RDONLY, 0, &dev_inode) < 0) {
         kprintf("No /dev directory in initial memdisk, /dev won't be mounted\n");
     } else {
-        if (mount_dev(dev_get_ephemeral(), dev_inode, FS_DEVFS, 0) != 0) {
+        if (mount_dev(dev_get_ephemeral(), dev_inode, FS_DEVFS, MOUNT_RDONLY) != 0) {
             kprintf("Error while mounting /dev, /dev won't be mounted\n");
         }
         close_inode(dev_inode);

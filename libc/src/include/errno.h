@@ -31,4 +31,5 @@ extern int errno; // libc_init.c
 #define ENODEV    26
 #define ENOTTY    27
 #define EPERM     28
+#define EEXIST    29
 #endif
