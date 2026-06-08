@@ -4,9 +4,7 @@
 #include "fs.h"
 #include "../../../libc/src/include/sys/stat.h"
 
-#define VFS_LOOKUP_NOTFOUND (NULL)
-#define VFS_LOOKUP_ESCAPE ((inode_t*)-1) // out of scope of current fs
-#define VFS_LOOKUP_NOTDIRECTORY ((inode_t*)-2) // /file/.
+#define VFS_LOOKUP_ESCAPE 1
 
 #define PATH_PARENT ".."
 #define PATH_CURRENT "."
@@ -21,7 +19,7 @@ so
 */
 #define PATH_METADIR "//"
 
-#include "../../../libc/src/include/dirent.h"
+#include <dirent.h>
 struct vfs_ops {
     int (*fs_init)   (superblock_t * sb); // called on mount, 0 = success
     int (*fs_deinit) (superblock_t * sb); // called on umount, 0 = success
@@ -33,11 +31,11 @@ struct vfs_ops {
     char * (*resolve_link)(superblock_t * sb, inode_t * link);
 
     // gets/creates the inode of a specified file
-    // returns either inode pointer or VFS_LOOKUP*
+    // returns standard errnos or VFS_LOOKUP_ESCAPE on root/..
     // in the case last/. returns the last pointer without altering anything
     // if last == NULL, last is assumed to be mounted /
     // implementations should accept empty string and "." to mean the current directory
-    inode_t * (*lookup) (superblock_t * sb, inode_t * last, const char * pathname);
+    long (*lookup)   (superblock_t * sb, inode_t * last, const char * pathname, inode_t ** inode_out);
     int (*release)   (inode_t *); // closing of the very last instance of an inode
 
     int (*stat)      (inode_t * file, struct stat * buf);

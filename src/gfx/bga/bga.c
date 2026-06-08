@@ -78,6 +78,8 @@ char bga_init(struct pci_device device) {
         return -1;
     }
     bga_set_res(bga_max_xres, bga_max_yres);
+
+    return 0;
 }
 
 void bga_set_res(unsigned int x, unsigned int y) {

@@ -153,7 +153,7 @@ const struct vfs_ops devfs_op = {
 };
 
 // there are no subfolders, so we just iterate the list and ignore the last parameter
-inode_t * devfs_lookup(superblock_t * sb, inode_t * last, const char * pathname) {
+long devfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t ** inode_out) {
     kassert(sb);
     kassert(pathname);
 
@@ -169,17 +169,18 @@ inode_t * devfs_lookup(superblock_t * sb, inode_t * last, const char * pathname)
             }
         }
     }
-    if (devfs_id == 0 && !(pathlen == 1 && pathname[0] == '.')) return VFS_LOOKUP_NOTFOUND;
+    if (devfs_id == 0 && !(pathlen == 1 && pathname[0] == '.')) return -ENOENT;
 
-    inode_t * ret = register_inode(&(inode_t) {
-        .id = (void*)devfs_id,
-        .backing_superblock = sb,
-        .mode = devfs_id == 0 ?
-            S_IFDIR | S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH :
-            devfs_files[devfs_id - 2].node_info.st_mode,
-        .device = devfs_id == 0 ? 0 : devfs_files[devfs_id - 2].node_info.st_rdev
-    });
-    return ret;
+    long status = register_inode(&(inode_t) {
+           .id                 = (void*)devfs_id,
+           .backing_superblock = sb,
+           .mode               = devfs_id == 0 ?
+                                     S_IFDIR | S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH :
+                                     devfs_files[devfs_id - 2].node_info.st_mode,
+           .device = devfs_id == 0 ? 0 : devfs_files[devfs_id - 2].node_info.st_rdev
+       }, inode_out);
+
+    return status;
 }
 
 // only for readdir
@@ -267,5 +268,6 @@ int devfs_stat(inode_t * file, struct stat * buf) {
             *buf = devfs_files[(size_t)file->id - 2].node_info;
     }
     buf->st_dev = file->backing_superblock->device;
+    buf->st_blksize = file->io_block_size;
     return 0;
 }

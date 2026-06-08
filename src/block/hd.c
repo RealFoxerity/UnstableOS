@@ -351,10 +351,23 @@ off_t hd_seek_ata(file_descriptor_t *file, off_t off, int whence) {
     return generic_seek(file, off, whence, max_off);
 }
 
+long hd_open_ata(inode_t * inode) {
+    kassert(inode);
+    kassert(S_ISBLK(inode->mode));
+
+    struct ata_drive * drive = hd_get_ata_drive(inode->device);
+    if (drive == NULL) return -ENODEV;
+
+    inode->io_block_size = drive->sector_size;
+    inode->dev_opened = 1;
+    return 0;
+}
+
 static const struct dev_operations ata_ops = {
     .pread  = hd_read_ata,
     .pwrite = hd_write_ata,
-    .seek  = hd_seek_ata,
+    .seek   = hd_seek_ata,
+    .open   = hd_open_ata,
 };
 
 void hd_initialize_drive_devices() {

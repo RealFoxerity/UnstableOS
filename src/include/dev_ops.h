@@ -11,12 +11,18 @@ struct dev_operations {
     ssize_t (*pwrite)(file_descriptor_t *file, const void *buf, size_t count, off_t pread);
     off_t   (*seek) (file_descriptor_t *file, off_t offset, int whence);
     long    (*ioctl)(file_descriptor_t *file, unsigned long request, void * arg);
+
+    // takes an inode and de/initializes a device specified by it
+    long    (*open) (inode_t * inode);
+    long    (*close)(inode_t * inode);
 };
 
 ssize_t pread_dev(file_descriptor_t *file, void *buf, size_t count, off_t offset);
 ssize_t pwrite_dev(file_descriptor_t *file, const void *buf, size_t count, off_t offset);
 off_t seek_dev(file_descriptor_t * file, off_t offset, int whence);
 long ioctl_dev(file_descriptor_t *file, unsigned long request, void * arg);
+long open_dev(inode_t * inode);
+long close_dev(inode_t * inode);
 
 // if one already exists, it gets overwritten!
 void dev_register_ops(dev_t dev, const struct dev_operations * dev_ops);

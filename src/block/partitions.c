@@ -159,7 +159,7 @@ long part_add(dev_t new_part, struct partition part) {
         return -EINVAL;
     if (part.size == 0) return -EINVAL;
     if (part.start < 0) return -EINVAL;
-    if (part.size < 0) return -EINVAL;
+    if (part.size  < 0) return -EINVAL;
 
     rw_spinlock_acquire_write(&partitions_lock);
     struct partition ** part_table = part_get_table(new_part);

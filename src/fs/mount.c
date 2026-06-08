@@ -49,11 +49,10 @@ long mount_root(dev_t dev, unsigned char type, unsigned short options) {
 
     kassert(root_superblock->funcs->fs_init(root_superblock) == 0);
 
-    inode_t * root_inode = root_superblock->funcs->lookup(root_superblock, NULL, ".");
+    inode_t * root_inode = NULL;
+    long status = root_superblock->funcs->lookup(root_superblock, NULL, ".", &root_inode);
     kassert(root_inode);
-    kassert(root_inode != VFS_LOOKUP_NOTDIRECTORY);
-    kassert(root_inode != VFS_LOOKUP_ESCAPE);
-    kassert(root_inode != VFS_LOOKUP_NOTFOUND);
+    kassert(status >= 0);
 
     spinlock_acquire(&root_inode->lock);
     root_inode->next_superblock = root_inode->backing_superblock;

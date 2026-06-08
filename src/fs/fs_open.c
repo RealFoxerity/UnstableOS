@@ -18,8 +18,12 @@ static int __open_raw_device(dev_t device, unsigned short flags, file_descriptor
         return -ENFILE;
     }
 
-    inode_t * dev_inode = inode_from_device(device);
-    kassert(dev_inode);
+    inode_t * dev_inode = NULL;
+    long status = inode_from_device(device, &dev_inode);
+    if (status < 0) {
+        file->instances = 0; // free the fd
+        return status;
+    }
 
     file->inode = dev_inode;
     file->flags = flags;
@@ -214,7 +218,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
 
     // so that prev is never null, simplifying chroot checks
     if (prev->is_mountpoint && prev != root_mountpoint->mountpoint) {
-        prev = sb->funcs->lookup(sb, NULL, ".");
+        sb->funcs->lookup(sb, NULL, ".", &prev);
     }
 
     kassert(prev->is_mountpoint == 0 || prev == root_mountpoint->mountpoint);
@@ -235,9 +239,9 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
                 final_path = next_slash + 1;
                 continue;
             }
-        new = sb->funcs->lookup(sb, prev, final_path);
+        long status = sb->funcs->lookup(sb, prev, final_path, &new);
 
-        if (new == VFS_LOOKUP_NOTFOUND) {
+        if (status == -ENOENT) {
             if (last_fragment &&
                 sb->funcs->create != NULL &&
                 flags & O_CREAT)
@@ -255,6 +259,11 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
             ret = -ENOENT;
             goto err;
         }
+        if (status < 0) {
+            close_inode(prev);
+            ret = status;
+            goto err;
+        }
         // has to be below because we prefer returning ENOENT
         // devices are not governed by the mountpoint options
         if (last_fragment && (S_ISREG(new->mode) || S_ISDIR(new->mode))) {
@@ -266,7 +275,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
                 goto err;
             }
         }
-        if (new == VFS_LOOKUP_ESCAPE) {
+        if (status == VFS_LOOKUP_ESCAPE) {
             new = sb->mountpoint;
             __atomic_add_fetch(&new->instances, 1, __ATOMIC_RELAXED);
             sb = new->backing_superblock;
@@ -274,11 +283,6 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
 
             prev = new;
             goto lookup_escape_again; // try again on parent superblock
-        }
-        if (new == VFS_LOOKUP_NOTDIRECTORY) {
-            close_inode(prev);
-            ret = -ENOTDIR;
-            goto err;
         }
         if (new->is_mountpoint) {
             sb = new->next_superblock;
@@ -292,7 +296,12 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
                 goto err;
             }
 
-            new = sb->funcs->lookup(sb, NULL, ".");
+            status = sb->funcs->lookup(sb, NULL, ".", &new);
+            if (status < 0) {
+                close_inode(prev);
+                ret = status;
+                goto err;
+            }
         }
         if (last_fragment) {
             close_inode(prev);
