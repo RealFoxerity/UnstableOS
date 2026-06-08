@@ -16,6 +16,37 @@ struct devfs_node {
     struct stat node_info;
 };
 
+#define HD_ENTRY(no) \
+    {\
+        .name = "hd"#no,\
+        {\
+            .st_rdev = GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE##no),\
+            .st_mode = S_IFBLK | S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP,\
+        }\
+    },
+
+#define HD_PART(no, pno) \
+    {\
+        .name = "hd"#no"p"#pno,\
+        {\
+            .st_rdev = GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE##no + pno),\
+            .st_mode = S_IFBLK | S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP,\
+        }\
+    },
+#define HD(no)\
+    HD_ENTRY(no)\
+    HD_PART(no, 1)\
+    HD_PART(no, 2)\
+    HD_PART(no, 3)\
+    HD_PART(no, 4)
+
+#define HDS_BLOCK0 \
+    HD(0)\
+    HD(1)\
+    HD(2)\
+    HD(3)
+
+
 // TODO: make a hashtable for these entries
 static struct devfs_node devfs_files[] = {
     {
@@ -46,34 +77,7 @@ static struct devfs_node devfs_files[] = {
             .st_mode = S_IFBLK | S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP,
         }
     },
-    {
-        .name = "hd0",
-        {
-            .st_rdev = GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE0),
-            .st_mode = S_IFBLK | S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP,
-        }
-    },
-    {
-        .name = "hd1",
-        {
-            .st_rdev = GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE1),
-            .st_mode = S_IFBLK | S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP,
-        }
-    },
-    {
-        .name = "hd2",
-        {
-            .st_rdev = GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE2),
-            .st_mode = S_IFBLK | S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP,
-        }
-    },
-    {
-        .name = "hd3",
-        {
-            .st_rdev = GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE3),
-            .st_mode = S_IFBLK | S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP,
-        }
-    },
+    HDS_BLOCK0
     {
         .name = "tty",
         {
@@ -167,13 +171,14 @@ inode_t * devfs_lookup(superblock_t * sb, inode_t * last, const char * pathname)
     }
     if (devfs_id == 0 && !(pathlen == 1 && pathname[0] == '.')) return VFS_LOOKUP_NOTFOUND;
 
-    inode_t * ret = create_inode(sb, (void*)devfs_id);
-    if (devfs_id == 0)
-        inode_change_mode(ret, S_IFDIR | S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH);
-    else {
-        inode_change_mode(ret, devfs_files[devfs_id - 2].node_info.st_mode);
-        ret->device = devfs_files[devfs_id - 2].node_info.st_rdev;
-    }
+    inode_t * ret = register_inode(&(inode_t) {
+        .id = (void*)devfs_id,
+        .backing_superblock = sb,
+        .mode = devfs_id == 0 ?
+            S_IFDIR | S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH :
+            devfs_files[devfs_id - 2].node_info.st_mode,
+        .device = devfs_id == 0 ? 0 : devfs_files[devfs_id - 2].node_info.st_rdev
+    });
     return ret;
 }
 

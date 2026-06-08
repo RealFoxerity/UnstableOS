@@ -3,6 +3,7 @@
 #include "fs/fs.h"
 #include "kernel.h"
 #include "block/ata/ata.h"
+#include "block/partitions.h"
 #include <UnstableOS/devs.h>
 #include "dev_ops.h"
 #include <errno.h>
@@ -347,26 +348,7 @@ off_t hd_seek_ata(file_descriptor_t *file, off_t off, int whence) {
     if (drive == NULL) return -ENODEV;
 
     size_t max_off = drive->sector_count * drive->sector_size;
-
-    switch (whence) {
-        case SEEK_SET:
-            if (off < 0) return -EINVAL;
-            if (off > max_off) return -EINVAL;
-            return file->off = off;
-        case SEEK_CUR:
-            if (file->off + off > file->off && off < 0) return -EINVAL; // underflow - negative offset
-            if (file->off + off < file->off && off > 0) return -E2BIG; // overflow
-
-            if (file->off + off > max_off) return -EINVAL;
-            return file->off += off;
-        case SEEK_END:
-            if (off > 0) return -EINVAL;
-            if (off == 0) return file->off = max_off;
-            if (-off <= file->off) return file->off = file->off - off;
-            return -EINVAL; // negative offset
-        default:
-            return -EINVAL;
-    }
+    return generic_seek(file, off, whence, max_off);
 }
 
 static const struct dev_operations ata_ops = {
@@ -376,9 +358,24 @@ static const struct dev_operations ata_ops = {
 };
 
 void hd_initialize_drive_devices() {
-    // static map the ATA drives
-    dev_register_ops(GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE0), &ata_ops);
-    dev_register_ops(GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE1), &ata_ops);
-    dev_register_ops(GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE2), &ata_ops);
-    dev_register_ops(GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE3), &ata_ops);
+    if (ata_buses[0].is_initialized) {
+        if (ata_buses[0].drives[0].present) {
+            dev_register_ops(GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE0), &ata_ops);
+            mbr_parse_table(GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE0));
+        }
+        if (ata_buses[0].drives[1].present) {
+            dev_register_ops(GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE1), &ata_ops);
+            mbr_parse_table(GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE1));
+        }
+    }
+    if (ata_buses[1].is_initialized) {
+        if (ata_buses[1].drives[0].present) {
+            dev_register_ops(GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE2), &ata_ops);
+            mbr_parse_table(GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE2));
+        }
+        if (ata_buses[1].drives[1].present) {
+            dev_register_ops(GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE3), &ata_ops);
+            mbr_parse_table(GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE3));
+        }
+    }
 }

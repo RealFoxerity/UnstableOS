@@ -216,9 +216,11 @@ ssize_t pwrite_file(file_descriptor_t *file, const void *buf, size_t count, off_
             ret = -EINVAL;
         else {
             // O_APPEND doesn't make sense in any other case, so that's why here
+            // offset = ...seek just in case we race to the seek
+            // the file->off isn't important anyway
             if (file->flags & O_APPEND &&
                 file->inode->backing_superblock->funcs->seek != NULL)
-                    file->inode->backing_superblock->funcs->seek(file, 0, SEEK_END);
+                    offset = file->inode->backing_superblock->funcs->seek(file, 0, SEEK_END);
 
             ret = file->inode->backing_superblock->funcs->pwrite(file, buf, count, offset);
         }
@@ -549,4 +551,30 @@ long sys_fcntl(int fd, int cmd, long arg) {
     file_descriptor_t * file = current_process->fds[fd];
 
     return fcntl_file(file, cmd, arg);
+}
+
+
+off_t generic_seek(file_descriptor_t *file, off_t off, int whence, off_t max_off) {
+    kassert(file);
+
+    off_t old_off = file->off;
+    switch (whence) {
+        case SEEK_SET:
+            if (off < 0) return -EINVAL;
+            if (off > max_off) return -EINVAL;
+            return (file->off = off);
+        case SEEK_CUR:
+            if (old_off + off > old_off && off < 0) return -EINVAL; // underflow - negative offset
+            if (old_off + off < old_off && off > 0) return -E2BIG; // overflow
+
+            if (old_off + off > max_off) return -EINVAL;
+            return (file->off = old_off + off);
+        case SEEK_END:
+            if (off > 0) return -EINVAL;
+            if (off == 0) return (file->off = max_off);
+            if (-off <= old_off) return (file->off = old_off - off);
+            return -EINVAL; // negative offset
+        default:
+            return -EINVAL;
+    }
 }

@@ -333,7 +333,20 @@ inode_t * tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname)
         if (result == NULL) return VFS_LOOKUP_NOTFOUND;
     }
 
-    inode_t * ret = create_inode(sb, result);
+    inode_t new_inode = {
+        .id = result,
+        .backing_superblock = sb,
+        .mode = result->mode,
+        .size = result->size,
+    };
+
+    if (S_ISCHR(result->mode) || S_ISBLK(result->mode)) {
+        new_inode.device = result->device;
+    } /* else if (S_ISFIFO(result->mode)) {
+        new_inode.pipe = ????
+    }*/
+
+    inode_t * ret = register_inode(&new_inode);
 
     inode_change_mode(ret, result->mode);
     return ret;
@@ -386,26 +399,7 @@ off_t tarfs_seek(file_descriptor_t * fd, off_t off, int whence) {
     kassert(fd->inode->id);
 
     struct tar_node * node = fd->inode->id;
-    switch (whence) {
-        case SEEK_SET:
-            if (off < 0) return -EINVAL;
-            return fd->off = off;
-        case SEEK_CUR:
-            if (fd->off + off > fd->off && off < 0) return -EINVAL; // underflow - negative offset
-            if (fd->off + off < fd->off && off > 0) return -E2BIG; // overflow
-
-            return fd->off = fd->off + off;
-        case SEEK_END:
-            if (off >= 0) {
-                if (fd->off + off > fd->off && off < 0) return -EINVAL; // underflow - negative offset
-                if (fd->off + off < fd->off && off > 0) return -E2BIG; // overflow
-                return fd->off = node->size + off;
-            }
-            else if (off < 0 && -off <= fd->off) return fd->off = fd->off - off;
-            return -EINVAL; // negative offset
-        default:
-            return -EINVAL;
-    }
+    return generic_seek(fd, off, whence, node->size);
 }
 
 ssize_t tarfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_size) {

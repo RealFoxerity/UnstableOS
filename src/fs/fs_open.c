@@ -226,8 +226,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
         *next_slash = '\0';
 
         lookup_escape_again:
-        if (next_slash - final_path == 2 &&
-            strcmp(PATH_PARENT, final_path) == 0 &&
+        if (strcmp(PATH_PARENT, final_path) == 0 &&
             prev == current_process->root) {
                 if (last_fragment) {
                     new = prev;
@@ -257,8 +256,11 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
             goto err;
         }
         // has to be below because we prefer returning ENOENT
-        if (last_fragment) {
-            if (sb->mount_options & MOUNT_RDONLY && mode & O_WRONLY) {
+        // devices are not governed by the mountpoint options
+        if (last_fragment && (S_ISREG(new->mode) || S_ISDIR(new->mode))) {
+            if ((sb->mount_options & MOUNT_RDONLY ||
+                sb->funcs->pwrite == NULL)
+                    && mode & O_WRONLY) {
                 close_inode(prev);
                 ret = -EROFS;
                 goto err;
