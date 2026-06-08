@@ -1,3 +1,5 @@
+#include "dev_ops.h"
+#include "errno.h"
 #include "../include/fs/fs.h"
 #include "../include/fs/vfs.h"
 #include "../include/mm/kernel_memory.h"
@@ -96,8 +98,11 @@ inode_t * get_inode(superblock_t * sb, void * inode_number) {
     spinlock_release(&kernel_inode_lock);
     return inode;
 }
-inode_t * register_inode(const inode_t * inode) {
-    if (inode == NULL) return NULL;
+
+long register_inode(const inode_t * inode, inode_t ** inode_out) {
+    if (inode == NULL) return -EFAULT;
+
+    long status = 0;
     spinlock_acquire(&kernel_inode_lock);
     inode_t * new_inode = __get_inode(inode->backing_superblock, inode->id);
     if (new_inode != NULL) {
@@ -106,10 +111,12 @@ inode_t * register_inode(const inode_t * inode) {
     }
 
     new_inode = get_free_inode();
-    kassert(new_inode);
+    if (new_inode == NULL) {
+        status = -ENOMEM;
+        goto ret;
+    }
 
-    ret:
-    // can't do a memcpy in case we found the old one and it's mounted, or has a different instance count...
+    // can't do a memcpy in case we found the old one, and it's mounted, or has a different instance count...
     new_inode->id = inode->id;
     new_inode->mode = inode->mode;
     new_inode->size = inode->size;
@@ -118,39 +125,50 @@ inode_t * register_inode(const inode_t * inode) {
         new_inode->device = inode->device;
     else if S_ISFIFO(inode->mode)
         new_inode->pipe   = inode->pipe;
+
+    if (S_ISCHR(inode->mode) || S_ISBLK(inode->mode))
+        if ((status = open_dev(new_inode)) < 0) {
+            new_inode->instances = 0; // "free" the inode
+            new_inode = NULL;
+        }
+
+    ret:
+    *inode_out = new_inode;
     spinlock_release(&kernel_inode_lock);
-    return new_inode;
+    return status;
 }
 
 void close_inode(inode_t *inode) {
     spinlock_acquire(&inode->lock);
+    spinlock_acquire(&kernel_inode_lock);
     if (__atomic_sub_fetch(&inode->instances, 1, __ATOMIC_RELAXED) == 0) {
         if (inode->backing_superblock &&
             inode->backing_superblock->funcs &&
             inode->backing_superblock->funcs->release)
             inode->backing_superblock->funcs->release(inode);
         if (S_ISFIFO(inode->mode)) kfree(inode->pipe);
+        if (S_ISCHR(inode->mode) || S_ISBLK(inode->mode))
+            close_dev(inode);
     }
     spinlock_release(&inode->lock);
+    spinlock_release(&kernel_inode_lock);
 }
 
-inode_t * inode_from_device(dev_t device) {
-    spinlock_acquire(&kernel_inode_lock);
+long inode_from_device(dev_t device, inode_t ** inode_out) {
+    if (inode_out == NULL) return -EFAULT;
+    static unsigned long long ephemeral_id = 0;
 
-    inode_t * new_inode = __get_inode_raw_device(device);
-    if (new_inode) {
-        new_inode->instances ++;
-        goto end;
-    }
+    inode_t new = {
+        .id = (void*)__atomic_fetch_add(&ephemeral_id, 1, __ATOMIC_RELAXED),
+        .mode = DEV_IS_CHAR(device) ? S_IFCHR : S_IFBLK,
+        .device = device,
+    };
 
-    new_inode = get_free_inode();
+    inode_t * ret = NULL;
+    long status = register_inode(&new, &ret);
+    *inode_out = ret;
 
-    new_inode->mode = DEV_IS_CHAR(device) ? S_IFCHR : S_IFBLK;
-    new_inode->device = device;
-
-    end:
-    spinlock_release(&kernel_inode_lock);
-    return new_inode;
+    return status;
 }
 
 void inode_change_mode(inode_t * inode, unsigned short new_mode) {

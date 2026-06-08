@@ -13,7 +13,7 @@ char check_elf(int elf_fd) { // returns 1 if elf is not truncated or broken
     sys_seek(elf_fd, 0, SEEK_SET);
 
     struct elf_header ehdr;
-    sys_read(elf_fd, &ehdr, sizeof(struct elf_header));
+    if (sys_read(elf_fd, &ehdr, sizeof(struct elf_header)) != sizeof(struct elf_header)) return 0;
 
     if (memcmp((uint8_t *)ehdr.magic, ELF_MAGIC, sizeof(ELF_MAGIC)-1) != 0) return 0;
     if (ehdr.arch != ELF_ARCH_32) return 0; // this tool only supports 32 bit files, TODO: add support to recognise 64 bit files

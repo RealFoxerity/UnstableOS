@@ -14,6 +14,7 @@ typedef size_t useconds_t;
 typedef ssize_t suseconds_t;
 
 typedef ssize_t pid_t;
+typedef ssize_t blksize_t;
 
 typedef id_t ino_t;
 typedef id_t gid_t;
@@ -23,5 +24,6 @@ typedef unsigned int mode_t;
 
 #include <stdint.h>
 typedef int64_t off_t;
+typedef off_t blkcnt_t;
 
 #endif

@@ -7,7 +7,7 @@
 #include "lowlevel.h"
 #include "kernel.h"
 #include <stdint.h>
-
+#include "dev_ops.h"
 #include <string.h>
 
 #define kprintf(x, ...) kprintf("PS/2 driver: "x, ##__VA_ARGS__)
@@ -448,6 +448,32 @@ static inline void ps2_init_device(uint8_t device_num) { // todo: implement time
     if (!ps2_enable_scanning(device_num)) goto errored;
 }
 
+
+static unsigned char mouse_buffer[4]; // 4 in case of 5 button/scroll wheel mouse
+
+#include <errno.h>
+static spinlock_t ps2_driver_lock = {0};
+static thread_queue_t mouse_queue = {0};
+
+ssize_t ps2_mouse_pread(file_descriptor_t * file, void * buf, size_t n, off_t offset) {
+    if (offset) return -ESPIPE;
+
+    thread_queue_add(&mouse_queue, current_process, current_thread, SCHED_INTERR_SLEEP);
+    if (current_thread->sa_to_be_handled != 0) return -EINTR;
+
+#ifdef PS2_MOUSE_LINUX_COMPAT
+    memcpy(buf, mouse_buffer, n > 3 ? 3 : n);
+    return n > 3 ? 3 : n;
+#else
+    memcpy(buf, mouse_buffer, n > 4 ? 4 : n);
+    return n > 4 ? 4 : n;
+#endif
+}
+
+static const struct dev_operations psaux_ops = {
+    .pread = ps2_mouse_pread,
+};
+
 void ps2_init() {
     // implement check acpi
     pic_mask_irq(PIC_INTERR_KEYBOARD);
@@ -545,6 +571,8 @@ void ps2_init() {
     outb(PS2_DATA_PORT, config_byte);
 
     inb(PS2_DATA_PORT); // flush anything that could've been queued
+
+    dev_register_ops(GET_DEV(DEV_MAJ_MISC, DEV_MISC_PS2MOUSE), &psaux_ops);
 }
 
 enum ps2_internal_states {
@@ -743,25 +771,6 @@ static void ps2_keyboard_driver_internal(char device_num) {
     if (out == (KEY_DELETE | KEY_MOD_LCONTROL_MASK | KEY_MOD_RALT_MASK)) kernel_reset_system();
 
     console_translate_scancode(out);
-}
-
-static unsigned char mouse_buffer[4]; // 4 in case of 5 button/scroll wheel mouse
-
-#include <errno.h>
-static spinlock_t ps2_driver_lock = {0};
-static thread_queue_t mouse_queue = {0};
-
-ssize_t ps2_mouse_read(void * buf, size_t n) {
-    thread_queue_add(&mouse_queue, current_process, current_thread, SCHED_INTERR_SLEEP);
-    if (current_thread->sa_to_be_handled != 0) return -EINTR;
-
-#ifdef PS2_MOUSE_LINUX_COMPAT
-    memcpy(buf, mouse_buffer, n > 3 ? 3 : n);
-    return n > 3 ? 3 : n;
-#else
-    memcpy(buf, mouse_buffer, n > 4 ? 4 : n);
-    return n > 4 ? 4 : n;
-#endif
 }
 
 static void ps2_mouse_driver_internal(char device_num) {

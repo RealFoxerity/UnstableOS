@@ -36,7 +36,7 @@ void * page_frame_alloc_init(multiboot_info_t* mbd, void * free_space_start_page
             if (mmmt->addr + mmmt->len > UINT32_MAX) {
                 highest_free_addr = (void*)UINT32_MAX;
             } else {
-                highest_free_addr = (void*)mmmt->addr + mmmt->len;
+                highest_free_addr = (void*)(unsigned long)mmmt->addr + mmmt->len;
             }
         }
     }

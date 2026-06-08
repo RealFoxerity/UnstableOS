@@ -24,7 +24,8 @@ struct inode_t {
 
     size_t instances; // how many descriptors (and therefore processes) use this inode, 0 is considered an unused inode
 
-    size_t size;
+    off_t size;
+    blksize_t io_block_size;
 
     struct superblock_t * backing_superblock; // used to lookup functions to use for i/o operations, same as next for "/"
 
@@ -34,7 +35,10 @@ struct inode_t {
     struct superblock_t * next_superblock; // pointer to the superblock structure mounted at this inode
 
     union {
-        dev_t device; // if S_ISBLK(mode) | S_ISCHR(mode)
+        struct {
+            dev_t device; // if S_ISBLK(mode) | S_ISCHR(mode)
+            char dev_opened;
+        };
         struct pipe * pipe; // if S_ISFIFO(mode); extra field so that named pipes can be more easily implemented
     };
 } typedef inode_t;
@@ -105,14 +109,18 @@ superblock_t * get_free_superblock(); // locks superblock lock itself, sets is_m
 
 inode_t * get_inode_raw_device(dev_t device); // get an existing structure for a given raw device, NULL if not open
 inode_t * __get_inode_raw_device(dev_t device); // the same but caller has to lock kernel_inode_lock
-inode_t * inode_from_device(dev_t device); // locks inode lock itself, finds an existing structure and increments, or creates one and sets instances to 1
+
+// locks inode lock itself, finds an existing structure and increments, or creates one and sets instances to 1
+// meant for kernel space before vfs access
+// call sparingly! leads to duplicate dev inodes
+long inode_from_device(dev_t device, inode_t ** inode_out);
 
 // considering there can't (shouldn't) be 2 inodes with the same id and sb pointer,
 // this looks up such an inode from the kernel's inode list, returning NULL when it can't
 // locks inode lock itself
 inode_t * get_inode(superblock_t * sb, void * inode_number);
 // exactly the same but increases instances if found and creates if not
-inode_t * register_inode(const inode_t * inode);
+long register_inode(const inode_t * inode, inode_t ** inode_out);
 void close_inode(inode_t * inode);
 int open_raw_device(dev_t device, unsigned short flags, file_descriptor_t ** file_out); // locks file descriptor lock itself
 int open_raw_device_fd(dev_t device, unsigned short flags); // locks file descriptor lock itself
@@ -165,7 +173,7 @@ ssize_t pwrite_file(file_descriptor_t * file, const void * buf, size_t count, of
 off_t seek_file(file_descriptor_t * file, off_t off, int whence);
 long fcntl_file(file_descriptor_t * file, int cmd, long arg);
 
-ssize_t ps2_mouse_read(void * buf, size_t n);
+ssize_t ps2_mouse_pread(file_descriptor_t * file, void * buf, size_t n, off_t offset);
 
 // here because we need to access file_descriptor_t
 int sys_pipe(int fildes[2], int flags);

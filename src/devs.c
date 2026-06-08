@@ -118,10 +118,12 @@ ssize_t pread_dev(file_descriptor_t *file, void *buf, size_t count, off_t offset
     kassert(buf);
 
     struct dev_operations dev_ops = dev_ops_lookup(file->inode->device);
-    if (dev_ops.seek == (void*)1) return -ENODEV;
+    if (dev_ops.seek == (void*)1) return -ENXIO;
+    if (!file->inode->dev_opened) return -EIO;
 
     if (dev_ops.pread == NULL) return -EINVAL;
     if (count == 0) return 0;
+
 
     return dev_ops.pread(file, buf, count, offset);
 }
@@ -134,7 +136,8 @@ ssize_t pwrite_dev(file_descriptor_t *file, const void *buf, size_t count, off_t
     kassert(buf);
 
     struct dev_operations dev_ops = dev_ops_lookup(file->inode->device);
-    if (dev_ops.seek == (void*)1) return -ENODEV;
+    if (dev_ops.seek == (void*)1) return -ENXIO;
+    if (!file->inode->dev_opened) return -EIO;
 
     if (dev_ops.pwrite == NULL) return -EINVAL;
     if (count == 0) return 0;
@@ -147,7 +150,8 @@ off_t seek_dev(file_descriptor_t * file, off_t offset, int whence) {
     kassert(S_ISCHR(file->inode->mode) || S_ISBLK(file->inode->mode));
 
     struct dev_operations dev_ops = dev_ops_lookup(file->inode->device);
-    if (dev_ops.seek == (void*)1) return -ENODEV;
+    if (dev_ops.seek == (void*)1) return -ENXIO;
+    if (!file->inode->dev_opened) return -EIO;
 
     if (dev_ops.seek == NULL) return -ESPIPE;
 
@@ -176,13 +180,63 @@ long ioctl_dev(file_descriptor_t *file, unsigned long request, void * arg) {
 #endif
 
     struct dev_operations dev_ops = dev_ops_lookup(file->inode->device);
-    if (dev_ops.seek == (void*)1) return -ENODEV;
+    if (dev_ops.seek == (void*)1) return -ENXIO;
+    if (!file->inode->dev_opened) return -EIO;
 
-    if (dev_ops.ioctl == NULL) return -ENODEV;
+    if (dev_ops.ioctl == NULL) return -ENOTTY;
 
     return dev_ops.ioctl(file, request, arg);
 }
 
+
+// we can either properly return -ENXIO
+// or just pretend everything's okay
+// we need inode opens to succeed to do stuff like
+// stat(), chmod(), unlink()...
+// so we delay the ENXIO until read/write/seek/ioctl
+long open_dev(inode_t * inode) {
+    kassert(inode);
+    kassert(S_ISCHR(inode->mode) || S_ISBLK(inode->mode));
+
+    if (MAJOR(inode->device) == DEV_MAJ_EPHEMERAL) return 0; // these devices are placeholders anyway
+
+    struct dev_operations dev_ops = dev_ops_lookup(inode->device);
+    //if (dev_ops.seek == (void*)1) return -ENXIO;
+    if (dev_ops.seek == (void*)1) return 0;
+
+    if (dev_ops.open == NULL) {
+        inode->io_block_size = 512; // good default
+
+        // so that io_block_size assignment doesn't float beneath this
+        __atomic_store_n(&inode->dev_opened, 1, __ATOMIC_RELEASE);
+        return 0;
+    }
+
+    if (inode->dev_opened) return 0;
+
+    //return dev_ops.open(inode);
+    dev_ops.open(inode);
+    return 0;
+}
+
+long close_dev(inode_t * inode) {
+    kassert(inode);
+    kassert(S_ISCHR(inode->mode) || S_ISBLK(inode->mode));
+
+    if (MAJOR(inode->device) == DEV_MAJ_EPHEMERAL) return 0;
+
+    struct dev_operations dev_ops = dev_ops_lookup(inode->device);
+    if (dev_ops.seek == (void*)1) return -ENODEV;
+
+    if (dev_ops.close == NULL) {
+        inode->dev_opened = 0;
+        return 0;
+    }
+
+    if (!inode->dev_opened) return 0;
+
+    return dev_ops.close(inode);
+}
 
 extern void framebuffer_register();
 extern void dev_register_basic_devices();

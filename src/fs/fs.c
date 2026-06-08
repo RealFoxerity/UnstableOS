@@ -154,9 +154,7 @@ ssize_t pread_file(file_descriptor_t *file, void *buf, size_t count, off_t offse
         else
             ret = file->inode->backing_superblock->funcs->pread(file, buf, count, offset);
     } else {
-        if (file->inode->device == GET_DEV(DEV_MAJ_MISC, DEV_MISC_PS2MOUSE))
-            ret = ps2_mouse_read(buf, count);
-        else ret = pread_dev(file, buf, count, offset);
+        ret = pread_dev(file, buf, count, offset);
     }
     spinlock_release(&file->access_lock);
     return ret;

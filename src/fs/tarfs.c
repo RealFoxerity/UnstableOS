@@ -1,13 +1,15 @@
-#include "../include/fs/fs.h"
-#include "../include/fs/vfs.h"
-#include "../include/fs/tarfs.h"
-#include "../../libc/src/include/ctype.h"
-#include "../../libc/src/include/string.h"
-#include "../include/mm/kernel_memory.h"
-#include "../include/errno.h"
-#include "../../libc/src/include/sys/types.h"
-#include "../../libc/src/include/time.h"
+#include "fs/fs.h"
+#include "fs/vfs.h"
+#include "fs/tarfs.h"
+#include <ctype.h>
+#include <string.h>
+#include "mm/kernel_memory.h"
+#include <errno.h>
+#include <sys/types.h>
+#include <time.h>
 #include <stdint.h>
+
+#include "dev_ops.h"
 
 // TODO: among others, do header checksum, supposedly it's a sum of the header as an octal string
 // TODO: this "driver" assumes that folders will have their entries before a file using them
@@ -294,16 +296,18 @@ static char is_valid_node(const struct tar_node * root, const struct tar_node * 
     return 1;
 }
 
-inode_t * tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname) {
-    kassert(sb);
+long tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t ** inode_out) {
+    if (!pathname) return -EFAULT;
+    if (!sb) return -EFAULT;
+    if (!inode_out) return -EFAULT;
+
     kassert(sb->data);
-    kassert(pathname);
 
     size_t pathlen = strlen(pathname);
 
     struct tar_node * prev = last == NULL ? sb->data : last->id;
 
-    if (!S_ISDIR(prev->mode)) return VFS_LOOKUP_NOTDIRECTORY;
+    if (!S_ISDIR(prev->mode)) return -ENOTDIR;
 
     struct tar_node * root = sb->data;
     struct tar_node * result = NULL;
@@ -330,7 +334,7 @@ inode_t * tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname)
                 break;
             }
         }
-        if (result == NULL) return VFS_LOOKUP_NOTFOUND;
+        if (result == NULL) return -ENOENT;
     }
 
     inode_t new_inode = {
@@ -346,10 +350,9 @@ inode_t * tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname)
         new_inode.pipe = ????
     }*/
 
-    inode_t * ret = register_inode(&new_inode);
+    long status = register_inode(&new_inode, inode_out);
 
-    inode_change_mode(ret, result->mode);
-    return ret;
+    return status;
 }
 
 ssize_t tarfs_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) {
@@ -385,8 +388,7 @@ ssize_t tarfs_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) 
 
     spinlock_acquire_interruptible(&sb->lock); // so that we can't race for the file descriptor
     kassert(sb->is_mounted);
-    seek_file(tar_fd, this->record_offset + sizeof(ustar_hdr) + offset, SEEK_SET);
-    read = read_file(tar_fd, buf, n); // read technically not needed here, but just in case
+    read = pread_file(tar_fd, buf, n, this->record_offset + sizeof(ustar_hdr) + offset);
 
     spinlock_release(&sb->lock);
 
@@ -485,7 +487,9 @@ int tarfs_stat(inode_t * file, struct stat * buf) {
         .st_gid = this->gid,
         .st_rdev = this->device,
         .st_mtime = this->mtime,
-        .st_nlink = 1 // not correct, but whatevs
+        .st_nlink = 1, // not correct, but whatevs
+        .st_blksize = sizeof(ustar_hdr),
+        .st_blocks = (this->size + sizeof(ustar_hdr) - 1) / sizeof(ustar_hdr),
     };
     return 0;
 }

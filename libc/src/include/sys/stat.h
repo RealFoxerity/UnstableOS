@@ -16,6 +16,9 @@ struct stat {
     time_t st_atime;
     time_t st_mtime;
     time_t st_ctime;
+
+    blksize_t st_blksize;
+    blkcnt_t st_blocks;
 };
 
 

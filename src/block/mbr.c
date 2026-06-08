@@ -32,7 +32,6 @@ struct mbr {
 } __attribute__((packed));
 
 #define MBR_MAGIC 0xAA55 // little endian
-#define MBR_SECTOR_SIZE 512 // emulate 512 byte sectors even on 4K drives
 
 #define MBR_PART_TYPE_EXT_CHS 0x5
 #define MBR_PART_TYPE_EXT_LBA 0xF
@@ -45,6 +44,7 @@ long mbr_parse_table(dev_t drive) {
     long ret = open_raw_device(drive, O_RDONLY, &drive_file);
     if (ret < 0) return ret;
     if (drive_file == NULL) return -EINVAL;
+    if (drive_file->inode->io_block_size < 512) return -EINVAL;
 
     struct mbr table = {0};
     ssize_t read_bytes = 0;
@@ -80,7 +80,7 @@ long mbr_parse_table(dev_t drive) {
         if (table.partitions[i].start_lba == 0)
             continue;
 
-        off_t ext_part_start = table.partitions[i].start_lba * MBR_SECTOR_SIZE;
+        off_t ext_part_start = table.partitions[i].start_lba * drive_file->inode->io_block_size;
         switch (table.partitions[i].type) {
             case MBR_PART_TYPE_EXT_CHS:
             case MBR_PART_TYPE_EXT_LBA:
@@ -117,11 +117,11 @@ long mbr_parse_table(dev_t drive) {
                                     return 0;
                                 }
                                 if (part_add(drive + last_part_no, (struct partition) {
-                                        .start = ext_part_start + extended_table.partitions[0].start_lba * MBR_SECTOR_SIZE,
-                                        .size = extended_table.partitions[0].sector_count * MBR_SECTOR_SIZE,
+                                        .start = ext_part_start + extended_table.partitions[0].start_lba * drive_file->inode->io_block_size,
+                                        .size = extended_table.partitions[0].sector_count * drive_file->inode->io_block_size,
                                     }) != 0) {
                                     kprintf("mbr: Warning: can't add extended partition %d (lba %llu, sector count %lu) of dev %hx\n",
-                                        i + 1, (ext_part_start + MBR_SECTOR_SIZE - 1)/MBR_SECTOR_SIZE + extended_table.partitions[0].start_lba,
+                                        i + 1, (ext_part_start + drive_file->inode->io_block_size - 1)/drive_file->inode->io_block_size + extended_table.partitions[0].start_lba,
                                         extended_table.partitions[0].sector_count, drive);
                                 }
                                 last_part_no++;
@@ -134,7 +134,7 @@ long mbr_parse_table(dev_t drive) {
                     {
                         if (extended_table.partitions[1].type == MBR_PART_TYPE_EXT_CHS ||
                             extended_table.partitions[1].type == MBR_PART_TYPE_EXT_LBA) {
-                            ext_part_start += extended_table.partitions[1].start_lba * MBR_SECTOR_SIZE;
+                            ext_part_start += extended_table.partitions[1].start_lba * drive_file->inode->io_block_size;
                         } else {
                             dkprintf("Warning: unexpected non-extended partition at sub entry 1!\n");
                             break;
@@ -155,8 +155,8 @@ long mbr_parse_table(dev_t drive) {
                 }
                 if (part_add(drive + last_part_no,
                     (struct partition) {
-                        .start = table.partitions[i].start_lba * MBR_SECTOR_SIZE,
-                        .size = table.partitions[i].sector_count * MBR_SECTOR_SIZE,
+                        .start = table.partitions[i].start_lba * drive_file->inode->io_block_size,
+                        .size = table.partitions[i].sector_count * drive_file->inode->io_block_size,
                     }) != 0)
                 {
                     char device_name[32];
@@ -172,4 +172,6 @@ long mbr_parse_table(dev_t drive) {
                 last_part_no++;
         }
     }
+
+    return 0;
 }
