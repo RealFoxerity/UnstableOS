@@ -176,6 +176,31 @@ pid_t getppid() {
     return syscall(SYSCALL_GETPPID);
 }
 
+pid_t getpgid(pid_t pid) {
+    pid_t ret = syscall(SYSCALL_GETPGID, pid);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return ret;
+}
+pid_t setsid() {
+    pid_t ret = syscall(SYSCALL_SETSID);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return ret;
+}
+int setpgid(pid_t pid, pid_t pgid) {
+    int ret = syscall(SYSCALL_SETPGID, pid, pgid);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return ret;
+}
+
 unsigned sleep(unsigned seconds) {
     struct timespec actual = {0};
     struct timespec waited = {.tv_sec = seconds, .tv_nsec = 0};

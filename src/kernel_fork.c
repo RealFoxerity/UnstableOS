@@ -163,7 +163,13 @@ pid_t sys_fork(mcontext_t * ctx) {
     process_t * new_proc = kalloc(sizeof(process_t));
     kassert(new_proc);
 
+    spinlock_acquire(&current_process->lock);
     memcpy(new_proc, current_process, sizeof(process_t));
+    new_proc->lock.state = SPINLOCK_UNLOCKED;
+    if (current_process->pgrp_leader) {
+        __atomic_add_fetch(&current_process->pgrp_leader->pgrp_members, 1, __ATOMIC_RELAXED);
+    }
+    spinlock_release(&current_process->lock);
 
     memset(new_proc->thread_stacks, 0, sizeof(new_proc->thread_stacks));
     new_proc->thread_stacks[GET_STACK_IDX_FROM_ADDR(current_thread->stack)] = 1;
@@ -236,6 +242,7 @@ pid_t sys_fork(mcontext_t * ctx) {
     new_proc->address_space_paddr = pd;
     new_thread->cr3_state = pd;
 
+    new_proc->after_exec = 0;
 
     // relink the new process
     APPEND_DOUBLE_LINKED_LIST(new_proc, process_list)

@@ -31,5 +31,6 @@ static const char * __errno_msgs[] = {
     [ENOTTY]    = "Inappropriate I/O control operation",
     [EPERM]     = "Operation not permitted",
     [EEXIST]    = "File exists",
-    [ENXIO]     = "No such device or address"
+    [ENXIO]     = "No such device or address",
+    [EACCES]    = "Permission denied"
 };

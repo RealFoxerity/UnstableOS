@@ -87,6 +87,8 @@ void tty_register(tty_t * tty, dev_t minor);
 
 void tty_alloc_kernel_console();
 
+tty_t * tty_get_controlling_terminal(pid_t session);
+
 // specify 0 for no timeout -> wait forever
 // specify -1 in timespec->tv_nsec to return on empty buffer
 // otherwise blocks until timeout expires

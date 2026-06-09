@@ -58,6 +58,7 @@ process_t * zombie_list = NULL;
 
 process_t * kernel_task = NULL;
 process_t * current_process = NULL;
+process_t * init_task = NULL;
 thread_t * current_thread = NULL;
 
 thread_t * idle_task = NULL; // used as a last resort idle task
@@ -178,11 +179,15 @@ static inline void register_kernel_task(mcontext_t * context) {
 
 
 static inline char scheduler_remove_process(process_t * process) {
-    if (!process->orphaned_pgrp) { // in case we need to call remove_process > 1
-        process->orphaned_pgrp = 1;
+    if (!process->prgp_orphan) { // in case we need to call remove_process > 1
+        process->prgp_orphan = 1;
+        if (process->pgrp_leader) {
+            __atomic_sub_fetch(&process->pgrp_leader->pgrp_members, 1, __ATOMIC_RELAXED);
+        }
         for (process_t * pgrp_proc = process_list; pgrp_proc != NULL; pgrp_proc = pgrp_proc->next) {
             if (pgrp_proc->pgrp == process->pgrp) {
-                pgrp_proc->orphaned_pgrp = 1;
+                pgrp_proc->pgrp_leader = NULL;
+                pgrp_proc->prgp_orphan = 1;
             }
         }
     }
@@ -311,7 +316,8 @@ void schedule(mcontext_t * context) {
             cleanup_process:
             if (checked_process->pid == 0) {
                 panic("Tried to kill kernel");
-            } else if (checked_process->pid == 1) {
+            }
+            if (checked_process == init_task) {
                 if (WIFEXITED(checked_process->postmortem_wstatus)) {
                     char errmsg[128] = {0};
                     snprintf(errmsg, 128, "Tried to kill init (exitcode: %ld)", checked_process->exitcode);
@@ -323,13 +329,14 @@ void schedule(mcontext_t * context) {
                 goto partial_cleanup;
 
             // reparent all child processes if any
+            kassert(init_task);
             process_t * checked = process_list;
             process_t * parent = checked_process->parent;
             if (parent == NULL) panic("Corrupt process structure (parent is NULL)!");
 
             while (checked != NULL) {
                 if (checked->parent == checked_process)
-                    checked->parent = checked_process->parent;
+                    checked->parent = init_task;
                 checked = checked->next;
             }
             // cleanup zombie list

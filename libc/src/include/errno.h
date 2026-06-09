@@ -33,4 +33,5 @@ extern int errno; // libc_init.c
 #define EPERM     28
 #define EEXIST    29
 #define ENXIO     30
+#define EACCES    31
 #endif
