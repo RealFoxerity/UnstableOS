@@ -86,6 +86,8 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
     current_process->address_space_paddr = new_pd_paddr;
     current_process->program_break = PROGRAM_HEAP_VADDR;
 
+    current_process->after_exec = 1;
+
     for (int i = 0; i < SEM_NSEMS_MAX; i++) {
         if (current_process->semaphores[i] == NULL) continue;
         if (__atomic_sub_fetch(&current_process->semaphores[i]->used, 1, __ATOMIC_RELAXED) == 0)
@@ -174,8 +176,16 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     process_t * proc = kalloc(sizeof(process_t));
     kassert(proc);
 
+    spinlock_acquire(&current_process->lock);
     // we need to copy multiple fields, so might as well copy everything
     memcpy(proc, current_process, sizeof(process_t));
+    proc->lock.state = SPINLOCK_UNLOCKED;
+    if (current_process->pgrp_leader) {
+        __atomic_add_fetch(&current_process->pgrp_leader->pgrp_members, 1, __ATOMIC_RELAXED);
+    }
+    spinlock_release(&current_process->lock);
+
+    proc->after_exec = 1;
     proc->user_clicks = proc->system_clicks = proc->dead_user_clicks = proc->dead_system_clicks = 0;
     proc->parent = current_process;
     proc->pid = __atomic_add_fetch(&last_pid, 1, __ATOMIC_RELAXED);
@@ -201,6 +211,8 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
         proc->session = proc->pid;
         terminals[DEV_TTY_0]->foreground_pgrp = proc->pgrp;
         terminals[DEV_TTY_0]->session = proc->session;
+
+        init_task = proc;
     }
 
     memset(proc->semaphores, 0, sizeof(proc->semaphores));

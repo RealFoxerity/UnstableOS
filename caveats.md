@@ -12,7 +12,6 @@
 - almost all cases of out of memory are currently handled by kernel panic
 - `fork()` (intentionally) doesn't copy any other stack than the calling thread's (which can lead to lost argc/argv/environ)
 - userspace `readdir()` is not thread-safe (POSIX doesn't specify whether it has to be)
-- orphaned processes are reparented to their "grandparent" instead of to the init
 - I don't think every kernel process operation is thread safe, too lazy to check
 
 ### Known missing features

@@ -61,6 +61,10 @@ pid_t getpid();
 pid_t gettid();
 pid_t getppid();
 
+pid_t getpgid(pid_t pid);
+pid_t setsid();
+int   setpgid(pid_t pid, pid_t pgid);
+
 unsigned sleep(unsigned seconds);
 int pause();
 

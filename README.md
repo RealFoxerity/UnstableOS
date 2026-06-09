@@ -16,7 +16,7 @@ It is not meant as a production OS, there is no testing, there is no fuzzing. I 
 - `exec()`, CoW `fork()`, `spawn()`, `wait()`
 - Signals - most of `sig*`, `kill()`, `tgkill()`
 - Semaphores and kernel spinlocks (technically mutexes)
-- Mostly POSIX compliant TTY with most of termios
+- POSIX compliant TTY with most of termios
 - DEC VT102 inspired framebuffer console
 - Lame and lacking custom libc
 - Custom (lame and lacking) shell
@@ -33,6 +33,7 @@ List of defined syscalls can be found in [<UnstableOS/syscalls.h>](./libc/src/in
 - VGA, VBE, BGA
 - PCI
 - ATA PIO using the legacy ports (4 drive max)
+- MBR partition tables
 
 ## Building
 ---
@@ -87,7 +88,8 @@ see [caveats.md](./caveats.md) for info
 - [x] `waitid()`, `waitpid()`
 - [ ] `alarm()`
 - [x] finish implementing sessions and foreground groups for TTY
-- [ ] implement `setsid()` and controlling terminal allocation
+- [x] implement `setsid()`
+- [ ] implement controlling terminal allocation
 - [x] errno in userspace instead of returning negative numbers
 - [ ] scheduler priorities?
 - [ ] any form of fpu

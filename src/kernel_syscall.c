@@ -21,19 +21,6 @@ extern void clear_screen_fatal(); // kernel_interrupts.c
 #define SYSCALL_PANIC_TEXT " #### RING 2 INDUCED PANIC; HALTING #### "
 
 
-extern process_t * process_list;
-long sys_getpgid(pid_t target_pid) {
-    if (target_pid == 0) return current_process->pgrp;
-
-    process_t * tested = process_list;
-    while (tested != NULL) {
-        if (tested->pid == target_pid) break;
-        tested = tested->next;
-    }
-    if (tested != NULL) return tested->pgrp; // found the pid
-    else return -ESRCH;
-}
-
 void kernel_syscall_dispatcher(mcontext_t * ctx);
 // since we use system V abi, arg4 is pushed onto the stack by the user
 __attribute__((naked, no_caller_saved_registers)) void interr_syscall(struct interr_frame * interrupt_frame) {
@@ -283,8 +270,14 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
         case SYSCALL_GETTID:
             return_value = current_thread->tid;
             break;
+        case SYSCALL_SETSID:
+            return_value = sys_setsid();
+            break;
         case SYSCALL_GETPGID:
-            return_value = sys_getpgid((pid_t)arg1);
+            return_value = sys_getpgid(arg1);
+            break;
+        case SYSCALL_SETPGID:
+            return_value = sys_setpgid(arg1, arg2);
             break;
         case SYSCALL_MOUNT:
             if (!paging_check_address_range((const void*)arg1, 1, 0, in_kernel)) {
@@ -443,7 +436,6 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
             asm volatile ("sti");
             return_value = sys_ioctl(arg1, arg2, (void *)arg3);
             break;
-        case SYSCALL_SETPGID:
         case SYSCALL_MKDIR:
         case SYSCALL_UNLINK:
         default:

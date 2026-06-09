@@ -56,7 +56,7 @@ struct sem_t;
 #define sa_to_be_handled sa_info_to_be_handled.si_signo
 struct thread_t {
     size_t instances; // so that queues don't do UAF when a thread terminates
-    size_t tid;
+    pid_t tid;
     PAGE_DIRECTORY_TYPE * cr3_state; // if a kernel routine switched address spaces and was then preempted
 
     union {
@@ -93,11 +93,6 @@ struct thread_t {
     struct thread_t * next;
 } typedef thread_t;
 
-struct tty_t; // kernel_tty_io.h
-struct session_t {
-    struct tty_t * controlling_terminal;
-} typedef session_t;
-
 struct rt_siginfo_ll {
     siginfo_t info;
     struct rt_siginfo_ll * next;
@@ -105,11 +100,17 @@ struct rt_siginfo_ll {
 struct process_t {
     unsigned char ring; // so that drivers and kernel can have their own processes
     struct process_t * parent;
+    struct process_t * pgrp_leader; // NULL if orphaned
+
     pid_t pid,
-        pgrp, // used for tty interrupts
+        pgrp, // used for tty interrupts, duplicate (with pgrp_leader) because of orphaned groups
         session;
 
-    char orphaned_pgrp; // 1 = orphaned
+    // these 2 can be manually checked, but are quicker to store as process metadata
+    unsigned long long pgrp_members; // 0 based, some functions (like setsid) throw EPERM on non-empty process groups
+    char prgp_orphan; // process group loader died, some functions (like TCFLSH ioctl on ttys) throw EIO on orphans
+
+    char after_exec; // some functions (like setpgid) throw EACCESS on child processes that underwent exec*()
 
     unsigned long uid, gid;
     PAGE_DIRECTORY_TYPE * address_space_paddr;
@@ -153,6 +154,7 @@ struct process_t {
 
     thread_t * threads;
 
+    // always lock with interrupts disabled, this lock is used with locked scheduler in some parts
     spinlock_t lock;
 
     struct process_t * prev;
@@ -214,6 +216,7 @@ extern process_t * zombie_list;
 extern process_t * current_process;
 extern thread_t * current_thread;
 extern process_t * kernel_task;
+extern process_t * init_task;
 
 extern thread_t * idle_task;
 
@@ -231,6 +234,11 @@ void sys_sigreturn(mcontext_t * ctx);
 int sys_sigprocmask(int how, const sigset_t * __restrict set, sigset_t * oset);
 int sys_sigsuspend(const sigset_t * set);
 int sys_sigqueue(pid_t pid, int signo, union sigval value);
+
+// process_groups.c
+pid_t sys_getpgid(pid_t pid);
+pid_t sys_setsid();
+int   sys_setpgid(pid_t pid, pid_t pgid);
 
 // lock scheduler beforehand or have interrupts disabled
 void signal_process(process_t * signaled, siginfo_t * sig);

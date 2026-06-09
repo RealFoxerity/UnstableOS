@@ -207,7 +207,7 @@ static char signal_check_apply_default_action(process_t * group, thread_t * thre
 static char signal_dispatch_thread(process_t * group, thread_t * signaled, siginfo_t * info, char queue_up) {
     if (info->si_signo == 0) return 1;
 
-    if (group->pid == 1) {
+    if (group == init_task) {
         switch (info->si_signo) {
             case SIGKILL:
                 kprintf("Tried to SIGKILL init, ignoring request\n");

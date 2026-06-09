@@ -30,6 +30,19 @@ static char is_valid_tty(dev_t dev) { // checks if the device is a valid raw tty
 
     return 1;
 }
+
+tty_t * tty_get_controlling_terminal(pid_t session) {
+    spinlock_acquire_interruptible(&tty_lock);
+    for (int i = 0; i < TTY_LIMIT_KERNEL; i++) {
+        if (terminals[i]->session == session) {
+            spinlock_release(&tty_lock);
+            return terminals[i];
+        }
+    }
+    spinlock_release(&tty_lock);
+    return NULL;
+}
+
 void tty_flush_input(tty_t * tty);
 
 // TODO: add the missing unimplemented ones
@@ -84,6 +97,23 @@ long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
         case TIOCSPGRP:
             if (current_process->session != terminals[MINOR(dev)]->session)
                 return -ENOTTY;
+            if ((pid_t)arg <= 0) return -EINVAL;
+
+            // this is vulnerable to races of setpgid/setsid from a different thread
+            // of the target pgrp leader
+            // meaning leaked foreground group; however that could happen anyway
+            // so the added complexity is not worth it
+            spinlock_acquire(&scheduler_lock);
+            for (process_t * proc = process_list; proc != NULL; proc = proc->next) {
+                if (proc->pgrp == (pid_t)arg) {
+                    if (proc->session != terminals[MINOR(dev)]->session) {
+                        spinlock_release(&scheduler_lock);
+                        return -EPERM;
+                    }
+                    break;
+                }
+            }
+            spinlock_release(&scheduler_lock);
         case TCSETS:
         case TCSETSF:
         case TCSETSW:
@@ -95,7 +125,7 @@ long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
             if (current_process->sa_handlers[SIGTTOU].sa_handler == SIG_IGN) break;
             if (current_thread ->sa_mask & GET_SIG_MASK(SIGTTOU))            break;
 
-            if (current_process->orphaned_pgrp) return -EIO;
+            if (current_process->prgp_orphan) return -EIO;
 
             signal_process_group(current_process->pgrp, &(siginfo_t){
                 .si_signo = SIGTTOU,
@@ -686,7 +716,7 @@ ssize_t tty_pread(file_descriptor_t * file, void * s, size_t n, off_t offset) {
 
     tty_t * tty = terminals[MINOR(dev)];
 
-    if (current_process->pgrp != tty->foreground_pgrp) {
+    if (current_process->pgrp != tty->foreground_pgrp && current_process->session == tty->session) {
         signal_process_group(current_process->pgrp, &(siginfo_t) {.si_signo = SIGTTIN });
         return -EINTR;
     }
@@ -777,7 +807,9 @@ ssize_t tty_pwrite(file_descriptor_t * file, const void * s, size_t n, off_t off
 
     kassert(current_process);
 
-    if (current_process->ring != 0 && current_process->pgrp != terminals[MINOR(dev)]->foreground_pgrp) { // allow the kernel to write regardless
+    if (current_process->ring != 0 &&
+        current_process->pgrp != terminals[MINOR(dev)]->foreground_pgrp &&
+        current_process->session == terminals[MINOR(dev)]->session) { // allow the kernel to write regardless
         signal_process_group(current_process->pgrp, &(siginfo_t) {.si_signo = SIGTTOU });
         return -EINTR;
     }
