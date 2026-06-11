@@ -49,7 +49,7 @@ void perror(const char * s) {
 }
 
 char *strerror(int errnum) {
-    static char errno_string[ERRNO_STRING_LEN];
+    static char errno_string[ERRNO_STRING_LEN] = "Unknown error";
     strerror_r(errnum, errno_string, ERRNO_STRING_LEN);
     return errno_string;
 }

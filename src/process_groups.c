@@ -80,7 +80,7 @@ int sys_setpgid(pid_t pid, pid_t pgid) {
     spinlock_acquire(&current_process->lock);
     if (target_process != current_process)
         spinlock_acquire(&target_process->lock);
-    if (target_process != target_pgrp)
+    if (target_process != target_pgrp && target_pgrp != current_process)
         spinlock_acquire(&target_pgrp->lock);
     // session leaders cannot change their pgids
     // target process must be in our session
@@ -92,14 +92,14 @@ int sys_setpgid(pid_t pid, pid_t pgid) {
         spinlock_release(&current_process->lock);
         if (target_process != current_process)
             spinlock_release(&target_process->lock);
-        if (target_process != target_pgrp)
+        if (target_process != target_pgrp && target_pgrp != current_process)
             spinlock_release(&target_pgrp->lock);
 
         spinlock_release(&scheduler_lock);
         return -EPERM;
     }
 
-    if (pid != 0 && pid == current_process->pid) {
+    if (pid != 0 && pid != current_process->pid) {
         char child_after_exec = 0;
         char not_a_child = 0;
 
@@ -107,7 +107,7 @@ int sys_setpgid(pid_t pid, pid_t pgid) {
         while (tmp->pid != 0 && tmp != current_process) {
             if (tmp->after_exec) {
                 child_after_exec = 1;
-                break;
+                //break; // we prefer returning -ESRCH and not -EACCESS (more POSIX-y)
             }
             tmp = tmp->parent;
         }
@@ -118,13 +118,13 @@ int sys_setpgid(pid_t pid, pid_t pgid) {
             spinlock_release(&current_process->lock);
             if (target_process != current_process)
                 spinlock_release(&target_process->lock);
-            if (target_process != target_pgrp)
+            if (target_process != target_pgrp && target_pgrp != current_process)
                 spinlock_release(&target_pgrp->lock);
 
             spinlock_release(&scheduler_lock);
-            if (child_after_exec)
-                return -EACCES;
-            return -ESRCH;
+            if (not_a_child)
+                return -ESRCH;
+            return -EACCES;
         }
     }
 
@@ -143,7 +143,7 @@ int sys_setpgid(pid_t pid, pid_t pgid) {
     spinlock_release(&current_process->lock);
     if (target_process != current_process)
         spinlock_release(&target_process->lock);
-    if (target_process != target_pgrp)
+    if (target_process != target_pgrp && target_pgrp != current_process)
         spinlock_release(&target_pgrp->lock);
 
     spinlock_release(&scheduler_lock);

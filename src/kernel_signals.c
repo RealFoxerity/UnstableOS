@@ -185,19 +185,22 @@ static char signal_check_apply_default_action(process_t * group, thread_t * thre
                 return 1;
             case SIGNAL_CONT:
                 group->is_stopped = 0;
+                group->pending_waiting = 1;
                 signal_parent_cont(group, info);
                 signal_queue_remove(group, SIGSTOP);
                 signal_queue_remove(group, SIGTSTP);
                 return 1;
             case SIGNAL_STOP:
                 group->is_stopped = 1;
+                group->pending_waiting = 1;
                 signal_parent_stop(group, info);
                 signal_queue_remove(group, SIGCONT);
                 return 1;
             case SIGNAL_CORE: // TODO: create coredumps :P
             case SIGNAL_TERM:
-                signal_parent_killed(group, info);
                 group->do_cleanup = 1;
+                group->pending_waiting = 1;
+                signal_parent_killed(group, info);
                 return 1;
         }
     }
@@ -222,16 +225,19 @@ static char signal_dispatch_thread(process_t * group, thread_t * signaled, sigin
     switch (info->si_signo) {
         case SIGKILL:
             group->do_cleanup = 1;
+            group->pending_waiting = 1;
             signal_parent_killed(group, info);
             return 1;
         case SIGCONT: // not 100% sure about this one (linux works like this though)
             group->is_stopped = 0;
+            group->pending_waiting = 1;
             signal_parent_cont(group, info);
             signal_queue_remove(group, SIGSTOP);
             signal_queue_remove(group, SIGTSTP);
             return 1;
         case SIGSTOP:
             group->is_stopped = 1;
+            group->pending_waiting = 1;
             signal_parent_stop(group, info);
             signal_queue_remove(group, SIGCONT);
             return 1;
@@ -301,6 +307,7 @@ static void signal_dispatch_process(process_t * signaled, siginfo_t * sig) {
 void signal_process(process_t * signaled, siginfo_t * sig) {
     if (sig->si_signo <  0 || sig->si_signo > NSIG_MAX) return;
     if (signaled->pid == 0 || signaled->ring == 0) return; // we don't want to signal the kernel
+    if (signaled->do_cleanup) return; // no point in sending signals to a process pending for cleanup
 
     //kprintf("signaling pid %ld, with %d\n", signaled->pid, sig->si_signo);
     signal_dispatch_process(signaled, sig);

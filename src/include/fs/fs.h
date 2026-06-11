@@ -52,7 +52,7 @@ struct {
 
     off_t off;
 
-    spinlock_t access_lock; // so that thread io operations are atomic
+    rw_spinlock_t access_lock; // so that thread io operations are atomic
 } typedef file_descriptor_t; // userspace will use an int as an index to per-process array of file_descriptor_t pointers
 
 // intended way of accessing superblocks and

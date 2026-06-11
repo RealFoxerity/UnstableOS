@@ -87,6 +87,7 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
     current_process->program_break = PROGRAM_HEAP_VADDR;
 
     current_process->after_exec = 1;
+    current_process->pending_waiting = 0;
 
     for (int i = 0; i < SEM_NSEMS_MAX; i++) {
         if (current_process->semaphores[i] == NULL) continue;
@@ -186,6 +187,7 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     spinlock_release(&current_process->lock);
 
     proc->after_exec = 1;
+    proc->pending_waiting = 0;
     proc->user_clicks = proc->system_clicks = proc->dead_user_clicks = proc->dead_system_clicks = 0;
     proc->parent = current_process;
     proc->pid = __atomic_add_fetch(&last_pid, 1, __ATOMIC_RELAXED);

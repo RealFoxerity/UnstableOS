@@ -18,6 +18,20 @@ static process_t * find_in_list(pid_t pid, process_t * list) {
     return NULL;
 }
 
+// is_stopped never goes into zombie, do_cleanup can still be running in a syscall
+static process_t * find_unwaited_task(pid_t pid) {
+    for (process_t * child = process_list; child != NULL; child = child->next) {
+        if (child->parent == current_process) {
+            if (!child->pending_waiting) continue;
+
+            if (pid < -1 && child->pgrp == -pid) return child;
+            if (pid == -1)                       return child;
+            if (pid == 0 && child->pgrp == current_process->pgrp) return child;
+            if (pid >  0 && child->pid  == pid)  return child;
+        }
+    }
+    return NULL;
+}
 
 
 pid_t sys_waitpid(pid_t pid, int * wstatus, int options) {
@@ -29,11 +43,15 @@ pid_t sys_waitpid(pid_t pid, int * wstatus, int options) {
     // of the queue, this forces all terminated processes
     // to be put into the zombie list
     reschedule();
-
+    char found_in_process_list = 0;
     while (1) {
         spinlock_acquire(&scheduler_lock);
         child = find_in_list(pid, zombie_list);
-        if  (child == NULL && find_in_list(pid, process_list) == NULL) {
+        if (child == NULL) {
+            child = find_unwaited_task(pid);
+            if (child != NULL) found_in_process_list = 1;
+        }
+        if (child == NULL && find_in_list(pid, process_list) == NULL) {
             spinlock_release(&scheduler_lock);
             return -ECHILD;
         }
@@ -57,26 +75,50 @@ pid_t sys_waitpid(pid_t pid, int * wstatus, int options) {
             if (current_thread->sa_info_to_be_handled.si_code == CLD_STOPPED) {
                 if (!(options & WUNTRACED)) return -EINTR;
                 if (wstatus != NULL) *wstatus = 0x000400;
+                spinlock_acquire(&scheduler_lock);
+
+                child = find_in_list(current_thread->sa_info_to_be_handled.si_pid, process_list);
+                if (child != NULL) child->pending_waiting = 0;
+
+                spinlock_release(&scheduler_lock);
                 return current_thread->sa_info_to_be_handled.si_pid;
             }
             if (current_thread->sa_info_to_be_handled.si_code == CLD_CONTINUED) {
                 if (!(options & WCONTINUED)) return -EINTR;
                 if (wstatus != NULL) *wstatus = 0x000800;
+                spinlock_acquire(&scheduler_lock);
+
+                child = find_in_list(current_thread->sa_info_to_be_handled.si_pid, process_list);
+                if (child != NULL) child->pending_waiting = 0;
+
+                spinlock_release(&scheduler_lock);
                 return current_thread->sa_info_to_be_handled.si_pid;
             }
         }
     }
     found:
-    if (wstatus != NULL) *wstatus = child->postmortem_wstatus;
 
-    // unlink the child
-    UNLINK_DOUBLE_LINKED_LIST(child, zombie_list)
+    if (wstatus != NULL) {
+        if (child->do_cleanup)
+            *wstatus = child->postmortem_wstatus;
+        else if (child->is_stopped)
+            *wstatus = 0x000400;
+        else
+            *wstatus = 0x000800;
+    }
+    child->pending_waiting = 0;
+
     pid_t child_pid = child->pid;
 
     __atomic_add_fetch(&current_process->dead_user_clicks, child->user_clicks, __ATOMIC_RELAXED);
     __atomic_add_fetch(&current_process->dead_system_clicks, child->system_clicks, __ATOMIC_RELAXED);
 
-    kfree(child);
+    if (!found_in_process_list) {
+        // remove from the unwaited zombie list
+        UNLINK_DOUBLE_LINKED_LIST(child, zombie_list)
+        kfree(child);
+    }
+
     spinlock_release(&scheduler_lock);
     return child_pid;
 }

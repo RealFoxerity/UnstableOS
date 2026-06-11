@@ -138,7 +138,7 @@ static struct devfs_node devfs_files[] = {
         .name = "fb0",
         {
             .st_rdev = GET_DEV(DEV_MAJ_FB, 0),
-            .st_mode = S_IFCHR | S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP,
+            .st_mode = S_IFBLK | S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP,
         }
     },
 
@@ -185,43 +185,20 @@ long devfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inod
 
 // only for readdir
 off_t devfs_seek(file_descriptor_t * fd, off_t off, int whence) {
-    kassert(fd);
-    kassert(fd->inode);
-    if (!S_ISDIR(fd->inode->mode)) return -EINVAL;
-
-    switch (whence) {
-        case SEEK_SET:
-            if (off < 0) return -EINVAL;
-            return fd->off = off;
-        case SEEK_CUR:
-            if (fd->off + off > fd->off && off < 0) return -EINVAL; // underflow - negative offset
-            if (fd->off + off < fd->off && off > 0) return -E2BIG; // overflow
-
-            return fd->off = fd->off + off;
-        case SEEK_END:
-            if (off >= 0) {
-                if (fd->off + off > fd->off && off < 0) return -EINVAL; // underflow - negative offset
-                if (fd->off + off < fd->off && off > 0) return -E2BIG; // overflow
-                return fd->off = sizeof(devfs_files)/sizeof(struct devfs_node) + 2 + off;
-            }
-            else if (off < 0 && -off <= fd->off) return fd->off = fd->off - off;
-            return -EINVAL; // negative offset
-        default:
-            return -EINVAL;
-    }
+    return generic_seek(fd, off, whence, sizeof(devfs_files)/sizeof(struct devfs_node) + 2);
 }
-ssize_t devfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_size) {
+ssize_t devfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_size, off_t offset) {
     kassert(dent);
     kassert(fd);
 
-    if (fd->off >= sizeof(devfs_files)/sizeof(struct devfs_node) + 2) return 0;
+    if (offset >= sizeof(devfs_files)/sizeof(struct devfs_node) + 2) return 0;
 
-    switch (fd->off) {
+    switch (offset) {
         case 0: // "."
             if (dent_size < sizeof(struct dirent) + 2)
                 return -EINVAL;
             *dent = (struct dirent) {
-                .d_off = fd->off,
+                .d_off = offset,
                 .d_reclen = sizeof(struct dirent) + 2,
                 .d_type = DT_DIR,
             };
@@ -232,23 +209,24 @@ ssize_t devfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_
             if (dent_size < sizeof(struct dirent) + 3)
                 return -EINVAL;
             *dent = (struct dirent) {
-                .d_off = fd->off,
+                .d_off = offset,
                 .d_reclen = sizeof(struct dirent) + 3,
                 .d_type = DT_DIR,
             };
             memcpy(dent->d_name, "..", 3);
             break;
         default:
-            if (dent_size < sizeof(struct dirent) + sizeof(devfs_files[fd->off - 2].name))
+            if (dent_size < sizeof(struct dirent) + sizeof(devfs_files[offset - 2].name))
                 return -EINVAL;
             *dent = (struct dirent) {
-                .d_off = fd->off,
-                .d_reclen = sizeof(struct dirent) + sizeof(devfs_files[fd->off - 2].name),
-                .d_type = IFTODT(devfs_files[fd->off - 2].node_info.st_mode & S_IFMT)
+                .d_off = offset,
+                .d_reclen = sizeof(struct dirent) + sizeof(devfs_files[offset - 2].name),
+                .d_type = IFTODT(devfs_files[offset - 2].node_info.st_mode & S_IFMT)
             };
-            memcpy(&dent->d_name, devfs_files[fd->off - 2].name, sizeof(devfs_files[fd->off - 2].name));
+            memcpy(&dent->d_name, devfs_files[offset - 2].name, sizeof(devfs_files[offset - 2].name));
     }
-    fd->off++;
+    offset++;
+    __atomic_store_n(&fd->off, offset, __ATOMIC_RELAXED);
     return dent->d_reclen;
 }
 int devfs_stat(inode_t * file, struct stat * buf) {

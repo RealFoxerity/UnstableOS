@@ -404,7 +404,7 @@ off_t tarfs_seek(file_descriptor_t * fd, off_t off, int whence) {
     return generic_seek(fd, off, whence, node->size);
 }
 
-ssize_t tarfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_size) {
+ssize_t tarfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_size, off_t offset) {
     kassert(dent);
 
     kassert(fd);
@@ -418,13 +418,13 @@ ssize_t tarfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_
 
     if (!is_valid_node(root, this)) panic("Invalid this/root TARFS node combo!");
 
-    switch (fd->off) {
+    switch (offset) {
         case 0: // "."
             if (dent_size < sizeof(struct dirent) + 2)
                 return -EINVAL;
             *dent = (struct dirent) {
                 .d_ino = this->record_offset,
-                .d_off = fd->off,
+                .d_off = offset,
                 .d_reclen = sizeof(struct dirent) + 2,
                 .d_type = DT_DIR,
             };
@@ -436,7 +436,7 @@ ssize_t tarfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_
                 return -EINVAL;
             *dent = (struct dirent) {
                 .d_ino = this->upper->record_offset,
-                .d_off = fd->off,
+                .d_off = offset,
                 .d_reclen = sizeof(struct dirent) + 3,
                 .d_type = DT_DIR,
             };
@@ -445,7 +445,7 @@ ssize_t tarfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_
         default:
             this = this->inner;
             if (this == NULL) return 0; // empty directory
-            for (int i = 0; i < fd->off - 2; i++) {
+            for (int i = 0; i < offset - 2; i++) {
                 this = this->next;
                 if (this == NULL) return 0;
             }
@@ -453,13 +453,14 @@ ssize_t tarfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_
                 return -EINVAL;
             *dent = (struct dirent) {
                 .d_ino = this->record_offset,
-                .d_off = fd->off,
+                .d_off = offset,
                 .d_reclen = sizeof(struct dirent) + strlen(this->path_fragment) + 1,
                 .d_type = IFTODT(this->mode)
             };
             memcpy(&dent->d_name, this->path_fragment, strlen(this->path_fragment) + 1);
     }
-    fd->off++;
+    offset++;
+    __atomic_store_n(&fd->off, offset, __ATOMIC_RELAXED);
     return dent->d_reclen;
 }
 

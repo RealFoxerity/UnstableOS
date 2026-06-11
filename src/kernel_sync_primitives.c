@@ -108,8 +108,10 @@ void rw_spinlock_acquire_read(rw_spinlock_t * lock) {
     if (!lock) panic("Tried to lock a NULL rw spinlock");
     spinlock_acquire_interruptible(&lock->vlock);
 
-    if (__atomic_add_fetch(&lock->value, 1, __ATOMIC_RELAXED) == 1)
+    if (__atomic_add_fetch(&lock->value, 1, __ATOMIC_RELAXED) == 1) {
         spinlock_acquire_interruptible(&lock->wlock);
+        CRIT_SEC_END
+    }
 
     spinlock_release(&lock->vlock);
 }
@@ -121,8 +123,10 @@ void rw_spinlock_release_read(rw_spinlock_t * lock) {
     if (lock->value == 0)
         panic("Tried to release a read rw spinlock with 0 instances");
 
-    if (__atomic_sub_fetch(&lock->value, 1, __ATOMIC_RELAXED) == 0)
+    if (__atomic_sub_fetch(&lock->value, 1, __ATOMIC_RELAXED) == 0) {
+        CRIT_SEC_START
         spinlock_release(&lock->wlock);
+    }
 
     spinlock_release(&lock->vlock);
 }

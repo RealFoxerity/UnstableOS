@@ -81,11 +81,11 @@ void * __attribute__((malloc, malloc(free))) malloc(size_t size) {
     mutex_unlock(allocator_mutex);
     return (void*)current_heap_object + sizeof(struct malloc_heap_header);
 }
-void * __attribute__((malloc, malloc(free))) calloc(size_t size) {
-    void * ret = malloc(size);
+void * __attribute__((malloc, malloc(free))) calloc(size_t nelem, size_t elsize) {
+    void * ret = malloc(nelem*elsize);
     if (ret == NULL) return NULL;
 
-    memset(ret, 0, size);
+    memset(ret, 0, nelem*elsize);
     return ret;
 }
 void free(void * p) {

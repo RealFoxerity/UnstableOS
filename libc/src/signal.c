@@ -201,3 +201,31 @@ int sigqueue(pid_t pid, int signo, union sigval value) {
     }
     return 0;
 }
+
+#include "signal_msgs.h"
+// strictly technically, POSIX says that strsignal shall not be called anywhere internally
+// however the buffer is static anyway, and we only do reading, so probably fine
+void psignal(int signum, const char * message) {
+    if (message != NULL) {
+        fprintf(stderr, "%s: ", message);
+    }
+    fprintf(stderr, "%s\n", strsignal(signum));
+}
+void psiginfo(const siginfo_t *pinfo, const char *message) {
+    if (pinfo == NULL) {
+        errno = EFAULT;
+        return;
+    }
+    psignal(pinfo->si_signo, message);
+}
+
+char *strsignal(int signum) {
+    if (signum < 0 || signum > sizeof(__signal_msgs)/sizeof(char *)) {
+        errno = EINVAL;
+        return NULL;
+    }
+    if (__signal_msgs[signum] == NULL) {
+        return "Unknown signal";
+    }
+    return (char*)__signal_msgs[signum];
+}

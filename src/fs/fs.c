@@ -104,8 +104,8 @@ int close_file_forced(file_descriptor_t * file) {
                 __atomic_sub_fetch(&inode->pipe->readers, 1, __ATOMIC_RELAXED);
             else
                 __atomic_sub_fetch(&inode->pipe->writers, 1, __ATOMIC_RELAXED);
-            thread_queue_unblock_nonreentrant(&inode->pipe->read_queue);
-            thread_queue_unblock_nonreentrant(&inode->pipe->write_queue);
+            thread_queue_unblock_all_nonreentrant(&inode->pipe->read_queue);
+            thread_queue_unblock_all_nonreentrant(&inode->pipe->write_queue);
         }
 
         close_inode(inode);
@@ -114,11 +114,11 @@ int close_file_forced(file_descriptor_t * file) {
 }
 
 int close_file(file_descriptor_t * file) {
-    spinlock_acquire(&file->access_lock);
+    rw_spinlock_acquire_write(&file->access_lock);
     spinlock_acquire(&kernel_fd_lock);
     close_file_forced(file);
     // call inode_cleanup() maybe
-    spinlock_release(&file->access_lock); // has to be before kernel_fd_lock, otherwise UAF
+    rw_spinlock_release_write(&file->access_lock); // has to be before kernel_fd_lock, otherwise UAF
     spinlock_release(&kernel_fd_lock);
     return 0;
 }
@@ -143,7 +143,7 @@ ssize_t pread_file(file_descriptor_t *file, void *buf, size_t count, off_t offse
     if ((S_ISFIFO(file->inode->mode) || S_ISCHR(file->inode->mode)) && offset != 0) return -ESPIPE;
 
     ssize_t ret = 0;
-    spinlock_acquire_interruptible(&file->access_lock);
+    rw_spinlock_acquire_read(&file->access_lock);
     if (S_ISFIFO(file->inode->mode)) {
         ret = pipe_read(file, buf, count);
     } else if (!(S_ISBLK(file->inode->mode) || S_ISCHR(file->inode->mode))) {
@@ -156,7 +156,7 @@ ssize_t pread_file(file_descriptor_t *file, void *buf, size_t count, off_t offse
     } else {
         ret = pread_dev(file, buf, count, offset);
     }
-    spinlock_release(&file->access_lock);
+    rw_spinlock_release_read(&file->access_lock);
     return ret;
 }
 
@@ -197,7 +197,7 @@ ssize_t pwrite_file(file_descriptor_t *file, const void *buf, size_t count, off_
     if ((S_ISFIFO(file->inode->mode) || S_ISCHR(file->inode->mode)) && offset != 0) return -ESPIPE;
 
     ssize_t ret = 0;
-    spinlock_acquire_interruptible(&file->access_lock);
+    rw_spinlock_acquire_read(&file->access_lock);
 
     if (S_ISFIFO(file->inode->mode)) {
         ret = pipe_write(file, buf, count);
@@ -207,7 +207,7 @@ ssize_t pwrite_file(file_descriptor_t *file, const void *buf, size_t count, off_
         if (!(file->inode->backing_superblock->mount_options & MOUNT_RDONLY)) {
             kprintf("Warning: File descriptor marked writable on read-only fs, readjusting...\n");
             file->flags ^= O_WRONLY;
-            spinlock_release(&file->access_lock);
+            rw_spinlock_release_read(&file->access_lock);
             return -EINVAL;
         }
         if (file->inode->backing_superblock->funcs->pwrite == NULL)
@@ -226,7 +226,7 @@ ssize_t pwrite_file(file_descriptor_t *file, const void *buf, size_t count, off_
         ret = pwrite_dev(file, buf, count, offset);
     }
 
-    spinlock_release(&file->access_lock);
+    rw_spinlock_release_read(&file->access_lock);
     return ret;
 }
 
@@ -261,7 +261,7 @@ off_t seek_file(file_descriptor_t * file, off_t off, int whence) {
 
     off_t ret = 0;
     if (S_ISFIFO(file->inode->mode)) { return -ESPIPE; }
-    spinlock_acquire_interruptible(&file->access_lock);
+    rw_spinlock_acquire_read(&file->access_lock);
     if (!(S_ISBLK(file->inode->mode) || S_ISCHR(file->inode->mode))) {
         kassert(file->inode->backing_superblock);
         kassert(file->inode->backing_superblock->funcs);
@@ -274,7 +274,7 @@ off_t seek_file(file_descriptor_t * file, off_t off, int whence) {
     } else {
         ret = -ESPIPE; // assuming file is not seekable
     }
-    spinlock_release(&file->access_lock);
+    rw_spinlock_release_read(&file->access_lock);
     return ret;
 }
 
@@ -325,7 +325,7 @@ file_descriptor_t * get_dup_file(file_descriptor_t * file) {
     file_descriptor_t * new_file = get_free_fd();
     kassert(new_file);
 
-    spinlock_acquire(&file->access_lock);
+    rw_spinlock_acquire_read(&file->access_lock);
     memcpy(new_file, file, sizeof(file_descriptor_t));
     __atomic_add_fetch(&file->inode->instances, 1, __ATOMIC_RELAXED);
 
@@ -335,9 +335,9 @@ file_descriptor_t * get_dup_file(file_descriptor_t * file) {
         else
             __atomic_add_fetch(&file->inode->pipe->writers, 1, __ATOMIC_RELAXED);
     }
-    spinlock_release(&file->access_lock);
+    rw_spinlock_release_read(&file->access_lock);
 
-    new_file->access_lock.state = SPINLOCK_UNLOCKED;
+    new_file->access_lock = (rw_spinlock_t){0};
     new_file->instances = 1;
     new_file->flags &= ~(O_CLOEXEC | O_CLOFORK);
 
@@ -408,9 +408,9 @@ int sys_dup3(int oldfd, int newfd, int flags) {
     }
 
     if (current_process->fds[newfd] != NULL) { // close the fd
-        spinlock_acquire(&current_process->fds[newfd]->access_lock);
+        rw_spinlock_acquire_read(&current_process->fds[newfd]->access_lock);
         close_file_forced(current_process->fds[newfd]);
-        spinlock_release(&current_process->fds[newfd]->access_lock);
+        rw_spinlock_release_read(&current_process->fds[newfd]->access_lock);
         current_process->fds[newfd] = NULL;
     }
 
@@ -439,9 +439,9 @@ ssize_t sys_readdir(int fd, struct dirent * dent, size_t dent_size) {
 
     if (!file->inode->backing_superblock->funcs->readdir) return -EINVAL;
 
-    spinlock_acquire_interruptible(&file->access_lock);
-    ssize_t ret = file->inode->backing_superblock->funcs->readdir(file, dent, dent_size);
-    spinlock_release(&file->access_lock);
+    rw_spinlock_acquire_read(&file->access_lock);
+    ssize_t ret = file->inode->backing_superblock->funcs->readdir(file, dent, dent_size, file->off);
+    rw_spinlock_release_read(&file->access_lock);
 
     return ret;
 }
@@ -490,9 +490,9 @@ long ioctl_file(file_descriptor_t * file, unsigned long command, void * arg) {
     int test = check_file(file);
     if (test != 0) return test;
 
-    spinlock_acquire_interruptible(&file->access_lock);
+    rw_spinlock_acquire_read(&file->access_lock);
     long ret = ioctl_dev(file, command, arg);
-    spinlock_release(&file->access_lock);
+    rw_spinlock_release_read(&file->access_lock);
     return ret;
 }
 
@@ -511,7 +511,7 @@ long fcntl_file(file_descriptor_t * file, int cmd, long arg) {
     if (arg < 0) return -EINVAL;
 
     long ret = 0;
-    spinlock_acquire(&file->access_lock);
+    rw_spinlock_acquire_write(&file->access_lock);
 
     switch (cmd) {
         case F_DUPFD:
@@ -538,7 +538,7 @@ long fcntl_file(file_descriptor_t * file, int cmd, long arg) {
         default: ret = -EINVAL;
     }
 
-    spinlock_release(&file->access_lock);
+    rw_spinlock_release_write(&file->access_lock);
 
     return ret;
 }

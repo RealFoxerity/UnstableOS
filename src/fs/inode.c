@@ -156,7 +156,7 @@ void close_inode(inode_t *inode) {
 
 long inode_from_device(dev_t device, inode_t ** inode_out) {
     if (inode_out == NULL) return -EFAULT;
-    static unsigned long long ephemeral_id = 0;
+    static unsigned long ephemeral_id = 0;
 
     inode_t new = {
         .id = (void*)__atomic_fetch_add(&ephemeral_id, 1, __ATOMIC_RELAXED),

@@ -16,9 +16,9 @@ enum dev_maj {
     DEV_MAJ_BLOCK2,
     DEV_MAJ_BLOCK3,
     DEV_MAJ_EPHEMERAL, // numbers incrementing so that st_dev in stat is different for virtual file systems
+    DEV_MAJ_FB, // minor here being the id of the framebuffer
 
     DEV_MAJ_TTY = 0b100000, // first char device
-    DEV_MAJ_FB, // minor here being the id of the framebuffer
     DEV_MAJ_MISC,
 };
 

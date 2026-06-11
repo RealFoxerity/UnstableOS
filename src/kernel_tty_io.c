@@ -807,7 +807,8 @@ ssize_t tty_pwrite(file_descriptor_t * file, const void * s, size_t n, off_t off
 
     kassert(current_process);
 
-    if (current_process->ring != 0 &&
+    if (terminals[MINOR(dev)]->params.c_lflag & TOSTOP &&
+        current_process->ring != 0 &&
         current_process->pgrp != terminals[MINOR(dev)]->foreground_pgrp &&
         current_process->session == terminals[MINOR(dev)]->session) { // allow the kernel to write regardless
         signal_process_group(current_process->pgrp, &(siginfo_t) {.si_signo = SIGTTOU });

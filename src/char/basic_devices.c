@@ -21,8 +21,27 @@ static struct dev_operations zero_ops = {
 };
 
 ssize_t random_pread(file_descriptor_t * file, void * buf, size_t count, off_t offset) {
-    for (size_t i = 0; i < count; i++) {
-        ((unsigned char*)buf)[i] = rand() % 0xFF;
+    if ((unsigned long)buf % sizeof(uint32_t)) {
+        if (sizeof(uint32_t) - ((unsigned long)buf % sizeof(uint32_t)) > count) {
+            for (size_t i = 0; i < count; i++) {
+                ((unsigned char*)buf)[i] = rand() % 0xFF;
+            }
+            return count;
+        }
+        for (size_t i = 0; i < sizeof(uint32_t) - ((unsigned long)buf % sizeof(uint32_t)); i++) {
+            ((unsigned char*)buf)[i] = rand() % 0xFF;
+        }
+        count -= sizeof(uint32_t) - ((unsigned long)buf % sizeof(uint32_t));
+        buf   += sizeof(uint32_t) - ((unsigned long)buf % sizeof(uint32_t));
+    }
+    for (size_t i = 0; i < count/4; i++) {
+        ((uint32_t*)buf)[i] = rand();
+    }
+    if (count % sizeof(uint32_t)) {
+        buf += (count / sizeof(uint32_t)) * sizeof(uint32_t);
+        for (int i = 0; i < count % sizeof(uint32_t); i++) {
+            ((unsigned char*)buf)[i] = rand() % 0xFF;
+        }
     }
     return count;
 }
