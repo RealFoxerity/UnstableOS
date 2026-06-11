@@ -48,7 +48,7 @@ off_t tarfs_seek(file_descriptor_t * fd, off_t off, int whence);
 
 long tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t ** inode_out);
 ssize_t tarfs_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset);
-ssize_t tarfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_size);
+ssize_t tarfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_size, off_t offset);
 int tarfs_stat(inode_t * file, struct stat * buf);
 
 #include "vfs.h"

@@ -229,7 +229,6 @@ int sigqueue(pid_t pid, int signo, union sigval value);
 /*
 missing functions:
 void   psiginfo(const siginfo_t *, const char *);
-void   psignal(int, const char *);
 int    pthread_kill(pthread_t, int); though implemented through tgkill
 int    sigaltstack(const stack_t *restrict, stack_t *restrict);
 
@@ -245,6 +244,12 @@ int sigwaitinfo(const sigset_t *restrict set,
 void siglongjmp(sigjmp_buf env, int val);
 int sigsetjmp(sigjmp_buf env, int savemask);
 
-char *strsignal(int signum);
+from issue 8:
+int sig2str(int signum, char *str);
+int str2sig(const char *restrict str, int *restrict pnum);
 */
+
+void    psignal(int signum, const char * message);
+void  psiginfo(const siginfo_t *pinfo, const char *message);
+char *strsignal(int signum);
 #endif

@@ -148,6 +148,7 @@ struct process_t {
 
     char is_stopped;
     char do_cleanup;
+    char pending_waiting; // 1 = is_stopped/do_cleanup changed from last time we ran waitpid
 
     long exitcode;
     int postmortem_wstatus;

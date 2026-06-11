@@ -11,8 +11,16 @@
 static uint32_t ___internal_rand_state = 1;
 
 uint32_t rand() {
-    ___internal_rand_state = ___internal_rand_state * 1103515245 + 12345;
-    return (uint32_t) (___internal_rand_state/(RAND_MAX*2)) % RAND_MAX;
+    if (__builtin_expect(___internal_rand_state == 0, 0))
+        ___internal_rand_state = 0xDEADBEEF;
+
+    // https://en.wikipedia.org/wiki/Xorshift
+
+    ___internal_rand_state ^= ___internal_rand_state << 13;
+    ___internal_rand_state ^= ___internal_rand_state >> 17;
+    ___internal_rand_state ^= ___internal_rand_state << 5;
+
+    return ___internal_rand_state % RAND_MAX;
 }
 
 void srand(uint32_t seed) {___internal_rand_state = seed;}

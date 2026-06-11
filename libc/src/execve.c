@@ -72,3 +72,51 @@ int execvpe(const char * file, char * const* argv, char * const* envp) {
     free(final_path);
     return -1;
 }
+
+#include <limits.h>
+// this is very inefficient
+// then again, stack is 1MB so probably fine?
+// TODO: maybe rewrite to use alloca, similarly to how glibc does it
+int execl(const char * path, const char * arg0, ...) {
+    char * argv[ARG_MAX/sizeof(char*)] = {0};
+    argv[0] = (char *)arg0;
+
+    va_list args;
+    va_start(args, arg0);
+
+    int i = 1;
+    while ((argv[i++] = va_arg(args, char *)) != NULL && i < ARG_MAX/sizeof(char*)) {}
+
+    va_end(args);
+    return execv(path, argv);
+}
+int execle(const char * path, const char * arg0, ...) {
+    char * argv[ARG_MAX/sizeof(char*)] = {0};
+    argv[0] = (char *)arg0;
+
+    va_list args;
+    va_start(args, arg0);
+
+    int i = 1;
+    while ((argv[i++] = va_arg(args, char *)) != NULL && i < ARG_MAX/sizeof(char*)) {}
+
+    if (i == ARG_MAX/sizeof(char*)) while (va_arg(args, char *) != NULL) {}
+
+    char * const * envp = va_arg(args, char * const *);
+    va_end(args);
+
+    return execve(path, argv, envp);
+}
+int execlp(const char * file, const char * arg0, ...) {
+    char * argv[ARG_MAX/sizeof(char*)] = {0};
+    argv[0] = (char *)arg0;
+
+    va_list args;
+    va_start(args, arg0);
+
+    int i = 1;
+    while ((argv[i++] = va_arg(args, char *)) != NULL && i < ARG_MAX/sizeof(char*)) {}
+
+    va_end(args);
+    return execvp(file, argv);
+}

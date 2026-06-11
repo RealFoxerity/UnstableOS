@@ -178,6 +178,8 @@ pid_t sys_fork(mcontext_t * ctx) {
     new_proc->parent = current_process;
     new_proc->user_clicks = new_proc->system_clicks = new_proc->dead_user_clicks = new_proc->dead_system_clicks = 0;
 
+    new_proc->pending_waiting = 0;
+
     memset(new_proc->sa_pending_info, 0, sizeof(new_proc->sa_pending_info));
 
     for (struct rt_siginfo_ll * freed = new_proc->sa_rt_queue; freed != NULL; ) {

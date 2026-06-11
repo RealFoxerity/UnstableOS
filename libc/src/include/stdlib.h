@@ -3,8 +3,8 @@
 
 #include "sys/types.h"
 
-#define RAND_MAX 65536
 #include <stdint.h>
+#define RAND_MAX (UINT32_MAX)
 
 uint32_t rand();
 void srand(uint32_t seed);
@@ -19,7 +19,7 @@ void yield();
 #pragma clang diagnostic ignored "-Wignored-attributes" // clang doesn't yet support malloc(x) attribute syntax
 void free(void * p);
 void * __attribute__((malloc, malloc(free))) malloc(size_t size);
-void * __attribute__((malloc, malloc(free))) calloc(size_t size);
+void * __attribute__((malloc, malloc(free))) calloc(size_t nelem, size_t elsize);
 void * realloc(void * p, size_t size);
 
 #define EXIT_SUCCESS 0

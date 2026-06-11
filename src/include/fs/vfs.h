@@ -51,7 +51,9 @@ struct vfs_ops {
     inode_t*(*create)(superblock_t * sb, inode_t * parent, const char * pathname, mode_t mode);
 
     // note: fd offset 0 is considered the "." folder to simplify userspace rewinddir()
-    ssize_t (*readdir) (file_descriptor_t * fd, struct dirent * dent, size_t dent_size);
+    // the function implementation is required to set fd->off to new offset
+    // do not just read fd->off, use offset, fd->off is prone to races
+    ssize_t (*readdir) (file_descriptor_t * fd, struct dirent * dent, size_t dent_size, off_t offset);
     //off_t(*telldir)(file_descriptor_t * fd); // handled via normal seek()
     //off_t(*seekdir)(file_descriptor_t * fd);
     //void(*rewinddir)(file_descriptor_t * fd);

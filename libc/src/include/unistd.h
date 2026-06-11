@@ -57,6 +57,10 @@ int execve(const char * path, char * const* argv, char * const* envp);
 int execvp(const char * file, char * const* argv);
 int execvpe(const char * file, char * const* argv, char * const* envp);
 
+int execl(const char * path, const char * arg0, ...);
+int execle(const char * path, const char * arg0, ...);
+int execlp(const char * file, const char * arg0, ...);
+
 pid_t getpid();
 pid_t gettid();
 pid_t getppid();
