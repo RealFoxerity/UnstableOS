@@ -213,7 +213,9 @@ unsigned sleep(unsigned seconds) {
 
     return actual.tv_sec;
 }
-
+unsigned alarm(unsigned seconds) {
+    return (unsigned)syscall(SYSCALL_ALARM, seconds);
+}
 int pause() {
     return sigpause(0);
 }

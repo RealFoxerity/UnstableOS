@@ -69,6 +69,7 @@ enum syscalls {
     SYSCALL_YIELD,
 
     SYSCALL_NANOSLEEP,
+    SYSCALL_ALARM,
     SYSCALL_TIME,
 
     // different from the function since we can't easily return 64 bits: struct tms * buffer, clock_t * elapsed

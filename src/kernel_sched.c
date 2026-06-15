@@ -320,7 +320,7 @@ void schedule(mcontext_t * context) {
             if (checked_process == init_task) {
                 if (WIFEXITED(checked_process->postmortem_wstatus)) {
                     char errmsg[128] = {0};
-                    snprintf(errmsg, 128, "Tried to kill init (exitcode: %ld)", checked_process->exitcode);
+                    snprintf(errmsg, 128, "Tried to kill init (exitcode: %d)", checked_process->pending_sigchld_info.si_status);
                     panic(errmsg);
                 }
                 panic("Tried to kill init");
@@ -373,6 +373,11 @@ void schedule(mcontext_t * context) {
             }
             goto scheduler_start; // internal reschedule()
         }
+        if (checked_process->next_alarm && checked_process->next_alarm <= uptime_clicks) {
+            checked_process->next_alarm = 0;
+            __signal_process(checked_process, &(siginfo_t) {.si_signo = SIGALRM});
+        }
+
         signal_retry_process(checked_process);
 
         PAGE_DIRECTORY_TYPE * v86_as;
