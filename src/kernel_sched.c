@@ -343,10 +343,12 @@ void schedule(mcontext_t * context) {
             checked = zombie_list;
             while (checked != NULL) {
                 if (checked->parent == checked_process) {
+                    process_t * next = checked->next;
+
                     UNLINK_DOUBLE_LINKED_LIST(checked, zombie_list)
 
-                    checked = checked->next;
-                    kfree(checked->prev); // avoid uaf
+                    kfree(checked);
+                    checked = next;
                     continue;
                 }
                 checked = checked->next;

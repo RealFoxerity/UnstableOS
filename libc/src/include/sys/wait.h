@@ -4,8 +4,8 @@
 
 // these bitmasks are hardcoded in the kernel, so if changing
 // fix all instances of wstatus setting
-#define WIFEXITED(wstatus)    ((wstatus & 0x00100) != 0)
-#define WIFSIGNALED(wstatus)  ((wstatus & 0x00200) != 0)
+#define WIFEXITED(wstatus)    ((wstatus & 0x00100) == 0)
+#define WIFSIGNALED(wstatus)  ((wstatus & 0x00100) != 0)
 #define WIFSTOPPED(wstatus)   ((wstatus & 0x00400) != 0)
 #define WIFCONTINUED(wstatus) ((wstatus & 0x00800) != 0)
 
@@ -16,7 +16,20 @@
 #define WUNTRACED   2
 #define WNOHANG     4
 
+// waitid specific values
+#define WEXITED     0x08
+#define WNOWAIT     0x10
+#define WSTOPPED    0x20
+
 pid_t waitpid(pid_t pid, int * wstatus, int options);
 pid_t wait(int * wstatus);
+
+#include "signal.h"
+enum {
+    P_ALL,
+    P_PGID,
+    P_PID
+} typedef idtype_t;
+int waitid(idtype_t idtype, id_t id, siginfo_t * infop, int options);
 
 #endif

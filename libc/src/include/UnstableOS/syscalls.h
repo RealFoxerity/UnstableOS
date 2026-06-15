@@ -61,6 +61,7 @@ enum syscalls {
     SYSCALL_SIGQUEUE,
 
     SYSCALL_WAITPID, // the same as the waitpid() function
+    SYSCALL_WAITID,
 
     SYSCALL_CREATE_THREAD, // create_thread(void (* entry_point)(void*), void * args)
     SYSCALL_EXIT_THREAD, // like exit() but for threads, no exitcode, has to be done via userspace (see libc/src/threads.c)

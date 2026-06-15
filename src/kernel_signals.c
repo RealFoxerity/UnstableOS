@@ -96,45 +96,54 @@ static const char signal_default_actions[NSIG_MAX] = {
 };
 
 static void signal_parent_cont(process_t * child, siginfo_t * orig_sig) {
-    if (child->parent->sa_handlers[SIGCHLD - 1].sa_handler == SIG_IGN ||
-        child->parent->sa_handlers[SIGCHLD - 1].sa_flags & SA_NOCLDSTOP)
-            return;
-
-    signal_process(child->parent, &(siginfo_t) {
+    siginfo_t continued_child_status = {
         .si_signo = SIGCHLD,
         .si_code = CLD_CONTINUED,
         .si_pid = child->pid,
         .si_status = orig_sig->si_signo,
         .si_uid = orig_sig->si_uid
-    });
-}
+    };
+    child->pending_sigchld_info = continued_child_status;
 
-static void signal_parent_stop(process_t * child, siginfo_t * orig_sig) {
     if (child->parent->sa_handlers[SIGCHLD - 1].sa_handler == SIG_IGN ||
         child->parent->sa_handlers[SIGCHLD - 1].sa_flags & SA_NOCLDSTOP)
             return;
 
-    signal_process(child->parent, &(siginfo_t) {
+    __signal_process(child->parent, &continued_child_status);
+}
+
+static void signal_parent_stop(process_t * child, siginfo_t * orig_sig) {
+    siginfo_t stopped_child_status = {
         .si_signo = SIGCHLD,
         .si_code = CLD_STOPPED,
         .si_pid = child->pid,
         .si_status = orig_sig->si_signo,
         .si_uid = orig_sig->si_uid
-    });
+    };
+    child->pending_sigchld_info = stopped_child_status;
+
+    if (child->parent->sa_handlers[SIGCHLD - 1].sa_handler == SIG_IGN ||
+        child->parent->sa_handlers[SIGCHLD - 1].sa_flags & SA_NOCLDSTOP)
+            return;
+
+    __signal_process(child->parent, &stopped_child_status);
 }
 
 static void signal_parent_killed(process_t * child, siginfo_t * orig_sig) {
-    child->postmortem_wstatus = 0x200 | (orig_sig->si_signo << 12);
-    if (child->parent->sa_handlers[SIGCHLD - 1].sa_handler == SIG_IGN)
-        return;
-
-    signal_process(child->parent, &(siginfo_t) {
+    siginfo_t killed_child_status = {
         .si_signo = SIGCHLD,
         .si_code = CLD_KILLED,
         .si_pid = child->pid,
         .si_status = orig_sig->si_signo,
         .si_uid = orig_sig->si_uid
-    });
+    };
+    child->pending_sigchld_info = killed_child_status;
+
+    child->postmortem_wstatus = 0x100 | (orig_sig->si_signo << 12);
+    if (child->parent->sa_handlers[SIGCHLD - 1].sa_handler == SIG_IGN)
+        return;
+
+    __signal_process(child->parent, &killed_child_status);
 }
 
 static char force_kernel_sigs(process_t * group, thread_t * signaled, siginfo_t * info) {
@@ -288,11 +297,17 @@ static void signal_dispatch_process(process_t * signaled, siginfo_t * sig) {
     // (see WUNTRACED and WCONTINUED)
     // alternatively, fall back to normal thread selection
     if (sig->si_signo == SIGCHLD && !(sig->si_code & SI_USER)) {
+        char sent_sig = 0;
         for (thread_t * thread = signaled->threads; thread != NULL; thread = thread->next) {
             if (thread->sa_to_be_handled)        continue;
             if (thread->status != SCHED_WAITING) continue;
-            if (signal_dispatch_thread(signaled, thread, sig, 0))
-                return;
+            if (!sent_sig && signal_dispatch_thread(signaled, thread, sig, 0))
+                sent_sig = 1;
+
+            // better response times in wait/waitid/waitpid
+            // have to wake up all in case of WNOWAIT in waitid()
+            if (thread->status == SCHED_WAITING)
+                thread->status =  SCHED_RUNNABLE;
         }
     }
     for (thread_t * thread = signaled->threads; thread != NULL; thread = thread->next) {
@@ -304,13 +319,24 @@ static void signal_dispatch_process(process_t * signaled, siginfo_t * sig) {
 }
 
 // lock scheduler beforehand or have interrupts disabled
-void signal_process(process_t * signaled, siginfo_t * sig) {
+void __signal_process(process_t * signaled, siginfo_t * sig) {
     if (sig->si_signo <  0 || sig->si_signo > NSIG_MAX) return;
     if (signaled->pid == 0 || signaled->ring == 0) return; // we don't want to signal the kernel
     if (signaled->do_cleanup) return; // no point in sending signals to a process pending for cleanup
 
     //kprintf("signaling pid %ld, with %d\n", signaled->pid, sig->si_signo);
     signal_dispatch_process(signaled, sig);
+}
+
+void signal_process(process_t * signaled, siginfo_t * sig) {
+    if (sig->si_signo <  0 || sig->si_signo > NSIG_MAX) return;
+    if (signaled->pid == 0 || signaled->ring == 0) return; // we don't want to signal the kernel
+    if (signaled->do_cleanup) return; // no point in sending signals to a process pending for cleanup
+
+    //kprintf("signaling pid %ld, with %d\n", signaled->pid, sig->si_signo);
+    spinlock_acquire(&scheduler_lock);
+    signal_dispatch_process(signaled, sig);
+    spinlock_release(&scheduler_lock);
 }
 
 // retries all pending signals
@@ -359,7 +385,9 @@ void signal_thread(process_t * group, thread_t * thread, siginfo_t * sig) {
     if (group->pid == 0   || group->ring == 0) return; // we don't want to signal the kernel
 
     //kprintf("signaling pid %ld, tid %ld, with %d\n", group->pid, thread->tid, sig->si_signo);
+    spinlock_acquire(&scheduler_lock);
     signal_dispatch_thread(group, thread, sig, 1);
+    spinlock_release(&scheduler_lock);
 }
 
 static long signal_send_thread(pid_t tgid, pid_t tid, siginfo_t * sig) {
@@ -380,7 +408,7 @@ static long signal_send_thread(pid_t tgid, pid_t tid, siginfo_t * sig) {
 static long signal_send_process(pid_t pid, siginfo_t * sig) {
     for (process_t * signaled = process_list; signaled != NULL; signaled = signaled->next) {
         if (signaled->pid == pid) {
-            signal_process(signaled, sig);
+            __signal_process(signaled, sig);
             return 0;
         }
     }
@@ -391,7 +419,7 @@ static long signal_send_process_group(pid_t pgrp, siginfo_t * sig) {
     char found = 0;
     for (process_t * signaled = process_list; signaled != NULL; signaled = signaled->next) {
         if (signaled->pgrp == pgrp) {
-            signal_process(signaled, sig);
+            __signal_process(signaled, sig);
             found = 1;
         }
     }
@@ -401,7 +429,7 @@ static long signal_send_process_group(pid_t pgrp, siginfo_t * sig) {
 
 static void signal_send_every_process(siginfo_t * sig) {
     for (process_t * signaled = process_list; signaled != NULL; signaled = signaled->next) {
-        signal_process(signaled, sig);
+        __signal_process(signaled, sig);
     }
 }
 

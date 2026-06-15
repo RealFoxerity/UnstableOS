@@ -110,8 +110,10 @@ pid_t sys_waitpid(pid_t pid, int * wstatus, int options) {
 
     pid_t child_pid = child->pid;
 
-    __atomic_add_fetch(&current_process->dead_user_clicks, child->user_clicks, __ATOMIC_RELAXED);
-    __atomic_add_fetch(&current_process->dead_system_clicks, child->system_clicks, __ATOMIC_RELAXED);
+    if (child->do_cleanup) {
+        __atomic_add_fetch(&current_process->dead_user_clicks, child->user_clicks, __ATOMIC_RELAXED);
+        __atomic_add_fetch(&current_process->dead_system_clicks, child->system_clicks, __ATOMIC_RELAXED);
+    }
 
     if (!found_in_process_list) {
         // remove from the unwaited zombie list
@@ -121,4 +123,135 @@ pid_t sys_waitpid(pid_t pid, int * wstatus, int options) {
 
     spinlock_release(&scheduler_lock);
     return child_pid;
+}
+
+// the actual search
+static process_t * waitid_get_child(idtype_t idtype, id_t id, int options, char * in_process_list) {
+    *in_process_list = 0;
+    if (options & WEXITED) {
+        // is_stopped is irrelevant in the zombie list as do_cleanup is always true
+        for (process_t * child = zombie_list; child != NULL; child = child->next) {
+            if (child->parent == current_process) {
+                if (idtype == P_PID  && child->pid  == (pid_t)id) return child;
+                if (idtype == P_ALL)                              return child;
+                if (idtype == P_PGID && child->pgrp == (pid_t)id) return child;
+            }
+        }
+    }
+    *in_process_list = 1;
+    for (process_t * child = process_list; child != NULL; child = child->next) {
+        if (child->parent == current_process) {
+            if (!child->pending_waiting) continue;
+
+            // is_stopped is irrelevant for exited/killed processes
+            if (child->do_cleanup && !(options & WEXITED )) continue;
+            if (child->is_stopped && !(options & WSTOPPED)) continue;
+
+            if (idtype == P_PID  && child->pid  == (pid_t)id) return child;
+            if (idtype == P_ALL)                              return child;
+            if (idtype == P_PGID && child->pgrp == (pid_t)id) return child;
+        }
+    }
+    return NULL;
+}
+
+// to know whether to throw ECHILD
+static process_t * waitid_remaining_child(idtype_t idtype, id_t id) {
+    for (process_t * child = process_list; child != NULL; child = child->next) {
+        if (child->parent == current_process) {
+            if (idtype == P_PID  && child->pid  == (pid_t)id) return child;
+            if (idtype == P_ALL)                              return child;
+            if (idtype == P_PGID && child->pgrp == (pid_t)id) return child;
+        }
+    }
+    return NULL;
+}
+
+int sys_waitid(idtype_t idtype, id_t id, siginfo_t * infop, int options) {
+    kassert(infop);
+    switch (idtype) {
+        case P_PID:
+        case P_PGID:
+        case P_ALL:
+            break;
+        default: return -EINVAL;
+    }
+    options &= WCONTINUED | WEXITED | WNOHANG | WNOWAIT | WSTOPPED;
+    if ((options & (WCONTINUED | WEXITED | WSTOPPED)) == 0) return -EINVAL;
+
+    process_t * child = NULL;
+
+    reschedule();
+    char found_in_process_list = 0;
+    while (1) {
+        spinlock_acquire(&scheduler_lock);
+        child = waitid_get_child(idtype, id, options, &found_in_process_list);
+
+        if (child == NULL && waitid_remaining_child(idtype, id) == NULL) {
+            spinlock_release(&scheduler_lock);
+            return -ECHILD;
+        }
+        if (child != NULL) goto found;
+
+        if (options & WNOHANG) {
+            spinlock_release(&scheduler_lock);
+            return 0;
+        }
+
+        current_thread->status = SCHED_WAITING;
+        spinlock_release(&scheduler_lock);
+        reschedule();
+
+        if (current_thread->sa_to_be_handled) {
+            if (current_thread->sa_to_be_handled != SIGCHLD) return -EINTR;
+            if (current_thread->sa_info_to_be_handled.si_code & SI_USER) return -EINTR;
+
+            // killed/exited not here because there's a delay between that signal
+            // and the child process struct being in the zombie list
+            if (current_thread->sa_info_to_be_handled.si_code == CLD_STOPPED) {
+                if (!(options & WSTOPPED)) return -EINTR;
+
+                if (!(options & WNOWAIT)) {
+                    spinlock_acquire(&scheduler_lock);
+                    child = find_in_list(current_thread->sa_info_to_be_handled.si_pid, process_list);
+                    if (child != NULL) child->pending_waiting = 0;
+                    spinlock_release(&scheduler_lock);
+                }
+                *infop = current_thread->sa_info_to_be_handled;
+                return 0;
+            }
+            if (current_thread->sa_info_to_be_handled.si_code == CLD_CONTINUED) {
+                if (!(options & WCONTINUED)) return -EINTR;
+
+                if (!(options & WNOWAIT)) {
+                    spinlock_acquire(&scheduler_lock);
+                    child = find_in_list(current_thread->sa_info_to_be_handled.si_pid, process_list);
+                    if (child != NULL) child->pending_waiting = 0;
+                    spinlock_release(&scheduler_lock);
+                }
+                *infop = current_thread->sa_info_to_be_handled;
+                return 0;
+            }
+        }
+    }
+    found:
+
+    if (!(options & WNOWAIT))
+        child->pending_waiting = 0;
+
+    if (child->do_cleanup) {
+        __atomic_add_fetch(&current_process->dead_user_clicks, child->user_clicks, __ATOMIC_RELAXED);
+        __atomic_add_fetch(&current_process->dead_system_clicks, child->system_clicks, __ATOMIC_RELAXED);
+    }
+
+    *infop = child->pending_sigchld_info;
+
+    if (!found_in_process_list && !(options & WNOWAIT)) {
+        // remove from the unwaited zombie list
+        UNLINK_DOUBLE_LINKED_LIST(child, zombie_list)
+        kfree(child);
+    }
+
+    spinlock_release(&scheduler_lock);
+    return 0;
 }

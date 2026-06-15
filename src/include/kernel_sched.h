@@ -148,7 +148,8 @@ struct process_t {
 
     char is_stopped;
     char do_cleanup;
-    char pending_waiting; // 1 = is_stopped/do_cleanup changed from last time we ran waitpid
+    char pending_waiting; // 1 = pending_sigchld_info changed from last time we ran waitpid
+    siginfo_t pending_sigchld_info; // for complete waitid() info
 
     long exitcode;
     int postmortem_wstatus;
@@ -242,6 +243,8 @@ pid_t sys_setsid();
 int   sys_setpgid(pid_t pid, pid_t pgid);
 
 // lock scheduler beforehand or have interrupts disabled
+void __signal_process(process_t * signaled, siginfo_t * sig);
+// the same, but locks the scheduler itself
 void signal_process(process_t * signaled, siginfo_t * sig);
 void signal_thread(process_t * group, thread_t * thread, siginfo_t * sig);
 // retries all pending signals

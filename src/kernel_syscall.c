@@ -72,14 +72,19 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
 
         case SYSCALL_EXIT:
             current_process->exitcode = arg1;
-            current_process->postmortem_wstatus = 0x100 | (arg1 & 0xFF);
+            current_process->postmortem_wstatus = arg1 & 0xFF;
 
-            signal_process(current_process->parent, &(siginfo_t) {
+            siginfo_t exited_child_status = {
                 .si_signo  = SIGCHLD,
                 .si_code   = CLD_EXITED,
                 .si_pid    = current_process->pid,
                 .si_status = arg1
-            });
+            };
+
+            current_process->pending_sigchld_info = exited_child_status;
+            current_process->pending_waiting      = 1;
+
+            signal_process(current_process->parent, &exited_child_status);
         case SYSCALL_ABORT:
             if (syscall_number == SYSCALL_ABORT) kprintf("Thread %lu of process %lu called abort()!\n", current_thread->tid, current_process->pid); // so that we can keep the fall-through for syscall_exit
             current_process->do_cleanup = 1;
@@ -329,6 +334,13 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
                 }
             }
             return_value = sys_waitpid(arg1, (int*)arg2, arg3);
+            break;
+        case SYSCALL_WAITID:
+            if (!paging_check_address_range((siginfo_t*)arg3, sizeof(siginfo_t), 1, in_kernel)) {
+                return_value = -EFAULT;
+                break;
+            }
+            return_value = sys_waitid(arg1, arg2, (siginfo_t*)arg3, arg4);
             break;
         case SYSCALL_FSTAT:
             if (!paging_check_address_range((void*)arg2, sizeof(struct stat), 1, in_kernel)) {
