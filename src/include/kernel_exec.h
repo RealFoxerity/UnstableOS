@@ -16,4 +16,8 @@ char fork_cow_page(void * fault_address); // return 0 = not writable, 1 = writab
 pid_t sys_fork(mcontext_t * ctx);
 pid_t sys_waitpid(pid_t pid, int * wstatus, int options);
 
+#include <sys/types.h>
+#include <sys/wait.h>
+int sys_waitid(idtype_t idtype, id_t id, siginfo_t * infop, int options);
+
 #endif
