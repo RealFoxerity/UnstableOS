@@ -188,6 +188,7 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
 
     proc->after_exec = 1;
     proc->pending_waiting = 0;
+    proc->next_alarm = 0;
     proc->user_clicks = proc->system_clicks = proc->dead_user_clicks = proc->dead_system_clicks = 0;
     proc->parent = current_process;
     proc->pid = __atomic_add_fetch(&last_pid, 1, __ATOMIC_RELAXED);

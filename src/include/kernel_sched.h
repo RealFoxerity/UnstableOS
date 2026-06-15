@@ -143,6 +143,8 @@ struct process_t {
 
     file_descriptor_t * fds[FD_LIMIT_PROCESS];
 
+    time_t next_alarm;
+
     clock_t user_clicks, system_clicks;
     clock_t dead_user_clicks, dead_system_clicks;
 
@@ -151,7 +153,6 @@ struct process_t {
     char pending_waiting; // 1 = pending_sigchld_info changed from last time we ran waitpid
     siginfo_t pending_sigchld_info; // for complete waitid() info
 
-    long exitcode;
     int postmortem_wstatus;
 
     thread_t * threads;
@@ -204,7 +205,7 @@ void scheduler_print_processes();
 void sleep_sched_tick();
 ssize_t sys_nanosleep(process_t * pprocess, thread_t * thread, struct timespec requested, struct timespec * elapsed);
 void sleep_remove_thread(process_t * pprocess, thread_t * thread);
-
+unsigned sys_alarm(unsigned seconds);
 void reschedule();
 
 // 0 = couldn't destroy - not safe to destroy a kernel thread

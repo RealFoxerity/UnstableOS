@@ -252,14 +252,6 @@ static char signal_dispatch_thread(process_t * group, thread_t * signaled, sigin
             return 1;
     }
 
-
-    // SIGKILL, SIGCONT, and SIGSTOP allow kernel threads to continue
-    // so we don't have to check UNINTERR_SLEEP for them
-    if (signaled->status == SCHED_UNINTERR_SLEEP) {
-        if (queue_up) signal_queue_up(group, info);
-        return 0;
-    }
-
     if ((signaled->sa_mask & GET_SIG_MASK(info->si_signo) ||
             group->sa_handlers[info->si_signo - 1].sa_handler == SIG_IGN) &&
         !(info->si_code & SI_USER)) {
@@ -270,13 +262,15 @@ static char signal_dispatch_thread(process_t * group, thread_t * signaled, sigin
         return 1;
         */
     }
-    if (signaled->sa_mask & GET_SIG_MASK(info->si_signo) ||
-            group->sa_handlers[info->si_signo - 1].sa_handler == SIG_IGN) {
-        if (queue_up) signal_queue_up(group, info);
-        return 0;
-    }
 
-    if (signaled->sa_to_be_handled) {
+    if ((group->sa_handlers[info->si_signo - 1].sa_handler == SIG_DFL &&
+            signal_default_actions[info->si_signo] == SIGNAL_IGN) ||
+        group->sa_handlers[info->si_signo - 1].sa_handler == SIG_IGN)
+            return 1;
+
+    if (signaled->sa_mask & GET_SIG_MASK(info->si_signo) ||
+        signaled->status == SCHED_UNINTERR_SLEEP ||
+        signaled->sa_to_be_handled) {
         if (queue_up) signal_queue_up(group, info);
         return 0;
     }

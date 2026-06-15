@@ -71,7 +71,6 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
             break;
 
         case SYSCALL_EXIT:
-            current_process->exitcode = arg1;
             current_process->postmortem_wstatus = arg1 & 0xFF;
 
             siginfo_t exited_child_status = {
@@ -370,6 +369,9 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
             }
             asm volatile ("sti");
             return_value = sys_nanosleep(current_process, current_thread, *(struct timespec*)arg1, (struct timespec*)arg2);
+            break;
+        case SYSCALL_ALARM:
+            return_value = (long)sys_alarm((unsigned)arg1);
             break;
         case SYSCALL_TIME:
             if (!paging_check_address_range((void*)arg1, sizeof(time_t), 1, in_kernel)) {

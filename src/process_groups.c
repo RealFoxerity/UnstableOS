@@ -34,6 +34,15 @@ pid_t sys_setsid() {
     current_process->pgrp = current_process->session = current_process->pid;
     current_process->pgrp_leader = current_process;
     current_process->pgrp_members = 0;
+
+    // for waiting on process groups, we need to inform the parent stuff changed
+    spinlock_acquire(&current_process->parent->lock);
+    for (thread_t * thread = current_process->parent->threads; thread != NULL; thread = thread->next) {
+        if (thread->status == SCHED_WAITING)
+            thread->status =  SCHED_RUNNABLE;
+    }
+    spinlock_release(&current_process->parent->lock);
+
     spinlock_release(&current_process->lock);
 
     return current_process->pid;
@@ -145,6 +154,13 @@ int sys_setpgid(pid_t pid, pid_t pgid) {
         spinlock_release(&target_process->lock);
     if (target_process != target_pgrp && target_pgrp != current_process)
         spinlock_release(&target_pgrp->lock);
+
+    spinlock_acquire(&current_process->parent->lock);
+    for (thread_t * thread = current_process->parent->threads; thread != NULL; thread = thread->next) {
+        if (thread->status == SCHED_WAITING)
+            thread->status =  SCHED_RUNNABLE;
+    }
+    spinlock_release(&current_process->parent->lock);
 
     spinlock_release(&scheduler_lock);
     return 0;

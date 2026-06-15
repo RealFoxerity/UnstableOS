@@ -70,6 +70,7 @@ pid_t setsid();
 int   setpgid(pid_t pid, pid_t pgid);
 
 unsigned sleep(unsigned seconds);
+unsigned alarm(unsigned seconds);
 int pause();
 
 long syscall(unsigned long syscall_number, ...);

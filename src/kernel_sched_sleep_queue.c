@@ -163,3 +163,18 @@ ssize_t sys_nanosleep(process_t * pprocess, thread_t * thread, struct timespec r
     }
     return 0;
 }
+
+unsigned sys_alarm(unsigned seconds) {
+    unsigned int prev_secs = 0;
+
+    if (current_process->next_alarm) {
+        time_t old_alarm = uptime_clicks - current_process->next_alarm;
+        prev_secs = (old_alarm + RTC_TIMER_RESOLUTION_HZ - 1) / RTC_TIMER_RESOLUTION_HZ;
+    }
+    if (seconds == 0)
+        current_process->next_alarm = 0;
+    else
+        current_process->next_alarm = uptime_clicks + seconds * RTC_TIMER_RESOLUTION_HZ;
+
+    return prev_secs;
+}
