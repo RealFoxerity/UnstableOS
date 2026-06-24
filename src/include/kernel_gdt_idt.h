@@ -14,6 +14,7 @@ extern void * kernel_ts_stack_top; // stack used in interrupts when TSS is invol
 #define GDT_USER_DATA 4
 #define GDT_KERNEL_TSS 5
 #define GDT_USER_TSS 6
+#define GDT_USER_GS 7
 
 enum gdt_segment_acc_byte {
     GDT_SEG_ACC_ACCESSED = 1, // if unset and cpu tries to set and the segment is inside read only, page fault is raised
@@ -114,4 +115,5 @@ struct dt_descriptor {
 
 void construct_descriptor_tables(); // Warning: enables CPU interrupts (exception/faults/traps)
 void tss_set_stack(unsigned long * new_esp);
+void set_gs_base(void * base);
 #endif

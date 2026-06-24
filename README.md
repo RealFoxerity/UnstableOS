@@ -20,6 +20,7 @@ It is not meant as a production OS, there is no testing, there is no fuzzing. I 
 - DEC VT102 inspired framebuffer console
 - Lame and lacking custom libc
 - Custom (lame and lacking) shell
+- Partial pthread.h 
 
 List of defined syscalls can be found in [<UnstableOS/syscalls.h>](./libc/src/include/UnstableOS/syscalls.h)
 
@@ -55,7 +56,7 @@ Then either do `make kernel` to build just the kernel,\
 UnstableOS.bin is an ELF image conforming to the Multiboot specification\
 So you need to load it as a Multiboot kernel\
 \
-The first multiboot module is considered as the initial filesystem\
+The last multiboot module is considered as the initial filesystem\
 For qemu you can do (assuming `make iso`):\
 `qemu-system-i386 -m 100M -cdrom build/UnstableOS.iso`
 ### Known bugs/issues/quirks
@@ -78,7 +79,7 @@ see [caveats.md](./caveats.md) for info
 - [ ] VFAT
 - [ ] ATAPI
 - [ ] ISO9660
-- [x] pipes (see [caveats.md](./caveats.md))
+- [x] pipes
 - [ ] sockets and named pipes
 - [ ] symlinks
 - [x] signals
@@ -86,7 +87,7 @@ see [caveats.md](./caveats.md) for info
 - [ ] signal alternative stacks
 - [ ] implement priority for realtime signals 
 - [x] `waitid()`, `waitpid()`
-- [ ] `alarm()`
+- [x] `alarm()`
 - [x] finish implementing sessions and foreground groups for TTY
 - [x] implement `setsid()`
 - [ ] implement controlling terminal allocation
@@ -104,6 +105,6 @@ see [caveats.md](./caveats.md) for info
 - [x] argv, argc, envp/environ, execve
 - [ ] functional `execve()` and `spawn()` for ring 0 processes
 - [ ] auxiliary vector (for elf interpreters)
-- [ ] Thread-Local Storage + proper errno
+- [x] Thread-Local Storage + proper errno
 - [ ] Core utils
-- [ ] proper POSIX threads implementation
+- [ ] pthread.h see [pthread_progress.md](./pthread_progress.md) for more info

@@ -9,15 +9,15 @@
 
 extern char ** environ;
 int exec(const char * path) {
-    errno = -syscall(SYSCALL_EXEC, path, (const char *[]){path, NULL}, environ);
+    ___set_errno(-syscall(SYSCALL_EXEC, path, (const char *[]){path, NULL}, environ));
     return -1;
 }
 int execv(const char * path, char * const* argv) {
-    errno = -syscall(SYSCALL_EXEC, path, argv, environ);
+    ___set_errno(-syscall(SYSCALL_EXEC, path, argv, environ));
     return -1;
 }
 int execve(const char * path, char * const* argv, char * const* envp) {
-    errno = -syscall(SYSCALL_EXEC, path, argv, envp);
+    ___set_errno(-syscall(SYSCALL_EXEC, path, argv, envp));
     return -1;
 }
 
@@ -59,7 +59,7 @@ int execvp(const char * file, char * const* argv) {
     char * final_path = find_file(file);
     if (final_path == NULL) return -1;
 
-    errno = execv(final_path, argv);
+    ___set_errno(execv(final_path, argv));
     free(final_path);
     return -1;
 }
@@ -68,7 +68,7 @@ int execvpe(const char * file, char * const* argv, char * const* envp) {
     char * final_path = find_file(file);
     if (final_path == NULL) return -1;
 
-    errno = execve(final_path, argv, envp);
+    ___set_errno(execve(final_path, argv, envp));
     free(final_path);
     return -1;
 }

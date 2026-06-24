@@ -62,8 +62,12 @@ int get_fd_from_inode(inode_t * inode, unsigned short flags) {
         return -ENFILE;
     }
 
+    unsigned char fd_flags = (flags & (O_CLOEXEC | O_CLOFORK)) >> 12;
+    flags &= ~(O_CLOEXEC | O_CLOFORK);
+
     file->inode = inode;
     file->flags = flags;
+    current_process->fd_flags[fd] = fd_flags;
     current_process->fds[fd] = file;
     spinlock_release(&kernel_fd_lock);
     return fd;
@@ -114,11 +118,13 @@ int close_file_forced(file_descriptor_t * file) {
 }
 
 int close_file(file_descriptor_t * file) {
-    rw_spinlock_acquire_write(&file->access_lock);
+    // have to be read
+    // e.g. pipe that's already reading on one thread would cause deadlock
+    rw_spinlock_acquire_read(&file->access_lock);
     spinlock_acquire(&kernel_fd_lock);
     close_file_forced(file);
     // call inode_cleanup() maybe
-    rw_spinlock_release_write(&file->access_lock); // has to be before kernel_fd_lock, otherwise UAF
+    rw_spinlock_release_read(&file->access_lock); // has to be before kernel_fd_lock, otherwise UAF
     spinlock_release(&kernel_fd_lock);
     return 0;
 }
@@ -318,32 +324,6 @@ off_t sys_seek(int fd, off_t off, int whence) {
     return seek_file(file, off, whence);
 }
 
-file_descriptor_t * get_dup_file(file_descriptor_t * file) {
-    int test = check_file(file);
-    if (test != 0) return NULL;
-
-    file_descriptor_t * new_file = get_free_fd();
-    kassert(new_file);
-
-    rw_spinlock_acquire_read(&file->access_lock);
-    memcpy(new_file, file, sizeof(file_descriptor_t));
-    __atomic_add_fetch(&file->inode->instances, 1, __ATOMIC_RELAXED);
-
-    if (S_ISFIFO(file->inode->mode)) {
-        if (file->flags & O_RDONLY)
-            __atomic_add_fetch(&file->inode->pipe->readers, 1, __ATOMIC_RELAXED);
-        else
-            __atomic_add_fetch(&file->inode->pipe->writers, 1, __ATOMIC_RELAXED);
-    }
-    rw_spinlock_release_read(&file->access_lock);
-
-    new_file->access_lock = (rw_spinlock_t){0};
-    new_file->instances = 1;
-    new_file->flags &= ~(O_CLOEXEC | O_CLOFORK);
-
-    return new_file;
-}
-
 long dup_file(file_descriptor_t * old_file, int startfd, int flags) {
     if (startfd < 0 || startfd >= FD_LIMIT_PROCESS) return -EINVAL;
 
@@ -366,15 +346,10 @@ long dup_file(file_descriptor_t * old_file, int startfd, int flags) {
         return -EMFILE;
     }
 
-    file_descriptor_t * new_file = get_dup_file(old_file);
-    if (new_file == NULL) {
-        spinlock_release(&kernel_fd_lock);
-        return -EBADF;
-    }
-    flags &= O_CLOEXEC | O_CLOFORK;
-    new_file->flags |= flags;
+    __atomic_add_fetch(&old_file->instances, 1, __ATOMIC_RELAXED);
 
-    current_process->fds[fd] = new_file;
+    current_process->fd_flags[fd] = 0;
+    current_process->fds[fd] = old_file;
 
     spinlock_release(&kernel_fd_lock);
 
@@ -401,11 +376,7 @@ int sys_dup3(int oldfd, int newfd, int flags) {
         return -EBADF;
     }
 
-    file_descriptor_t * new_file = get_dup_file(current_process->fds[oldfd]);
-    if (new_file == NULL) {
-        spinlock_release(&kernel_fd_lock);
-        return -EBADF;
-    }
+    __atomic_add_fetch(&current_process->fds[oldfd]->instances, 1, __ATOMIC_RELAXED);
 
     if (current_process->fds[newfd] != NULL) { // close the fd
         rw_spinlock_acquire_read(&current_process->fds[newfd]->access_lock);
@@ -418,8 +389,8 @@ int sys_dup3(int oldfd, int newfd, int flags) {
 
     flags &= O_CLOEXEC | O_CLOFORK;
 
-    new_file->flags |= flags;
-    current_process->fds[newfd] = new_file;
+    current_process->fd_flags[newfd] = flags >> 12; // 0x1000 -> 1
+    current_process->fds[newfd] = current_process->fds[oldfd];
 
     spinlock_release(&kernel_fd_lock);
 
@@ -523,12 +494,6 @@ long fcntl_file(file_descriptor_t * file, int cmd, long arg) {
         case F_DUPFD_CLOFORK:
             ret = dup_file(file, arg, O_CLOFORK);
             break;
-        case F_GETFD:
-            ret = file->flags & (O_CLOEXEC | O_CLOFORK);
-            break;
-        case F_SETFD:
-            file->flags |= arg & (O_CLOEXEC | O_CLOFORK);
-            break;
         case F_GETFL:
             ret = file->flags & (O_SYNC | O_APPEND);
             break;
@@ -547,8 +512,18 @@ long sys_fcntl(int fd, int cmd, long arg) {
     if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
 
     file_descriptor_t * file = current_process->fds[fd];
-
-    return fcntl_file(file, cmd, arg);
+    int test = check_file(file);
+    if (test != 0) return test;
+    switch (cmd) {
+        case F_GETFD:
+            return current_process->fd_flags[fd] << 12;
+        case F_SETFD:
+            arg &= O_CLOEXEC | O_CLOFORK;
+            current_process->fd_flags[fd] = arg >> 12;
+            return 0;
+        default:
+            return fcntl_file(file, cmd, arg);
+    }
 }
 
 

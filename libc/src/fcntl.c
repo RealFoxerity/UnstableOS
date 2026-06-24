@@ -13,7 +13,7 @@ int open(const char * path, unsigned short flags, ...) {
 
     int ret = syscall(SYSCALL_OPENAT, AT_FDCWD, path, flags, mode);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
@@ -21,7 +21,7 @@ int open(const char * path, unsigned short flags, ...) {
 int creat(const char * path, mode_t mode) {
     int ret = open(path, O_CREAT, mode);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
@@ -34,7 +34,7 @@ int openat(int fd, const char * path, unsigned short flags, ...) {
 
     int ret = syscall(SYSCALL_OPENAT, fd, path, flags, mode);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
@@ -48,7 +48,7 @@ int fcntl(int fildes, int cmd, ...) {
 
     int ret = syscall(SYSCALL_FCNTL, fildes, cmd, arg);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;

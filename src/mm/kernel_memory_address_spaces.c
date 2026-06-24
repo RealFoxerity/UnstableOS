@@ -3,17 +3,13 @@
 #include <stddef.h>
 
 #include "kernel_sched.h"
-#include "../../libc/src/include/string.h"
-#include "../include/kernel.h"
-#include "../include/mm/kernel_memory.h"
-#include "../include/kernel_spinlock.h"
-
-#pragma clang diagnostic ignored "-Wint-to-pointer-cast"
-#pragma clang diagnostic ignored "-Wvoid-pointer-to-int-cast"
-#pragma clang diagnostic ignored "-Wpointer-to-int-cast"
+#include <string.h>
+#include "kernel.h"
+#include "mm/kernel_memory.h"
+#include "kernel_spinlock.h"
 
 #define kprintf(fmt, ...) kprintf("MMAS: "fmt, ##__VA_ARGS__)
-#define panic(fmt) panic("MMAS: "fmt)
+#define dpanic(fmt) panic("MMAS: "fmt)
 
 PAGE_TABLE_TYPE * paging_get_pt_from_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr, void * virt_addr) { // note: maps new page for the page table, it is the caller's responsibility to unmap
     uint32_t page_directory_idx = (uint32_t)virt_addr >> 22;
@@ -28,7 +24,7 @@ PAGE_TABLE_TYPE * paging_get_pt_from_address_space(PAGE_DIRECTORY_TYPE * pd_vadd
         memset(page_table, 0, PAGE_TABLE_ENTRIES*sizeof(PAGE_TABLE_TYPE));
 
         if (new_page == NULL) {
-            panic("Not enough memory for page table!\n");
+            dpanic("Not enough memory for page table!\n");
         }
         pd_vaddr[page_directory_idx] = (unsigned long) new_page;
         pd_vaddr[page_directory_idx] &= ~(PAGE_SIZE_NO_PAE-1);
@@ -43,27 +39,34 @@ void paging_add_page_to_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr, void *targ
     PAGE_TABLE_TYPE * page_table = paging_get_pt_from_address_space(pd_vaddr, target_virt_addr);
 
     uint32_t page_table_idx = (uint32_t)target_virt_addr >> 12 & (PAGE_TABLE_ENTRIES - 1);
+    flags |= PTE_PDE_PAGE_PRESENT;
 
     if (page_table[page_table_idx] & PTE_PDE_PAGE_PRESENT) {
+        if (flags ==
+            (((page_table[page_table_idx] & (PAGE_SIZE_NO_PAE - 1))
+                    & ~PTE_PAGE_DIRTY)
+                        & ~PTE_PDE_PAGE_ACCESSED_DURING_TRANSLATE))
+            return;
+
         kprintf("Warning: Attempted adding a new page to already used virtual address 0x%p; pdidx: %lx, ptidx: %lx\nContents of page table:\n",
             target_virt_addr, (unsigned long)target_virt_addr >> 22, (unsigned long)page_table_idx);
 
         print_page_table_entry(page_table + page_table_idx);
 
-        //panic("Tried to remap an already mapped virtual page!");
+        //dpanic("Tried to remap an already mapped virtual page!");
         return;
     }
 
     void * new_page = pfalloc();
     if (new_page == NULL) {
-        panic("Not enough free memory to add a new page!\n");
+        dpanic("Not enough free memory to add a new page!\n");
     }
 
     void * mapped_page = paging_map_phys_addr_unspecified(new_page, PTE_PDE_PAGE_WRITABLE);
     memset(mapped_page, 0, PAGE_SIZE_NO_PAE);
     paging_unmap_page(mapped_page);
 
-    page_table[page_table_idx] = ((uint32_t)new_page & ~(PAGE_SIZE_NO_PAE-1)) | (flags & (PAGE_SIZE_NO_PAE-1)) | PTE_PDE_PAGE_PRESENT;
+    page_table[page_table_idx] = ((uint32_t)new_page & ~(PAGE_SIZE_NO_PAE-1)) | (flags & (PAGE_SIZE_NO_PAE-1));
     paging_unmap_page(page_table);
 }
 
@@ -88,8 +91,8 @@ void * paging_get_page_from_address_space(PAGE_DIRECTORY_TYPE * pd_paddr, void *
 
 void paging_map_to_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr, void * target_virt_addr, size_t n, unsigned int flags) {
     // align the address and size to pages
-    target_virt_addr = (void*)((unsigned long)target_virt_addr&~(PAGE_SIZE_NO_PAE-1));
     n += (unsigned long)target_virt_addr & (PAGE_SIZE_NO_PAE - 1);
+    target_virt_addr = (void*)((unsigned long)target_virt_addr&~(PAGE_SIZE_NO_PAE-1));
     if (n % PAGE_SIZE_NO_PAE != 0) n += PAGE_SIZE_NO_PAE - n % PAGE_SIZE_NO_PAE;
 
     size_t pages = n/PAGE_SIZE_NO_PAE;
@@ -116,10 +119,31 @@ void paging_memcpy_to_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr, void * __res
     // because the entire kernel space is copied to every process, and this function is always ran from the kernel, we can just switch address spaces
     // TODO: maybe rewrite to individually map in and out the destination pages from the new address space so we don't have to switch? kinda like in paging_add_page_to_address_space
 
+#define COPY_BUFFER_SIZ 1024
+    unsigned char * copy_buf = kalloc(COPY_BUFFER_SIZ);
+    kassert(copy_buf);
+
     void * current_address_space = paging_get_address_space_paddr();
-    paging_apply_address_space(paging_virt_addr_to_phys(pd_vaddr));
-    memcpy(data_start_vaddr, data, n);
-    paging_apply_address_space(current_address_space); // switch to the original
+
+    void * pd_paddr = paging_virt_addr_to_phys(pd_vaddr);
+
+    for (size_t i = 0; i < n / COPY_BUFFER_SIZ; i++) {
+        memcpy(copy_buf, data + i * COPY_BUFFER_SIZ, COPY_BUFFER_SIZ);
+        paging_apply_address_space(pd_paddr);
+        memcpy(data_start_vaddr + i * COPY_BUFFER_SIZ, copy_buf, COPY_BUFFER_SIZ);
+        paging_apply_address_space(current_address_space);
+    }
+    if (n % COPY_BUFFER_SIZ) {
+        memcpy(copy_buf,
+            data + (n / COPY_BUFFER_SIZ) * COPY_BUFFER_SIZ,
+            n % COPY_BUFFER_SIZ);
+        paging_apply_address_space(pd_paddr);
+        memcpy(data_start_vaddr + (n / COPY_BUFFER_SIZ) * COPY_BUFFER_SIZ,
+            copy_buf,
+            n % COPY_BUFFER_SIZ);
+        paging_apply_address_space(current_address_space);
+    }
+    kfree(copy_buf);
 }
 
 void paging_memset_to_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr, void * data_start_vaddr, char c, size_t n) {
@@ -145,13 +169,13 @@ PAGE_DIRECTORY_TYPE * paging_create_new_address_space() {
 
     PAGE_DIRECTORY_TYPE * page_directory_paddr = pfalloc();
     if (page_directory_paddr == NULL) {
-        panic("Failed to allocate page directory for new address space!\n");
+        dpanic("Failed to allocate page directory for new address space!\n");
         // return NULL;
     }
 
     PAGE_DIRECTORY_TYPE * page_directory = paging_map_phys_addr_unspecified(page_directory_paddr, PTE_PDE_PAGE_WRITABLE | PTE_PDE_PAGE_USER_ACCESS);
     if (page_directory == NULL) {
-        panic("Failed to map page directory for new address space!\n");
+        dpanic("Failed to map page directory for new address space!\n");
         // return NULL;
     }
     memset(page_directory, 0, PAGE_DIRECTORY_ENTRIES*sizeof(PAGE_DIRECTORY_TYPE));
@@ -168,9 +192,9 @@ void paging_destroy_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr) {
     if (pd_vaddr == NULL) return;
 
     if (paging_virt_addr_to_phys(pd_vaddr) == paging_get_address_space_paddr())
-        panic("Tried to destroy current address space");
+        dpanic("Tried to destroy current address space");
     if (paging_virt_addr_to_phys(pd_vaddr) == kernel_address_space_paddr)
-        panic("Tried to destroy the kernel address space");
+        dpanic("Tried to destroy the kernel address space");
 
     //spinlock_acquire(&address_spaces_lock); cannot lock in scheduler, destroying doesn't need it anyway though
 

@@ -27,7 +27,7 @@ int dirfd(DIR * dirp) {
 }
 int closedir(DIR * dirp) {
     if (dirp == NULL) {
-        errno = EBADF;
+        ___set_errno(EBADF);
         return -1;
     }
 
@@ -52,7 +52,7 @@ void seekdir(DIR * dirp, off_t loc) {
 }
 off_t telldir(DIR * dirp) {
     if (dirp == NULL) {
-        errno = EBADF;
+        ___set_errno(EBADF);
         return -1;
     }
     return lseek(dirp->fd, 0, SEEK_CUR);

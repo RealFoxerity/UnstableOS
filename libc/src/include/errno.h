@@ -1,8 +1,9 @@
 #ifndef _ERRNO_H
 #define _ERRNO_H
 
-extern int errno; // libc_init.c
-
+extern __thread int errno; // libc_init.c
+void ___set_errno(int error);
+int ___get_errno();
 #define ENOSYS    1
 #define EINVAL    2
 #define ERANGE    3
@@ -34,4 +35,9 @@ extern int errno; // libc_init.c
 #define EEXIST    29
 #define ENXIO     30
 #define EACCES    31
+#define ETIMEDOUT 32
+#define EOWNERDEAD 33
+#define ENOTRECOVERABLE 34
+#define EDEADLK   35
+
 #endif

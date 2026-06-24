@@ -32,5 +32,9 @@ static const char * __errno_msgs[] = {
     [EPERM]     = "Operation not permitted",
     [EEXIST]    = "File exists",
     [ENXIO]     = "No such device or address",
-    [EACCES]    = "Permission denied"
+    [EACCES]    = "Permission denied",
+    [ETIMEDOUT] = "Connection timed out",
+    [EOWNERDEAD]= "Previous owner died",
+    [ENOTRECOVERABLE] = "State not recoverable",
+    [EDEADLK] = "Resource deadlock would occur"
 };

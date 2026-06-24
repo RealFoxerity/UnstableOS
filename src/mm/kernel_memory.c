@@ -65,11 +65,17 @@ void print_page_table_entry(const void * pte) {
     kprintf("\n");
 }
 
+static PAGE_TABLE_TYPE * paging_get_page_table_noalloc(void * virt_addr) {
+    uint32_t page_directory_idx = (uint32_t)virt_addr >> 22;
 
+    if (!(PDE_ADDR_VIRT[page_directory_idx] & PTE_PDE_PAGE_PRESENT))
+        return NULL;
+    return PTE_ADDR_VIRT_BASE + PAGE_TABLE_ENTRIES * page_directory_idx;
+}
 static PAGE_TABLE_TYPE * paging_get_page_table(void * virt_addr) {
     uint32_t page_directory_idx = (uint32_t)virt_addr >> 22;
-    
-    if (!(PDE_ADDR_VIRT[page_directory_idx] & PTE_PDE_PAGE_PRESENT)) 
+
+    if (!(PDE_ADDR_VIRT[page_directory_idx] & PTE_PDE_PAGE_PRESENT))
     {
         PAGE_TABLE_TYPE * new_page = pfalloc();
         if (new_page == NULL) {
@@ -124,9 +130,17 @@ void * paging_add_page(void * target_virt_addr, unsigned int flags) {
     target_virt_addr = (void*) ((unsigned long)target_virt_addr & ~(PAGE_SIZE_NO_PAE - 1));
     PAGE_TABLE_TYPE * page_table = paging_get_page_table(target_virt_addr);
     uint32_t page_table_idx = (uint32_t)target_virt_addr >> 12 & (PAGE_TABLE_ENTRIES - 1);
-    
+
+    flags |= PTE_PDE_PAGE_PRESENT;
+
     if (page_table[page_table_idx] & PTE_PDE_PAGE_PRESENT) {
-        dkprintf("Warning: Attempted adding a new page to already used virtual address 0x%p; pdidx: %lx, ptidx: %lx\nContents of page table:\n", 
+        if (flags ==
+            (((page_table[page_table_idx] & (PAGE_SIZE_NO_PAE - 1))
+                    & ~PTE_PAGE_DIRTY)
+                        & ~PTE_PDE_PAGE_ACCESSED_DURING_TRANSLATE))
+            return target_virt_addr;
+
+        dkprintf("Warning: Attempted adding a new page to already used virtual address 0x%p; pdidx: %lx, ptidx: %lx\nContents of page table:\n",
             target_virt_addr, (unsigned long)target_virt_addr >> 22, (unsigned long)page_table_idx);
 
         print_page_table_entry(page_table + page_table_idx);
@@ -141,7 +155,7 @@ void * paging_add_page(void * target_virt_addr, unsigned int flags) {
         //    dpanic("Not enough free memory to add a new page!\n");
     }
 
-    page_table[page_table_idx] = ((uint32_t)new_page & (~(PAGE_SIZE_NO_PAE-1))) | (flags & (PAGE_SIZE_NO_PAE-1)) | PTE_PDE_PAGE_PRESENT;
+    page_table[page_table_idx] = ((uint32_t)new_page & (~(PAGE_SIZE_NO_PAE-1))) | (flags & (PAGE_SIZE_NO_PAE-1));
     sw_mem_barrier
     flush_tlb_entry(target_virt_addr);
 
@@ -152,8 +166,8 @@ void * paging_add_page(void * target_virt_addr, unsigned int flags) {
 
 void * paging_map(void * target_virt_addr, size_t n, unsigned int flags) {
     // align the address and size to pages
-    target_virt_addr = (void*)((unsigned long)target_virt_addr&~(PAGE_SIZE_NO_PAE-1));
     n += (unsigned long)target_virt_addr & (PAGE_SIZE_NO_PAE - 1);
+    target_virt_addr = (void*)((unsigned long)target_virt_addr&~(PAGE_SIZE_NO_PAE-1));
     if (n % PAGE_SIZE_NO_PAE != 0) n += PAGE_SIZE_NO_PAE - n % PAGE_SIZE_NO_PAE;
 
     size_t pages = n/PAGE_SIZE_NO_PAE;
@@ -166,8 +180,8 @@ void * paging_map(void * target_virt_addr, size_t n, unsigned int flags) {
 }
 
 void paging_change_flags(void * target_virt_addr, size_t n, unsigned int flags) {
-    target_virt_addr = (void*)((unsigned long)target_virt_addr&~(PAGE_SIZE_NO_PAE-1));
     n += (unsigned long)target_virt_addr & (PAGE_SIZE_NO_PAE - 1);
+    target_virt_addr = (void*)((unsigned long)target_virt_addr&~(PAGE_SIZE_NO_PAE-1));
     if (n % PAGE_SIZE_NO_PAE != 0) n += PAGE_SIZE_NO_PAE - n % PAGE_SIZE_NO_PAE;
 
     size_t pages = n/PAGE_SIZE_NO_PAE;
@@ -192,7 +206,9 @@ void paging_change_flags(void * target_virt_addr, size_t n, unsigned int flags) 
 }
 
 void paging_unmap_page(void * virt_addr) {
-    PAGE_TABLE_TYPE * page_table = paging_get_page_table(virt_addr);
+    PAGE_TABLE_TYPE * page_table = paging_get_page_table_noalloc(virt_addr);
+    if (page_table == NULL) return;
+
     uint32_t page_table_idx = (uint32_t)virt_addr >> 12 & (PAGE_TABLE_ENTRIES - 1);
 
     //if (!(page_table[page_table_idx] & PTE_PDE_PAGE_PRESENT)) {
@@ -206,8 +222,8 @@ void paging_unmap_page(void * virt_addr) {
 
 void paging_unmap(void * target_virt_addr, size_t n) {
     // align the address and size to pages
-    target_virt_addr = (void*)((unsigned long)target_virt_addr&~(PAGE_SIZE_NO_PAE-1));
     n += (unsigned long)target_virt_addr & (PAGE_SIZE_NO_PAE - 1);
+    target_virt_addr = (void*)((unsigned long)target_virt_addr&~(PAGE_SIZE_NO_PAE-1));
     if (n % PAGE_SIZE_NO_PAE != 0) n += PAGE_SIZE_NO_PAE - n % PAGE_SIZE_NO_PAE;
 
     size_t pages = n/PAGE_SIZE_NO_PAE;
@@ -270,7 +286,9 @@ char paging_check_address_range(const void * addr, size_t n, char writable, char
     for (const void * iteraddr = addr; iteraddr < addr+n && iteraddr >= addr; iteraddr += PAGE_SIZE_NO_PAE) { // > addr in case we wrap around
         const PAGE_TABLE_TYPE * pte = paging_get_pte(iteraddr);
         if (pte == NULL) {
-            if (!(iteraddr >= PROGRAM_HEAP_VADDR && iteraddr <= current_process->program_break))
+            if (!(iteraddr >= PROGRAM_HEAP_VADDR && iteraddr <= current_process->program_break) &&
+                !(iteraddr < PROGRAM_STACK_VADDR &&
+                    iteraddr >= PROGRAM_STACK_VADDR - PTHREAD_THREADS_MAX * PROGRAM_STACK_SIZE))
                 return 0;
             // overcommitment, we could rely on page faults, but that would
             // require all syscalls to have interrupts enabled at all times
@@ -331,6 +349,7 @@ void disable_paging() {
     );
 }
 void paging_apply_address_space(const PAGE_DIRECTORY_TYPE * pd_paddr) { // doesn't need tlb flush because any write to cr3 flushes tlb automatically
+    if (paging_get_address_space_paddr() == pd_paddr) return;
     asm volatile (
         "movl %0, %%cr3"
         :

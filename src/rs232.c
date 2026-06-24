@@ -105,7 +105,7 @@ static inline char com_ready_to_recv(unsigned char com) {
 }
 
 #define EMPTY(tq) ((tq)->head == (tq)->tail)
-#define DEC(tq) ((tq)->head = ((tq)->head+1)%TTY_BUFFER_SIZE)
+#define DEC(tq) ((tq)->head = ((tq)->head+1)%MAX_CANON)
 
 size_t tty_com_write(tty_t * tty) { // assumes tty queue to be locked
     if (com_states[(int)tty->com_port] == COM_UNINITIALIZED) return 0;
@@ -170,7 +170,7 @@ void com_recv_byte(char com) { // called by interrupt
     }
     if (com_driver_thread == NULL) {
         spinlock_acquire(&scheduler_lock);
-        com_driver_thread = kernel_create_thread(kernel_task, (void (*)(void*))com_driver_loop, NULL);
+        com_driver_thread = kernel_create_thread(kernel_task, (void (*)(void*))com_driver_loop, NULL, 0);
         spinlock_release(&scheduler_lock);
     }
     // so that we can do interruptible spinlocks

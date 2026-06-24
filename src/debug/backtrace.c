@@ -89,6 +89,7 @@ struct stack_frame {
 };
 
 
+#define MAX_DEPTH 20
 void unwind_stack_vaddr(void * ebp) {
     if (symtab.vaddr == 0) init_symbol_table();
 
@@ -99,14 +100,21 @@ void unwind_stack_vaddr(void * ebp) {
     for (depth = 0;
         paging_get_pte(frame) != NULL &&
         paging_get_pte(frame+1) != NULL &&
-        (void*)frame > (void*)LOWEST_PHYS_ADDR_ALLOWABLE; depth ++)
+        (void*)frame > (void*)LOWEST_PHYS_ADDR_ALLOWABLE &&
+        depth < MAX_DEPTH;
+        depth ++)
     {
         if (frame->eip == 0) break;
         struct symbol_lookup symbol = resolve_symbol(frame->eip);
         kprintf("%10lu %s+%p [%p]\n", depth, symbol.symbol, symbol.addr_offset, frame->eip);
         frame = frame->next_frame;
     }
-    if (paging_get_pte(frame) == NULL || paging_get_pte(frame+1) == NULL || frame->eip != NULL) kprintf("%10lu "SYMBOL_FAILED_LOOKUP"+"SYMBOL_FAILED_LOOKUP" ["SYMBOL_FAILED_LOOKUP"]\n", depth);
+    if (paging_get_pte(frame) == NULL || paging_get_pte(frame+1) == NULL || frame->eip != NULL) {
+        if (depth == MAX_DEPTH)
+            kprintf("%10lu ...\n", depth);
+        else
+            kprintf("%10lu "SYMBOL_FAILED_LOOKUP"+"SYMBOL_FAILED_LOOKUP" ["SYMBOL_FAILED_LOOKUP"]\n", depth);
+    }
 }
 
 void unwind_stack() {

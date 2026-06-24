@@ -335,6 +335,7 @@ void signal_process(process_t * signaled, siginfo_t * sig) {
 
 // retries all pending signals
 void signal_retry_process(process_t * signaled) {
+    if (!signaled->sa_pending) return;
     for (int i = 0; i < SIGRTMIN - 1; i++) {
         if (!(signaled->sa_pending & GET_SIG_MASK(i+1))) continue;
         for (thread_t * thread = signaled->threads; thread != NULL; thread = thread->next) {

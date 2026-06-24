@@ -1,24 +1,27 @@
-#include "include/kernel_sched.h"
-#include "include/kernel_gdt_idt.h"
-#include "include/kernel.h"
-#include "../libc/src/include/string.h"
-#include "include/kernel_spinlock.h"
-#include "include/lowlevel.h"
-#include "include/mm/kernel_memory.h"
+#include "kernel_sched.h"
+#include "kernel_gdt_idt.h"
+#include "kernel.h"
+#include <string.h>
+#include "kernel_spinlock.h"
+#include "lowlevel.h"
+#include "mm/kernel_memory.h"
 #include <stddef.h>
-
-static inline void * get_thread_stack(process_t * parent_process) {
+#include <errno.h>
+static inline int get_thread_slot(process_t * parent_process) {
     for (int i = 0; i < PTHREAD_THREADS_MAX; i++) {
-        if (!parent_process->thread_stacks[i]) {
-            parent_process->thread_stacks[i] = 1;
-            return GET_STACK_ADDR_FROM_IDX(i);
+        if (!PROGRAM_PCB_VADDR->thread_slots[i]) {
+            PROGRAM_PCB_VADDR->thread_slots[i] = 1;
+            return i;
         }
     }
-    return NULL;
+    return -1;
 }
 
 pid_t last_tid = 0;
-thread_t * kernel_create_thread(process_t * parent_process, void (* entry_point)(void*), void * arg) {
+thread_t * kernel_create_thread(process_t * parent_process, void (* entry_point)(void*), void * arg, size_t stack_guard) {
+    if (stack_guard > PROGRAM_STACK_GUARD_MAX) return NULL;
+    if (stack_guard == 0) stack_guard = PROGRAM_STACK_GUARD_DEFAULT;
+
     if (current_process == NULL) return NULL;
     if (kernel_task     == NULL) return NULL;
     //kprintf("create_thread_kernel(pid: %lu), free mem: %lu\n", parent_process->pid, pf_get_free_memory());
@@ -53,22 +56,55 @@ thread_t * kernel_create_thread(process_t * parent_process, void (* entry_point)
 
     // 32 bit calling convention dictates arguments pushed onto stack in reverse order
     if (parent_process->ring != 0) {
-        new->stack = get_thread_stack(parent_process); // ring 0 doesn't need an iret_frame specified esp
+        // theoretically this could be done without switching address spaces,
+        // but it's insanely annoying and the performance benefit in most cases is negligible
+        void * current_address_space = paging_get_address_space_paddr();
+
+        paging_apply_address_space(parent_process->address_space_paddr);
+
+        int thread_slot  = get_thread_slot(parent_process);
+        if (thread_slot == -1) {
+            paging_apply_address_space(current_address_space);
+            //panic("Unable to create a userspace thread - all thread slots used up");
+            kfree(new->kernel_stack);
+            kfree(new);
+            return NULL;
+        }
+        new->stack = GET_STACK_ADDR_FROM_IDX(thread_slot); // ring 0 doesn't need an iret_frame specified esp
         new->stack_size = PROGRAM_STACK_SIZE;
-        if (new->stack == NULL) panic("Unable to create thread - all thread slots used up");
+        new->stack_guard_size = (stack_guard + PAGE_SIZE_NO_PAE - 1) & ~(PAGE_SIZE_NO_PAE - 1);
         new->context.iret_frame.sp = new->stack;
 
-        PAGE_DIRECTORY_TYPE * mapped_as = paging_map_phys_addr_unspecified(parent_process->address_space_paddr, PTE_PDE_PAGE_WRITABLE);
-        paging_map_to_address_space(mapped_as, new->context.iret_frame.sp - PROGRAM_STACK_SIZE, PROGRAM_STACK_SIZE, PTE_PDE_PAGE_WRITABLE | PTE_PDE_PAGE_USER_ACCESS);
+        // TODO: This assumes that all userspace thread creation is called from the "parent thread"
+        // this is so far always the case, but for the potential cases where it's not, this is wrong
+        // maybe add a parent_thread argument?
+        new->sa_mask = current_thread->sa_mask;
+        // TODO: the thread is also supposed to inherit FPU state
 
-        void * sp = paging_get_page_from_address_space(mapped_as, new->context.iret_frame.sp - sizeof(void*), PTE_PDE_PAGE_WRITABLE);
-        kassert(sp);
-        // now, this works if the stack is a multiple of pages
-        // this is one of the many reasons why it is
-        *(void**)(sp + PAGE_SIZE_NO_PAE - sizeof(void*)) = arg;
 
-        paging_unmap_page(sp);
-        paging_unmap_page(mapped_as);
+        paging_map(new->context.iret_frame.sp - PROGRAM_STACK_START_SIZE,
+            PROGRAM_STACK_START_SIZE, PTE_PDE_PAGE_WRITABLE | PTE_PDE_PAGE_USER_ACCESS);
+        paging_unmap(new->stack - PROGRAM_STACK_SIZE,
+            new->stack_guard_size);
+
+        *(void**)(new->context.iret_frame.sp - sizeof(void*)) = arg;
+
+
+        // setup TLS
+        void * tls_bottom = GET_TLS_ADDR_FROM_IDX(thread_slot);
+        paging_map(tls_bottom,
+            PROGRAM_MAX_TLS_SIZE + __PROGRAM_TCB_SIZE,
+            PTE_PDE_PAGE_WRITABLE | PTE_PDE_PAGE_USER_ACCESS
+        );
+        memcpy(tls_bottom, PROGRAM_TLS_BLUEPRINT_VADDR, PROGRAM_MAX_TLS_SIZE);
+        new->tcb = tls_bottom + PROGRAM_MAX_TLS_SIZE;
+        new->tcb->self = new->tcb;
+        new->tcb->dtv_ptr = PROGRAM_DVT_VADDR;
+        new->tcb->pcb = PROGRAM_PCB_VADDR;
+        new->tcb->tid = new->tid;
+        new->tcb->thread_slot = thread_slot;
+
+        paging_apply_address_space(current_address_space);
     } else {
         new->context.iret_frame.sp = new->context.esp;
         new->context.esp -= 2 * sizeof(void*);

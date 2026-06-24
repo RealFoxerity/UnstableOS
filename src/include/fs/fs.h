@@ -180,7 +180,6 @@ int sys_pipe(int fildes[2], int flags);
 ssize_t pipe_write(const file_descriptor_t * file, const void * s, size_t n);
 ssize_t pipe_read(const file_descriptor_t * file, void * s, size_t n);
 
-file_descriptor_t * get_dup_file(file_descriptor_t * file); // lock kernel_fd_lock
 long dup_file(file_descriptor_t * old_file, int startfd, int flags); // primarily for fcntl
 int sys_dup(int oldfd);
 int sys_dup3(int oldfd, int newfd, int flags);

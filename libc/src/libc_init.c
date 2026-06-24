@@ -3,7 +3,6 @@
 #include <UnstableOS/syscalls.h>
 
 char ** environ = NULL;
-int errno;
 
 #define START_HEAP_SIZE 0x8000000 // 128MiB
 

@@ -11,7 +11,7 @@
 #include "kernel_sched.h"
 #include "kernel_semaphore.h"
 #include "fs/fs.h"
-
+#include <pthread.h>
 #include "kernel_gdt_idt.h"
 
 #define kprintf(fmt, ...) kprintf("Kernel Routines: "fmt, ##__VA_ARGS__)
@@ -26,76 +26,110 @@ void kernel_syscall_dispatcher(mcontext_t * ctx);
 __attribute__((naked, no_caller_saved_registers)) void interr_syscall(struct interr_frame * interrupt_frame) {
     asm volatile (
         "cld;"
+        "call fix_segments;"
         "pusha;"
         "pushl %esp;"
         "call kernel_syscall_dispatcher;"
         "popl %esp;"
+        "cli;"
+        "call fix_segments;"
         "popa;"
         "iret;"
     );
 }
 
 void kernel_syscall_dispatcher(mcontext_t * ctx) {
-    enum syscalls syscall_number = ctx->eax;
-    long
-    arg1 = ctx->edi,
-    arg2 = ctx->esi,
-    arg3 = ctx->edx,
-    arg4 = ((long*)(ctx->iret_frame.sp))[3]; // no clue why [3], but it actually is
-
-    long return_value = -ENOSYS;
-
     kassert(current_process);
     kassert(current_thread);
 
     // we might want to call syscalls from other syscalls and/or drivers
     char in_kernel = (ctx->iret_frame.cs & 3) == 0;
 
+    // check whether the userspace stack is still valid
+    if (!paging_check_address_range(ctx->iret_frame.sp - 16, 32, 1, in_kernel)) {
+        kprintf("Thread %lu of process %lu entered syscall with invalid stack, segv\n",
+            current_thread->tid, current_process->pid);
+        current_process->do_cleanup = 1;
+        reschedule();
+        kernel_idle();
+    }
+
+    enum syscalls syscall_number = ctx->eax;
+    long
+    arg1 = ctx->edi,
+    arg2 = ctx->esi,
+    arg3 = ctx->edx,
+    arg4 = ((long*)(ctx->iret_frame.sp))[0],
+    arg5 = ((long*)(ctx->iret_frame.sp))[1];
+
+    long return_value = -ENOSYS;
+
     #ifndef EXIT_AFFECTS_SYSCALLS
     CRIT_SEC_START
     #endif
-
+    siginfo_t exited_child_status;
     switch (syscall_number) {
         case SYSCALL_YIELD:
             reschedule();
+            return_value = 0;
             break;
         case SYSCALL_CREATE_THREAD:
             spinlock_acquire(&scheduler_lock);
-            kernel_create_thread(current_process, (void*)arg1, (void*)arg2); // theoretically don't have to check bounds since they would just cause a segmentation fault
+            // theoretically don't have to check bounds since they would just cause a segmentation fault
+            thread_t * new = kernel_create_thread(current_process, (void*)arg1, (void*)arg2, arg3);
+            if (!new)
+                return_value = 0;
+            else
+                return_value = (long)new->tcb;
             spinlock_release(&scheduler_lock);
             break;
-        case SYSCALL_EXIT_THREAD: // returns exitcode
+        case SYSCALL_EXIT_THREAD:
+            #ifndef EXIT_AFFECTS_SYSCALLS
+            CRIT_SEC_END
+            #endif
             current_thread->status = SCHED_THREAD_CLEANUP;
             reschedule();
-            asm volatile ("jmp kernel_idle");
-            break;
+            kernel_idle();
 
         case SYSCALL_EXIT:
-            current_process->postmortem_wstatus = arg1 & 0xFF;
-
-            siginfo_t exited_child_status = {
-                .si_signo  = SIGCHLD,
-                .si_code   = CLD_EXITED,
-                .si_pid    = current_process->pid,
-                .si_status = arg1
-            };
-
+        case SYSCALL_ABORT:
+            if (syscall_number == SYSCALL_ABORT) {
+                // so that we can keep the fall-through for syscall_exit
+                kprintf("Thread %lu of process %lu called abort()!\n", current_thread->tid, current_process->pid);
+                // idk, but seems reasonable
+                current_process->postmortem_wstatus = 0x100 | (SIGABRT << 12);
+                exited_child_status = (siginfo_t){
+                    .si_signo  = SIGCHLD,
+                    .si_code   = CLD_KILLED,
+                    .si_pid    = current_process->pid,
+                    .si_status = SIGABRT
+                };
+            } else {
+                current_process->postmortem_wstatus = arg1 & 0xFF;
+                exited_child_status = (siginfo_t){
+                    .si_signo  = SIGCHLD,
+                    .si_code   = CLD_EXITED,
+                    .si_pid    = current_process->pid,
+                    .si_status = arg1
+                };
+            }
             current_process->pending_sigchld_info = exited_child_status;
             current_process->pending_waiting      = 1;
 
             signal_process(current_process->parent, &exited_child_status);
-        case SYSCALL_ABORT:
-            if (syscall_number == SYSCALL_ABORT) kprintf("Thread %lu of process %lu called abort()!\n", current_thread->tid, current_process->pid); // so that we can keep the fall-through for syscall_exit
+
             current_process->do_cleanup = 1;
             current_thread->in_critical_section = 0;
+            #ifndef EXIT_AFFECTS_SYSCALLS
+            CRIT_SEC_END
+            #endif
             reschedule();
-            asm volatile ("jmp kernel_idle");
-            break;
+            kernel_idle();
 
         case SYSCALL_BRK:
             if (current_process->ring == 0) panic("Called brk in a kernel task!");
             if ((void *)arg1 < PROGRAM_HEAP_VADDR ||
-                (void *) arg1 >= PROGRAM_HEAP_VADDR + PROGRAM_MAX_HEAP_SIZE)
+                (void *)arg1 >= PROGRAM_HEAP_VADDR + PROGRAM_MAX_HEAP_SIZE)
             {
                 return_value = (unsigned long)current_process->program_break;
                 break;
@@ -213,6 +247,10 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
             }
             return_value = -ENOLCK;
             break;
+        case SYSCALL_FUTEX:
+            // address checked in the function
+            return_value = sys_futex((uint32_t *)arg1, arg2, arg3, arg4, (struct timespec *)arg5);
+            break;
         case SYSCALL_SEM_POST:
             if (arg1 < 0 || arg1 >= SEM_NSEMS_MAX) {
                 return_value = -EINVAL;
@@ -273,6 +311,9 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
             break;
         case SYSCALL_GETTID:
             return_value = current_thread->tid;
+            break;
+        case SYSCALL_GETSID:
+            return_value = sys_getsid(arg1);
             break;
         case SYSCALL_SETSID:
             return_value = sys_setsid();
@@ -484,14 +525,7 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
     if (current_thread->status != SCHED_RUNNING) reschedule();
 #endif
 
-    // somehow reentrant syscalls break segment selectors upon exit, TODO: figure out why?
-    asm volatile (
-        "mov %0, %%ds;"
-        "mov %0, %%es;"
-        "mov %0, %%fs;"
-        "mov %0, %%gs;"
-        ::"R"(current_process->ring > 0 ? ((GDT_USER_DATA<<3) | 3) : (GDT_KERNEL_DATA<<3))
-    );
+    reload_pcb(current_process);
 
     // wont work because we do popa
     //return return_value;

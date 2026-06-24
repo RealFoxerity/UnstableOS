@@ -13,6 +13,7 @@
 #include <stddef.h>
 
 #include <sys/wait.h>
+#include <pthread.h>
 
 // all static functions assume locked scheduler
 // NEVER alter scheduler process lists with enabled interrupts on the same core, WILL DEADLOCK
@@ -45,7 +46,7 @@ __attribute__((naked)) void reschedule() {
     );
 }
 
-__attribute__((naked)) void kernel_idle() { // loop to jump to when a thread is supposed to end
+__attribute__((naked, noreturn)) void kernel_idle() { // loop to jump to when a thread is supposed to end
     asm volatile (
         "loop:\n\t"
         "hlt; jmp loop"
@@ -226,11 +227,24 @@ static inline char scheduler_remove_process(process_t * process) {
     return 1;
 }
 
+void reload_pcb(const process_t * pprocess) {
+    if (paging_get_address_space_paddr() != pprocess->address_space_paddr)
+        return;
+    PAGE_TABLE_TYPE * pte = NULL;
+    if ((pte = paging_get_pte(PROGRAM_PCB_VADDR)) == NULL || !(*pte & PTE_PDE_PAGE_PRESENT))
+        return;
+
+    struct process_control_block * pcb = PROGRAM_PCB_VADDR;
+    pcb->pid = pprocess->pid;
+    pcb->ppid = pprocess->parent->pid;
+    pcb->pgid = pprocess->pgrp;
+    pcb->sid = pprocess->session;
+    pcb->uid = pprocess->uid;
+    pcb->gid = pprocess->gid;
+}
+
 static void inline switch_context(process_t * pprocess, thread_t * thread, mcontext_t * context) {
     tss_set_stack(thread->kernel_stack);
-
-    if (paging_get_address_space_paddr() != thread->cr3_state)  // to prevent TLB flush performance hit
-        paging_apply_address_space(thread->cr3_state);
 
     if (thread->context.iret_frame.flags & IA_32_EFL_SYSTEM_VM8086) {
         // Virtual-8086 always pushes and pops everything (because the values don't make sense in PE mode
@@ -256,6 +270,9 @@ static void inline switch_context(process_t * pprocess, thread_t * thread, mcont
 
     memcpy(context, &thread->context, sizeof(mcontext_t)-sizeof(struct interr_frame));
 
+    set_gs_base(thread->tcb);
+
+    reload_pcb(pprocess);
     //unsigned int data_segment = (thread->context.iret_frame.cs & ~3) == (GDT_KERNEL_CODE << 3) ? (GDT_KERNEL_DATA << 3) : (thread->context.iret_frame.ss);
     // this top one is the correct approach, but when testing KVM and real hardware, i always had issues with
     // the segment selectors getting set incorrectly to kernel selectors which would zero them out when
@@ -263,14 +280,15 @@ static void inline switch_context(process_t * pprocess, thread_t * thread, mcont
     // wrong. because we don't actually do segmentation and everything is protected via paging, it doesn't actually
     // matter what segments we use for data at what ring (except the stack which is set based on the cs)
 
-    unsigned int data_segment = (GDT_USER_DATA << 3) | 3;
     asm volatile (
-        "movl %0, %%eax;"
         "movl %%eax, %%ds;"
         "movl %%eax, %%es;"
         "movl %%eax, %%fs;"
+        ::"a"((GDT_USER_DATA << 3) | 3)
+    );
+    asm volatile (
         "movl %%eax, %%gs;"
-        ::"m"(data_segment):"eax"
+        ::"a"((GDT_USER_GS << 3) | 3)
     );
 }
 
@@ -397,6 +415,19 @@ void schedule(mcontext_t * context) {
                     push_process_to_end(checked_process);
                     push_thread_to_end(checked_process, checked_thread);
 
+                    paging_apply_address_space(checked_thread->cr3_state);
+                    if (checked_process->ring != 0) {
+                        pthread_t thread_us = (pthread_t)checked_thread->tcb;
+
+                        if (thread_us->__cancelable == PTHREAD_CANCEL_ENABLE &&
+                                thread_us->__cancelability_type == PTHREAD_CANCEL_ASYNCHRONOUS &&
+                                thread_us->__cancel_pending
+                        ) {
+                            checked_thread->status = SCHED_THREAD_CLEANUP;
+                            goto scheduler_start;
+                        }
+                    }
+
                     switch_context(checked_process, checked_thread, context);
                     // we need the correct address space
                     if (checked_thread->context.iret_frame.cs & 3) {
@@ -418,12 +449,43 @@ void schedule(mcontext_t * context) {
                     paging_unmap_page(v86_as);
                     checked_thread->status = SCHED_THREAD_CLEANUP; // for the thread cleanup "failure"
                 case SCHED_THREAD_CLEANUP:
+                    // would break critical counters
                     if (checked_thread == current_thread) break;
+
                     if (checked_thread->in_critical_section)
                         panic("Thread marked for cleanup in critical section, corrupted process list?");
+
+                    // doesn't matter since we're most probably changing the cr3 anyway in the next iteration
+                    // we need this to access the TCB and PCB
+                    paging_apply_address_space(checked_process->address_space_paddr);
+
+                    checked_thread->tcb->tid = 0; // simplify EOWNERDEAD and a bunch of other checks in userspace
+                    futex_wake_owner_dead(checked_process, checked_thread->tid);
+
+                    // we could get this from the tcb, but frankly, I don't trust the userspace
+                    int thread_idx = GET_STACK_IDX_FROM_ADDR(checked_thread->stack);
+                    if (((pthread_t)checked_thread->tcb)->__detached == PTHREAD_CREATE_DETACHED)
+                        PROGRAM_PCB_VADDR->thread_slots[thread_idx] = 0;
+
                     if (!kernel_destroy_thread(checked_process, checked_thread))
                         break; // deallocating now isn't possible
-                    if (checked_process->threads == NULL) goto cleanup_process;
+                    if (checked_process->threads == NULL) {
+                        // WIFEXITED and 0 status, as specified by POSIX pthread_exit as last thread
+                        checked_process->postmortem_wstatus = 0;
+
+                        siginfo_t exited_child_status = {
+                            .si_signo  = SIGCHLD,
+                            .si_code   = CLD_EXITED,
+                            .si_pid    = checked_process->pid,
+                            .si_status = 0
+                        };
+
+                        checked_process->pending_sigchld_info = exited_child_status;
+                        checked_process->pending_waiting      = 1;
+
+                        signal_process(checked_process->parent, &exited_child_status);
+                        goto cleanup_process;
+                    }
                     goto scheduler_start;
             }
         }

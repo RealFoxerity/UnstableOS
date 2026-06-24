@@ -45,7 +45,7 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
     }
 
     for (int i = 0; i < FD_LIMIT_PROCESS; i++) {
-        if (current_process->fds[i] && current_process->fds[i]->flags & O_CLOEXEC) {
+        if (current_process->fds[i] && current_process->fd_flags[i] & (O_CLOEXEC >> 12)) {
             sys_close(i);
         }
     }
@@ -66,11 +66,7 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
     memset(current_process->sa_pending_info, 0, sizeof(current_process->sa_pending_info));
     memset(current_process->sa_handlers, 0, sizeof(current_process->sa_handlers));
 
-    memset(current_process->thread_stacks, 0, sizeof(current_process->thread_stacks)); // needed with the kernel_destroy_thread change
-    /*
-    if (current_process->ring != 0)
-        current_process->thread_stacks[GET_STACK_IDX_FROM_ADDR(current_thread->stack)] = 0;
-    */
+    memset(&PROGRAM_PCB_VADDR->thread_slots, 0, PTHREAD_THREADS_MAX * sizeof(char));
 
     // we will destroy the current address space with this mapping, thus we need the paddr
     PAGE_DIRECTORY_TYPE * new_pd_paddr = paging_virt_addr_to_phys(new_prog.pd_vaddr);
@@ -96,7 +92,7 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
         current_process->semaphores[i] = NULL;
     }
 
-    thread_t * new = kernel_create_thread(current_process, new_prog.start, NULL);
+    thread_t * new = kernel_create_thread(current_process, new_prog.start, NULL, 0);
     kassert(new);
     kassert(new->stack == PROGRAM_STACK_VADDR);
 
@@ -219,7 +215,6 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     }
 
     memset(proc->semaphores, 0, sizeof(proc->semaphores));
-    memset(proc->thread_stacks, 0, sizeof(proc->thread_stacks));
 
 
     // to not leak kernel fds on spawn
@@ -230,7 +225,7 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
         memcpy(proc->fds, current_process->fds, FD_LIMIT_PROCESS * sizeof(file_descriptor_t *));
 
     for (int i = 0; i < FD_LIMIT_PROCESS; i++)
-        if (proc->fds[i] && !(proc->fds[i]->flags & O_CLOEXEC) && !(proc->fds[i]->flags & O_CLOFORK))
+        if (proc->fds[i] && !(proc->fd_flags[i] & (O_CLOEXEC >> 12)) && !(proc->fd_flags[i] & (O_CLOFORK >> 12)))
             __atomic_add_fetch(&proc->fds[i]->instances, 1, __ATOMIC_RELAXED);
         else proc->fds[i] = NULL;
 
@@ -238,7 +233,7 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     __atomic_add_fetch(&proc->root->instances, 1, __ATOMIC_RELAXED);
 
 
-    thread_t * new_thread = kernel_create_thread(proc, new_prog.start, NULL);
+    thread_t * new_thread = kernel_create_thread(proc, new_prog.start, NULL, 0);
     kassert(new_thread);
     kassert(new_thread->stack == PROGRAM_STACK_VADDR);
 

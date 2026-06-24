@@ -7,14 +7,14 @@
 int kill(pid_t pid, int sig) {
     int ret = syscall(SYSCALL_KILL, pid, sig);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
 }
 int killpg(pid_t pgrp, int sig) {
     if (pgrp < 1) {
-        errno = ESRCH;
+        ___set_errno(ESRCH);
         return -1;
     }
     return kill(-pgrp, sig);
@@ -22,7 +22,7 @@ int killpg(pid_t pgrp, int sig) {
 int tgkill(pid_t tgid, pid_t tid, int sig) {
     int ret = syscall(SYSCALL_TGKILL, tgid, tid, sig);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
@@ -38,7 +38,7 @@ __attribute__((naked, noreturn)) static void __sigreturn() {
 
 int sigaction(int sig, const struct sigaction *__restrict act, struct sigaction *__restrict oact) {
     if (act == NULL) {
-        errno = EFAULT;
+        ___set_errno(EFAULT);
         return -1;
     }
     struct sigaction act2 = *act;
@@ -46,7 +46,7 @@ int sigaction(int sig, const struct sigaction *__restrict act, struct sigaction 
 
     int ret = syscall(SYSCALL_SIGACTION, sig, &act2, oact);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
@@ -61,14 +61,14 @@ void (*signal(int sig, void (*func)(int)))(int) {
 int sigprocmask(int how, const sigset_t * __restrict set, sigset_t * __restrict oset) {
     int ret = syscall(SYSCALL_SIGPROCMASK, how, set, oset);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
 }
 int sigsuspend(const sigset_t *sigmask) {
     int ret = syscall(SYSCALL_SIGSUSPEND, sigmask);
-    errno = -ret;
+    ___set_errno(-ret);
     return -1; // never returns "successfully"
 }
 
@@ -78,11 +78,11 @@ int pthread_sigmask(int how, const sigset_t * __restrict set, sigset_t * __restr
 
 int sigaddset(sigset_t *set, int signo) {
     if (signo < 0 || signo > NSIG_MAX) {
-        errno = EINVAL;
+        ___set_errno(EINVAL);
         return -1;
     }
     if (set == NULL) {
-        errno = EFAULT;
+        ___set_errno(EFAULT);
         return -1;
     }
 
@@ -92,11 +92,11 @@ int sigaddset(sigset_t *set, int signo) {
 
 int sigdelset(sigset_t *set, int signo) {
     if (signo < 0 || signo > NSIG_MAX) {
-        errno = EINVAL;
+        ___set_errno(EINVAL);
         return -1;
     }
     if (set == NULL) {
-        errno = EFAULT;
+        ___set_errno(EFAULT);
         return -1;
     }
 
@@ -106,7 +106,7 @@ int sigdelset(sigset_t *set, int signo) {
 
 int sigemptyset(sigset_t *set) {
     if (set == NULL) {
-        errno = EFAULT;
+        ___set_errno(EFAULT);
         return -1;
     }
     *set = (sigset_t)-1;
@@ -115,7 +115,7 @@ int sigemptyset(sigset_t *set) {
 
 int sigfillset(sigset_t *set) {
     if (set == NULL) {
-        errno = EFAULT;
+        ___set_errno(EFAULT);
         return -1;
     }
     *set = 0;
@@ -124,11 +124,11 @@ int sigfillset(sigset_t *set) {
 
 int sigismember(const sigset_t *set, int signo) {
     if (signo < 0 || signo > NSIG_MAX) {
-        errno = EINVAL;
+        ___set_errno(EINVAL);
         return -1;
     }
     if (set == NULL) {
-        errno = EFAULT;
+        ___set_errno(EFAULT);
         return -1;
     }
 
@@ -138,7 +138,7 @@ int sigismember(const sigset_t *set, int signo) {
 int sigpending(sigset_t *set) {
     int ret = syscall(SYSCALL_SIGPENDING, set);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return 0;
@@ -147,7 +147,7 @@ int sigpending(sigset_t *set) {
 int sighold(int sig) {
     int ret = sigprocmask(SIG_BLOCK, &(sigset_t){GET_SIG_MASK(sig)}, NULL);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return 0;
@@ -161,7 +161,7 @@ int sigpause(int sig) {
     sigset_t set = 0;
     int ret = sigprocmask(SIG_SETMASK, NULL, &set);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     sigaddset(&set, sig);
@@ -170,7 +170,7 @@ int sigpause(int sig) {
 int sigrelse(int sig) {
     int ret = sigprocmask(SIG_UNBLOCK, &(sigset_t){GET_SIG_MASK(sig)}, NULL);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return 0;
@@ -187,7 +187,7 @@ int raise(int sig) {
 
     int ret = tgkill(pid, tid, sig);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return 0;
@@ -196,7 +196,7 @@ int raise(int sig) {
 int sigqueue(pid_t pid, int signo, union sigval value) {
     int ret = syscall(SYSCALL_SIGQUEUE, pid, signo, value);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return 0;
@@ -213,7 +213,7 @@ void psignal(int signum, const char * message) {
 }
 void psiginfo(const siginfo_t *pinfo, const char *message) {
     if (pinfo == NULL) {
-        errno = EFAULT;
+        ___set_errno(EFAULT);
         return;
     }
     psignal(pinfo->si_signo, message);
@@ -221,7 +221,7 @@ void psiginfo(const siginfo_t *pinfo, const char *message) {
 
 char *strsignal(int signum) {
     if (signum < 0 || signum > sizeof(__signal_msgs)/sizeof(char *)) {
-        errno = EINVAL;
+        ___set_errno(EINVAL);
         return NULL;
     }
     if (__signal_msgs[signum] == NULL) {

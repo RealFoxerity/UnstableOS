@@ -46,6 +46,7 @@ enum syscalls {
     SYSCALL_GETPID,
     SYSCALL_GETPPID,
     SYSCALL_GETTID,
+    SYSCALL_GETSID,
     SYSCALL_SETSID,
     SYSCALL_GETPGID, // getpgid(pid_t target_pid)
     SYSCALL_SETPGID, // setpgid(pid_t target_pid, pid_t target_pgid)
@@ -78,6 +79,7 @@ enum syscalls {
 
     SYSCALL_IOCTL,
 
+    SYSCALL_FUTEX,
     SYSCALL_SEM_INIT, // semaphore_t sem_init(int initial val)
     SYSCALL_SEM_POST, // sem_post(int semaphore id)
     SYSCALL_SEM_WAIT, // sem_wait(int semaphore id)

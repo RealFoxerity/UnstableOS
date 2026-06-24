@@ -16,7 +16,7 @@ unsigned long long strtoull(const char * restrict start, char ** restrict end_ou
     const char * iter = start;
     if (base < 0 || base > 36 || base == 1 || start == NULL || *start == '\0') {
         invalid_arg:
-        errno = EINVAL;
+        ___set_errno(EINVAL);
         if (end_out != NULL) *end_out = (char *)start;
         return 0;
     }
@@ -58,7 +58,7 @@ unsigned long long strtoull(const char * restrict start, char ** restrict end_ou
         if (val == -1 || val >= base) break;
         if (acc * base + val < acc) { // overflow
             acc = ULLONG_MAX;
-            errno = ERANGE;
+            ___set_errno(ERANGE);
         } else {
             acc *= base;
             acc += val;
@@ -73,7 +73,7 @@ unsigned long long strtoull(const char * restrict start, char ** restrict end_ou
 unsigned long strtoul(const char * restrict start, char ** restrict end_out, int base) {
     unsigned long long val = strtoull(start, end_out, base);
     if (val > ULONG_MAX) {
-        errno = ERANGE;
+        ___set_errno(ERANGE);
         return ULONG_MAX;
     }
     return (unsigned long) val;
@@ -83,7 +83,7 @@ long long strtoll(const char * restrict start, char ** restrict end_out, int bas
     const char * iter = start;
     if (base < 0 || base > 36 || base == 1 || start == NULL || *start == '\0') {
         invalid_arg:
-        errno = EINVAL;
+        ___set_errno(EINVAL);
         if (end_out != NULL) *end_out = (char *)start;
         return 0;
     }
@@ -125,7 +125,7 @@ long long strtoll(const char * restrict start, char ** restrict end_out, int bas
         if (val == -1 || val >= base) break;
         if (acc * base + val < acc) { // overflow
             acc = LLONG_MAX;
-            errno = ERANGE;
+            ___set_errno(ERANGE);
         } else {
             acc *= base;
             acc += val;
@@ -140,7 +140,7 @@ long long strtoll(const char * restrict start, char ** restrict end_out, int bas
 long strtol(const char * restrict start, char ** restrict end_out, int base) {
     long long val = strtoll(start, end_out, base);
     if (val > LONG_MAX || val < LONG_MIN) {
-        errno = ERANGE;
+        ___set_errno(ERANGE);
         if (val > LONG_MAX) return LONG_MAX;
         return LONG_MIN;
     }

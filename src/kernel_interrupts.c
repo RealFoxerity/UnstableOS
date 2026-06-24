@@ -134,6 +134,7 @@ __attribute__((naked)) void fix_segments() {
         "mov %ax, %ds;"
         "mov %ax, %es;"
         "mov %ax, %fs;"
+        "mov $0x3b, %ax;"
         "mov %ax, %gs;"
         "popl %eax;"
         "ret;"
@@ -212,6 +213,7 @@ void invalid_opcode_handler(mcontext_t * ctx) {
     memcpy(&current_thread->context, ctx, sizeof(mcontext_t) - (ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *));
     signal_thread(current_process, current_thread, &(siginfo_t){
         .si_signo = SIGILL,
+        .si_addr  = ctx->iret_frame.ip,
         // TODO: add si_code
     });
     signal_dispatch_sa(current_process, current_thread);

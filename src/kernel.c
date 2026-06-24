@@ -229,6 +229,9 @@ static void idle_func(void * _) {
 
 
 void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
+    extern char is_klibc;
+    is_klibc = 1;
+
     disable_interrupts();
 
     boot_mem_top = (uint32_t)&_kernel_top; // the lowest free address
@@ -317,7 +320,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     enable_interrupts();
 
     scheduler_init();
-    idle_task = kernel_create_thread(current_process, idle_func, NULL);
+    idle_task         = kernel_create_thread(current_process, idle_func, NULL, 0);
     idle_task->status = SCHED_UNINTERR_SLEEP;
 
     timer_init(0, 1000/KERNEL_TIMER_RESOLUTION_MSEC, TIMER_RATE); // kernel scheduler timer, also enables pic interrupts

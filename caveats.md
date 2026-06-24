@@ -5,6 +5,7 @@
 - there is no check if pid exists or not, multiple issues with pid wraparound
 - multiple issues with instance fields wraparound in numerous structures
 - race can overflow a semaphore's value (unsigned long) back to 0
+- race can _maybe_ cause an incorrect EOWNERDEAD and inconsistent mutex in pthread_mutex_trylock()
 ### Known issues/quirks
 ---
 - very unwieldy way of handling userspace thread creation

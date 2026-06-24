@@ -93,13 +93,13 @@ void sleep_sched_tick() {
     spinlock_release(&sleep_queue_lock);
 }
 
-ssize_t sys_nanosleep(process_t * pprocess, thread_t * thread, struct timespec requested, struct timespec * elapsed) {
+long sys_nanosleep(process_t * pprocess, thread_t * thread, struct timespec requested, struct timespec * elapsed) {
     kassert(thread);
     kassert(thread->instances > 0);
 
     if (requested.tv_sec < 0) return 0;
 
-    if (requested.tv_nsec >= 1000000000 || requested.tv_nsec < 0) return EINVAL;
+    if (requested.tv_nsec >= 1000000000 || requested.tv_nsec < 0) return -EINVAL;
 
     time_t requested_usec = requested.tv_sec * 1000000 + requested.tv_nsec/1000;
     time_t delta_usec = requested_usec;
