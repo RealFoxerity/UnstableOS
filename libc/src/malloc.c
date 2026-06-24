@@ -3,11 +3,11 @@
 #include <stddef.h>
 #include <stdalign.h>
 
-#include "unistd.h"
-#include "include/string.h"
-#include "include/stdio.h"
-#include "include/stdlib.h"
-#include "include/uthreads.h"
+#include <unistd.h>
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
 
 #define MALLOC_MAGIC "MAL"
 
@@ -28,9 +28,8 @@ struct malloc_heap_header { // aligning so that we try to avoid alignment check
 
 static void * heap_base = NULL;
 
-mutex_t allocator_mutex;
+pthread_mutex_t allocator_mutex = PTHREAD_MUTEX_INITIALIZER;
 void malloc_prepare(void * heap_struct_start, void * heap_top) { // don't call multiple times
-    allocator_mutex = mutex_init();
     heap_base = heap_struct_start;
     *(struct malloc_heap_header*)heap_struct_start = (struct malloc_heap_header) {
         .flags = MALLOC_FIRST_CHUNK | MALLOC_LAST_CHUNK,
@@ -41,7 +40,7 @@ void malloc_prepare(void * heap_struct_start, void * heap_top) { // don't call m
 }
 
 void * __attribute__((malloc, malloc(free))) malloc(size_t size) {
-    mutex_lock(allocator_mutex);
+    pthread_mutex_lock(&allocator_mutex);
     if (size % MALLOC_ALIGNMENT != 0) size = size + MALLOC_ALIGNMENT - size%MALLOC_ALIGNMENT;
 
     struct malloc_heap_header * current_heap_object;
@@ -54,7 +53,7 @@ void * __attribute__((malloc, malloc(free))) malloc(size_t size) {
         }
         if (current_heap_object->flags & MALLOC_LAST_CHUNK) {
             if (sbrk(MALLOC_OOM_INCREASE) == (void *)-1) {
-                mutex_unlock(allocator_mutex);
+                pthread_mutex_unlock(&allocator_mutex);
                 return NULL; // -ENOMEM usually
             }
             goto again;
@@ -78,7 +77,7 @@ void * __attribute__((malloc, malloc(free))) malloc(size_t size) {
     if (!(next_heap_object->flags & MALLOC_LAST_CHUNK))
         next_heap_object->next_chunk->prev_chunk = next_heap_object;
 
-    mutex_unlock(allocator_mutex);
+    pthread_mutex_unlock(&allocator_mutex);
     return (void*)current_heap_object + sizeof(struct malloc_heap_header);
 }
 void * __attribute__((malloc, malloc(free))) calloc(size_t nelem, size_t elsize) {
@@ -90,7 +89,7 @@ void * __attribute__((malloc, malloc(free))) calloc(size_t nelem, size_t elsize)
 }
 void free(void * p) {
     if (p == NULL) return;
-    mutex_lock(allocator_mutex);
+    pthread_mutex_lock(&allocator_mutex);
     struct malloc_heap_header * current_heap_object = (struct malloc_heap_header * ) (p - sizeof(struct malloc_heap_header));
 
     if (memcmp(current_heap_object->magic, MALLOC_MAGIC, 3) != 0) {
@@ -147,7 +146,7 @@ void free(void * p) {
     }
 
     end:
-    mutex_unlock(allocator_mutex);
+    pthread_mutex_unlock(&allocator_mutex);
 }
 
 void * realloc(void * p, size_t size) {
@@ -160,10 +159,10 @@ void * realloc(void * p, size_t size) {
     }
 
     size_t old_size = 0;
-    mutex_lock(allocator_mutex);
+    pthread_mutex_lock(&allocator_mutex);
     struct malloc_heap_header * hdr = p - sizeof(struct malloc_heap_header);
     old_size = hdr->next_chunk - hdr;
-    mutex_unlock(allocator_mutex);
+    pthread_mutex_unlock(&allocator_mutex);
 
     void * new_chunk = malloc(size);
     if (new_chunk == NULL) return NULL;
@@ -183,7 +182,7 @@ static void print_chunk_info(struct malloc_heap_header * header) {
 }
 
 void malloc_print_heap_objects() {
-    mutex_lock(allocator_mutex);
+    pthread_mutex_lock(&allocator_mutex);
     struct malloc_heap_header * current_heap_object = heap_base;
 
     while (!(current_heap_object->flags & MALLOC_LAST_CHUNK)) {
@@ -192,5 +191,5 @@ void malloc_print_heap_objects() {
     }
 
     print_chunk_info(current_heap_object);
-    mutex_unlock(allocator_mutex);
+    pthread_mutex_unlock(&allocator_mutex);
 }

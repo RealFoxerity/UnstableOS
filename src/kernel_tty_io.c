@@ -300,7 +300,7 @@ static size_t tty_console_write(tty_t * tty) {
     if (tq->head <= tq->tail) {
         console_write(tq->buffer + tq->head, n);
     } else {
-        console_write(tq->buffer + tq->head, TTY_BUFFER_SIZE - tq->head);
+        console_write(tq->buffer + tq->head, MAX_CANON - tq->head);
         console_write(tq->buffer, tq->tail);
     }
 
@@ -364,7 +364,7 @@ void tty_alloc_kernel_console() { // for the kernel task, don't call for user pr
 }
 
 int tty_queue_getch(struct tty_queue * tq, struct timespec timeout) { // if 256, got SIGALRM
-    kassert(tq->head < TTY_BUFFER_SIZE && tq->tail < TTY_BUFFER_SIZE);
+    kassert(tq->head < MAX_CANON && tq->tail < MAX_CANON);
 
     again:
     if (EMPTY(tq)) {
@@ -396,7 +396,7 @@ int tty_queue_getch(struct tty_queue * tq, struct timespec timeout) { // if 256,
 }
 
 int tty_queue_putch(struct tty_queue * tq, char c, char onlret) {
-    kassert(tq->head < TTY_BUFFER_SIZE && tq->tail < TTY_BUFFER_SIZE);
+    kassert(tq->head < MAX_CANON && tq->tail < MAX_CANON);
     spinlock_acquire_interruptible(&tq->queue_lock);
     while (FULL(tq)) { // buffer full
         //kprintf("tty buffer full, flushing\n");

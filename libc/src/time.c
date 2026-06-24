@@ -7,7 +7,7 @@
 int nanosleep(const struct timespec * rqtp, struct timespec * rmtp) {
     int ret = syscall(SYSCALL_NANOSLEEP, rqtp, rmtp);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
@@ -17,7 +17,7 @@ time_t time(time_t * tloc) {
     if (tloc == NULL) tloc = &(time_t){0};
     int ret = syscall(SYSCALL_TIME, tloc);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return *tloc;
@@ -29,7 +29,7 @@ clock_t clock() {
 
 
     if (uptime >= 0xFFFFFFFFFFFFFF00ULL) {
-        errno = (int)(unsigned long long)uptime;
+        ___set_errno((int)(unsigned long long)uptime);
         return -1;
     } // assuming at most 255 errnos
 

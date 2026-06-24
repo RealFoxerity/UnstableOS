@@ -1,11 +1,11 @@
-#include "include/kernel.h"
-#include "include/kernel_gdt_idt.h"
-#include "include/kernel_interrupts.h"
-#include "include/kernel_spinlock.h"
-#include "include/mm/kernel_memory.h"
-#include "include/kernel_sched.h"
-#include "include/kernel_exec.h"
-#include "../libc/src/include/string.h"
+#include "kernel.h"
+#include "kernel_gdt_idt.h"
+#include "kernel_interrupts.h"
+#include "kernel_spinlock.h"
+#include "mm/kernel_memory.h"
+#include "kernel_sched.h"
+#include "kernel_exec.h"
+#include <string.h>
 #include <stdint.h>
 
 // TODO: when implementing SMP, maybe a race condition with fork() and exit()?
@@ -112,6 +112,12 @@ static PAGE_DIRECTORY_TYPE * fork_dup_address_space() {
         i < current_thread->stack;
         i += PAGE_SIZE_NO_PAE
     ) {
+        // overcommitted stack
+        PAGE_TABLE_TYPE * stack_pte = paging_get_pte(i);
+        if (stack_pte == NULL || !(*stack_pte & PTE_PDE_PAGE_PRESENT))
+            continue;
+
+
         void * new_page = pfalloc_dup_page(paging_virt_addr_to_phys(i));
         kassert(new_page);
 
@@ -171,9 +177,13 @@ pid_t sys_fork(mcontext_t * ctx) {
     }
     spinlock_release(&current_process->lock);
 
+    /*
+     * too lazy to rewrite to the new PCB approach
+     * + fuck the userspace, pthread functions are not Async-Signal safe anyway,
+     *   they shouldn't be calling them
     memset(new_proc->thread_stacks, 0, sizeof(new_proc->thread_stacks));
     new_proc->thread_stacks[GET_STACK_IDX_FROM_ADDR(current_thread->stack)] = 1;
-
+    */
     new_proc->pid = __atomic_add_fetch(&last_pid, 1, __ATOMIC_RELAXED);
     new_proc->parent = current_process;
     new_proc->user_clicks = new_proc->system_clicks = new_proc->dead_user_clicks = new_proc->dead_system_clicks = 0;
@@ -193,7 +203,7 @@ pid_t sys_fork(mcontext_t * ctx) {
 
     // "duplicate" all file descriptors and semaphores, TODO: fix the UINT32_MAX :3
     for (int i = 0; i < FD_LIMIT_PROCESS; i++) {
-        if (new_proc->fds[i] && !(new_proc->fds[i]->flags & O_CLOFORK))
+        if (new_proc->fds[i] && !(new_proc->fd_flags[i] & (O_CLOFORK >> 12)))
             kassert(__atomic_add_fetch(&new_proc->fds[i]->instances, 1, __ATOMIC_RELAXED) != UINT32_MAX);
         else
             new_proc->fds[i] = NULL;
@@ -215,6 +225,8 @@ pid_t sys_fork(mcontext_t * ctx) {
     new_thread->sa_to_be_handled = 0; // to be sure, sa_mask is retained
 
     new_thread->tid = __atomic_add_fetch(&last_tid, 1, __ATOMIC_RELAXED);
+    new_thread->tcb->tid = new_thread->tid;
+
     new_thread->next = NULL;
     new_thread->prev = new_thread;
     new_thread->in_critical_section = 0;

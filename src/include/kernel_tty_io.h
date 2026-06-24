@@ -2,6 +2,7 @@
 #define KERNEL_TTY_IO_H
 #include "kernel_spinlock.h"
 #include "kernel_sched.h"
+#include <limits.h>
 #include <UnstableOS/devs.h>
 #include <termios.h>
 
@@ -10,18 +11,17 @@
 #define TTYDEF_LFLAG    (ECHO | ECHOE | ECHOK | ICANON | ISIG | ECHOCTL)
 
 #define EMPTY(tq) ((tq)->head == (tq)->tail)
-#define FULL(tq) (((tq)->head == 0 && (tq)->tail == TTY_BUFFER_SIZE - 1) || (tq)->tail == (tq)->head - 1)
+#define FULL(tq) (((tq)->head == 0 && (tq)->tail == MAX_CANON - 1) || (tq)->tail == (tq)->head - 1)
 #define REMAIN(tq) (\
     (tq)->head <= (tq)->tail ? \
         ((tq)->tail - (tq)->head) : \
-        (TTY_BUFFER_SIZE - (tq)->head + (tq)->tail)\
+        (MAX_CANON - (tq)->head + (tq)->tail)\
     )// how many elements still in queue
-#define INC(tq) ((tq)->tail = ((tq)->tail+1)%TTY_BUFFER_SIZE) // lenghtens queue
-#define DEC(tq) ((tq)->head = ((tq)->head+1)%TTY_BUFFER_SIZE) // shortens queue by removing oldest element
-#define DEC_LAST(tq) ((tq)->tail = (TTY_BUFFER_SIZE + (tq)->tail-1)%TTY_BUFFER_SIZE) // shortens queue by removing youngest element (for VERASE, VKILL)
+#define INC(tq) ((tq)->tail = ((tq)->tail+1)%MAX_CANON) // lenghtens queue
+#define DEC(tq) ((tq)->head = ((tq)->head+1)%MAX_CANON) // shortens queue by removing oldest element
+#define DEC_LAST(tq) ((tq)->tail = (MAX_CANON + (tq)->tail-1)%MAX_CANON) // shortens queue by removing youngest element (for VERASE, VKILL)
 
-#define TTY_BUFFER_SIZE 4096
-#define MAX_CANNON TTY_BUFFER_SIZE
+#define MAX_CANON 4096
 
 #define CTRL(c) ((c) & 0x1F)
 static const unsigned char default_control_chars[11] = { // well imagine wanting to do ctrl+c to interrupt, look at C0 escapes, use that
@@ -43,7 +43,7 @@ static const unsigned char default_control_chars[11] = { // well imagine wanting
 
 struct tty_queue {
     spinlock_t queue_lock;
-    char buffer[TTY_BUFFER_SIZE];
+    char buffer[MAX_CANON];
     size_t head, tail; // tail = pointer to the next free char
 #if TTY_QUEUE_MODE == 2
     thread_queue_t write_queue;

@@ -40,14 +40,14 @@ int vfscanf(int fd, const char * restrict format, va_list args) {
 
     char * buf = malloc(VFSCANF_MAX_STRING);
     if (buf == NULL) {
-        errno = ENOMEM;
+        ___set_errno(ENOMEM);
         return -1;
     }
 
     size_t read_bytes = read(fd, buf, VFSCANF_MAX_STRING-1);
     if (read_bytes < 0) {
         free(buf);
-        errno = EBADF;
+        ___set_errno(EBADF);
         return -1;
     }
 
@@ -85,7 +85,7 @@ int vsscanf(const char * restrict s, const char * restrict format, va_list args)
 
             temp = va_arg(args, unsigned long *);
             if (temp == NULL) {
-                errno = EINVAL;
+                ___set_errno(EINVAL);
                 return -1;
             }
 
@@ -122,12 +122,12 @@ int vsscanf(const char * restrict s, const char * restrict format, va_list args)
                                     *(unsigned char*)temp = strtoul(s + soff, &conv_end, 16);
                                     break;
                                 default:
-                                    errno = EINVAL;
+                                    ___set_errno(EINVAL);
                                     return -1;
                             }
                             break;
                         default:
-                            errno = EINVAL;
+                            ___set_errno(EINVAL);
                             return -1;
                     }
                     break;
@@ -165,17 +165,17 @@ int vsscanf(const char * restrict s, const char * restrict format, va_list args)
                                     *(unsigned long long*)temp = strtoull(s + soff, &conv_end, 16);
                                     break;
                                 default:
-                                    errno = EINVAL;
+                                    ___set_errno(EINVAL);
                                     return -1;
                             }
                             break;
                         default:
-                            errno = EINVAL;
+                            ___set_errno(EINVAL);
                             return -1;
                     }
                     break;
                 default:
-                    errno = EINVAL;
+                    ___set_errno(EINVAL);
                     return -1;
                 // TODO: float, double
             }

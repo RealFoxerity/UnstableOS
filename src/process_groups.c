@@ -21,6 +21,23 @@ pid_t sys_getpgid(pid_t pid) {
     return -ESRCH;
 }
 
+pid_t sys_getsid(pid_t pid) {
+    if (pid == 0) return current_process->session;
+
+    spinlock_acquire(&scheduler_lock);
+    process_t * tested = process_list;
+    while (tested != NULL) {
+        if (tested->pid == pid) break;
+        tested = tested->next;
+    }
+    if (tested != NULL) {
+        spinlock_release(&scheduler_lock);
+        return tested->session; // found the pid
+    }
+    spinlock_release(&scheduler_lock);
+    return -ESRCH;
+}
+
 pid_t sys_setsid() {
     spinlock_acquire(&current_process->lock);
     if (current_process->pgrp_members || current_process->pid == current_process->pgrp) {

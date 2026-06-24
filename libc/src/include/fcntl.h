@@ -18,13 +18,14 @@
 #define O_NOFOLLOW  0x100 // not yet implemented
 #define O_TTY_INIT  0x200 // not yet implemented
 
-// file descriptor flags; get with F_GETFD, set with F_SETFD
-#define O_CLOEXEC   0x400
-#define O_CLOFORK   0x800
-
 // file status flags; get with F_GETFL, set with F_SETFL
-#define O_SYNC      0x1000
-#define O_APPEND    0x2000
+#define O_SYNC      0x400
+#define O_APPEND    0x800
+
+// file descriptor flags; get with F_GETFD, set with F_SETFD
+#define O_CLOEXEC   0x1000
+#define O_CLOFORK   0x2000
+
 
 #define AT_FDCWD (-1)
 

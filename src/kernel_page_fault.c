@@ -15,15 +15,16 @@
 #pragma clang diagnostic ignored "-Wexcessive-regsave"
 
 void page_fault_send_sigsegv(long was_not_mapped, mcontext_t * ctx) {
-    kprintf("returning from %p\n", ctx->iret_frame.ip);
+    void * fault_address;
+    asm volatile ("movl %%cr2, %0":"=R"(fault_address));
     memcpy(&current_thread->context, ctx, sizeof(mcontext_t) - ((ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *)));
     signal_thread(current_process, current_thread, &(siginfo_t){
         .si_signo = SIGSEGV,
-        .si_code = was_not_mapped ? SEGV_MAPERR : SEGV_ACCERR
+        .si_code = was_not_mapped ? SEGV_MAPERR : SEGV_ACCERR,
+        .si_addr = fault_address
     });
     signal_dispatch_sa(current_process, current_thread);
     memcpy(ctx, &current_thread->context, sizeof(mcontext_t) - ((ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *)));
-    kprintf("returning to %p\n", ctx->iret_frame.ip);
 }
 
 extern __attribute__((naked)) void fix_segments();
@@ -109,17 +110,18 @@ __attribute__((no_caller_saved_registers)) int page_fault_handler(unsigned long 
             } else
                 spinlock_release(&memdisk_lock);
         } else { // overcommitment
+            // heap
             if (fault_address >= PROGRAM_HEAP_VADDR && fault_address <= current_process->program_break) {
                 if (paging_add_page(fault_address, PTE_PDE_PAGE_USER_ACCESS | PTE_PDE_PAGE_WRITABLE) == NULL) {
-                    kprintf("\e[0m\e[41mPage fault: Ran out of memory in heap overcommitmen! Killing task...\n");
+                    kprintf("\e[0m\e[41mPage fault: Ran out of memory in heap overcommitment! Killing task...\n");
+                } else return 1;
+            // stack
+            } else if (fault_address < current_thread->stack &&
+                fault_address >= current_thread->stack - PROGRAM_STACK_SIZE + current_thread->stack_guard_size) {
+                if (paging_add_page(fault_address, PTE_PDE_PAGE_USER_ACCESS | PTE_PDE_PAGE_WRITABLE) == NULL) {
+                    kprintf("\e[0m\e[41mPage fault: Ran out of memory in stack overcommitment! Killing task...\n");
                 } else return 1;
             }
-            // unfortunately due to the kernel's usage pattern (cli, then kalloc), this would never trigger and we'd get a triple fault
-            // else if (fault_address >= KERNEL_HEAP_BASE && fault_address <= KERNEL_HEAP_BASE + KERNEL_HEAP_SIZE) {
-            //    paging_add_page(fault_address, PTE_PDE_PAGE_WRITABLE);
-            //    flush_tlb_entry(fault_address);
-            //    return;
-            //}
         }
     } else if (error.W) { // fork() CoW
         if (fork_cow_page(fault_address)) return 1;

@@ -10,6 +10,8 @@
 #include <assert.h>
 #include <endian.h>
 
+#include "UnstableOS/tls.h"
+
 void swab(const void *restrict src, void *restrict dest, ssize_t nbytes) {
     if (nbytes < 2) return;
     for (size_t i = 0; i < nbytes/2; i++) {
@@ -22,7 +24,7 @@ int brk(void * addr) {
     void * new_break = (void *)syscall(SYSCALL_BRK, addr);
 
     if (new_break == old_break) {
-        errno = -ENOMEM;
+        ___set_errno(-ENOMEM);
         return -1;
     }
     return 0;
@@ -33,7 +35,7 @@ void * sbrk(intptr_t increment) {
     void * new_break = (void *)syscall(SYSCALL_BRK, old_break + increment);
 
     if (new_break == old_break) {
-        errno = -ENOMEM;
+        ___set_errno(-ENOMEM);
         return (void *)-1;
     }
     return old_break;
@@ -42,7 +44,7 @@ void * sbrk(intptr_t increment) {
 int close(int fd) {
     int ret = syscall(SYSCALL_CLOSE, fd);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
@@ -51,7 +53,7 @@ int close(int fd) {
 ssize_t read (int fd, void * buf, size_t count) {
     ssize_t ret = syscall(SYSCALL_READ, fd, buf, count);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
@@ -60,7 +62,7 @@ ssize_t read (int fd, void * buf, size_t count) {
 ssize_t write(int fd, const void * buf, size_t count) {
     ssize_t ret = syscall(SYSCALL_WRITE, fd, buf, count);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
@@ -69,7 +71,7 @@ ssize_t write(int fd, const void * buf, size_t count) {
 ssize_t pread (int fd, void * buf, size_t count, off_t offset) {
     ssize_t ret = syscall(SYSCALL_READ, fd, buf, count, offset);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
@@ -77,7 +79,7 @@ ssize_t pread (int fd, void * buf, size_t count, off_t offset) {
 ssize_t pwrite(int fd, const void * buf, size_t count, off_t offset) {
     ssize_t ret = syscall(SYSCALL_WRITE, fd, buf, count, offset);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
@@ -90,7 +92,7 @@ void sync() {
 int pipe2(int fildes[2], int flags) {
     int ret = syscall(SYSCALL_PIPE2, fildes, flags);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
@@ -103,7 +105,7 @@ off_t lseek(int fd, off_t offset, int whence) {
     off_t out = 0;
     off_t ret = syscall(SYSCALL_SEEK, fd, &offset, whence, &out);
     if (ret < 0) {
-        errno = (long)-ret;
+        ___set_errno((long)-ret);
         return -1;
     }
     return out;
@@ -112,7 +114,7 @@ off_t lseek(int fd, off_t offset, int whence) {
 int dup(int fd) {
     int ret = syscall(SYSCALL_DUP, fd);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
@@ -125,7 +127,7 @@ int dup2(int oldfd, int newfd) {
 int dup3(int oldfd, int newfd, int flag) {
     int ret = syscall(SYSCALL_DUP3, oldfd, newfd, flag);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
@@ -135,7 +137,7 @@ int dup3(int oldfd, int newfd, int flag) {
 int chdir(const char * path) {
     int ret = syscall(SYSCALL_CHDIR, path);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
@@ -143,7 +145,7 @@ int chdir(const char * path) {
 int chroot(const char * path) {
     int ret = syscall(SYSCALL_CHROOT, path);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
@@ -152,7 +154,7 @@ int chroot(const char * path) {
 pid_t fork() {
     pid_t ret = syscall(SYSCALL_FORK);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
@@ -160,34 +162,56 @@ pid_t fork() {
 pid_t spawn(const char * path, char * const* argv, char * const* envp) {
     pid_t ret = syscall(SYSCALL_SPAWN, path, argv, envp);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
 }
 
 pid_t getpid() {
-    return syscall(SYSCALL_GETPID);
+    //return syscall(SYSCALL_GETPID);
+    return __tls_get_tcb()->pcb->pid;
 }
 pid_t gettid() {
-    return syscall(SYSCALL_GETTID);
+    //return syscall(SYSCALL_GETTID);
+    return __tls_get_tcb()->tid;
+
 }
 pid_t getppid() {
-    return syscall(SYSCALL_GETPPID);
+    //return syscall(SYSCALL_GETPPID);
+    return __tls_get_tcb()->pcb->pid;
 }
 
 pid_t getpgid(pid_t pid) {
+    struct thread_control_block * tcb = __tls_get_tcb();
+    if (pid == 0 || pid == tcb->pcb->pid)
+        return tcb->pcb->pgid;
+
     pid_t ret = syscall(SYSCALL_GETPGID, pid);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
 }
+
+pid_t getsid(pid_t pid) {
+    struct thread_control_block * tcb = __tls_get_tcb();
+    if (pid == 0 || pid == tcb->pcb->pid)
+        return tcb->pcb->sid;
+
+    pid_t ret = syscall(SYSCALL_GETSID, pid);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return ret;
+}
+
 pid_t setsid() {
     pid_t ret = syscall(SYSCALL_SETSID);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
@@ -195,7 +219,7 @@ pid_t setsid() {
 int setpgid(pid_t pid, pid_t pgid) {
     int ret = syscall(SYSCALL_SETPGID, pid, pgid);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
@@ -207,7 +231,7 @@ unsigned sleep(unsigned seconds) {
 
     long ret = syscall(SYSCALL_NANOSLEEP, &waited, &actual);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return ret;
     }
 
@@ -220,25 +244,37 @@ int pause() {
     return sigpause(0);
 }
 
-long syscall(unsigned long syscall_number, ...) { // interrupt handler in kernel_syscall.c
-    va_list args;
-    va_start(args, syscall_number);
+static long _vsyscall(unsigned long syscall_number, va_list args) { // interrupt handler in kernel_syscall.c
 
     unsigned long arg1 = va_arg(args, unsigned long), arg2 = va_arg(args, unsigned long),
-                    arg3 = va_arg(args, unsigned long), arg4 = va_arg(args, unsigned long);
+                    arg3 = va_arg(args, unsigned long), arg4 = va_arg(args, unsigned long),
+                      arg5 = va_arg(args, unsigned long); // basically just used by futex
     va_end(args);
 
-    long out = syscall_number;
+    long out = (long)syscall_number;
     asm volatile (
-        "pushl %0;"
+        "pushl %1;"
+        "pushl %2;"
         "int $" STR(SYSCALL_INTERR)"\n\t"
-        "addl $0x4, %%esp"
+        "addl $0x8, %%esp"
         :"+a" (out)
-        :"m"(arg4), "D"(arg1), "S"(arg2), "d"(arg3)
+        :"m"(arg5), "m"(arg4), "D"(arg1), "S"(arg2), "d"(arg3)
     );
     return out;
 }
 
+#include <pthread.h>
+long syscall(unsigned long syscall_number, ...) {
+    va_list args;
+    va_start(args, syscall_number);
+    pthread_testcancel();
+    return _vsyscall(syscall_number, args);
+}
+long _syscall(unsigned long syscall_number, ...) {
+    va_list args;
+    va_start(args, syscall_number);
+    return _vsyscall(syscall_number, args);
+}
 int ioctl(int fildes, unsigned long request, ...) {
     va_list args;
     va_start(args, request);
@@ -247,7 +283,7 @@ int ioctl(int fildes, unsigned long request, ...) {
 
     long ret = syscall(SYSCALL_IOCTL, fildes, request, arg);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;

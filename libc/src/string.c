@@ -7,14 +7,14 @@
 #include <errno.h>
 
 long long atoll(const char * nptr) {
-    int old_errno = errno;
-    errno = 0;
+    int old_errno = ___get_errno();
+    ___set_errno(0);
     long long out = strtoll(nptr, NULL, 0);
-    if (errno != 0) {
-        errno = old_errno;
+    if (___get_errno() != 0) {
+        ___set_errno(old_errno);
         return 0;
     }
-    errno = old_errno;
+    ___set_errno(old_errno);
     return out;
 }
 

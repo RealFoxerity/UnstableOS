@@ -42,10 +42,13 @@ char * fgets(char * s, int size, int fd) {
 #define ERRNO_STRING_LEN 64
 
 void perror(const char * s) {
+    static char errno_string[ERRNO_STRING_LEN] = "Unknown error";
+
     if (s != NULL) {
         fprintf(stderr, "%s: ", s);
     }
-    fprintf(stderr, "%s\n", strerror(errno));
+    strerror_r(___get_errno(), errno_string, ERRNO_STRING_LEN);
+    fprintf(stderr, "%s\n", errno_string);
 }
 
 char *strerror(int errnum) {
@@ -64,6 +67,6 @@ int strerror_r(int errnum, char *strerrbuf, size_t buflen) {
     }
     if (buflen <= strlen(__errno_msgs[errnum])) return ERANGE;
 
-    strcpy(strerrbuf, __errno_msgs[errno]);
+    strcpy(strerrbuf, __errno_msgs[errnum]);
     return 0;
 }

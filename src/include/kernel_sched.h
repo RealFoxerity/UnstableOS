@@ -15,9 +15,9 @@
 #endif
 
 #define PROGRAM_STACK_SIZE (1<<20) // 1MiB please keep a multiple of page size
-#if PROGRAM_STACK_SIZE % PAGE_SIZE_NO_PAE != 0
-#error "Program stack size is not a multiple of page size!"
-#endif
+#define PROGRAM_STACK_START_SIZE (1<<15)
+#define PROGRAM_STACK_GUARD_MAX ((1<<20) - PAGE_SIZE)
+#define PROGRAM_STACK_GUARD_DEFAULT (PAGE_SIZE) // the one selected when create_thread is called with 0
 
 #define PROGRAM_KERNEL_STACK_SIZE (1<<13) // 8KiB
 
@@ -25,17 +25,37 @@
 #define PROGRAM_STACK_VADDR ((void*)___PROGRAM_STACK_VADDR) // top
 
 #define GET_STACK_IDX_FROM_ADDR(vaddr) ((PROGRAM_STACK_VADDR - vaddr)/PROGRAM_STACK_SIZE) // returns the index to the stack bitmap for process
-#define GET_STACK_ADDR_FROM_IDX(index) (PROGRAM_STACK_VADDR - i*PROGRAM_STACK_SIZE) // gets the top
+#define GET_STACK_ADDR_FROM_IDX(index) (PROGRAM_STACK_VADDR - index*PROGRAM_STACK_SIZE) // gets the top
 
 #define ___PROGRAM_HEAP_VADDR (0x80000000) // base
 #define PROGRAM_HEAP_VADDR ((void*)___PROGRAM_HEAP_VADDR) // base
 #define PROGRAM_MAX_HEAP_SIZE (0x40000000) // 1GiB
+
 
 #if (___PROGRAM_HEAP_VADDR + PROGRAM_MAX_HEAP_SIZE > ___PROGRAM_STACK_VADDR - PTHREAD_THREADS_MAX*PROGRAM_STACK_SIZE)
 #error "\
 Processes' memory map would have thread stacks and heap overlap!\n\
 Consider lowering thread count, increasing stack base address, lowering heap address, and/or decreasing stack and heap sizes"
 #endif
+
+#include <UnstableOS/tls.h>
+// keep everything page sized please
+
+// 4096 bytes for the DVT means 1023 other tls blocks,
+// which basically means 1023 dynamic libraries
+#define __PROGRAM_TCB_SIZE 256 // assuming 256 bytes is enough for tcb
+#define PROGRAM_DVT_SIZE (PAGE_SIZE_NO_PAE)
+#define PROGRAM_MAX_TLS_SIZE ((1<<15) - __PROGRAM_TCB_SIZE)
+#define PROGRAM_TLS_VADDR (PROGRAM_HEAP_VADDR - (PROGRAM_MAX_TLS_SIZE + __PROGRAM_TCB_SIZE) * PTHREAD_THREADS_MAX)
+#define PROGRAM_DVT_VADDR (PROGRAM_TLS_VADDR - PROGRAM_DVT_SIZE)
+#define PROGRAM_TLS_BLUEPRINT_VADDR (PROGRAM_TLS_VADDR - PROGRAM_MAX_TLS_SIZE - __PROGRAM_TCB_SIZE - PROGRAM_DVT_SIZE)
+#define PROGRAM_TLS_BLUEPRINT_TOP_VADDR (PROGRAM_TLS_VADDR - PROGRAM_DVT_SIZE - __PROGRAM_TCB_SIZE)
+#define PROGRAM_PCB_VADDR ((struct process_control_block *)(PROGRAM_TLS_BLUEPRINT_VADDR - PAGE_SIZE_NO_PAE))
+#define GET_TLS_ADDR_FROM_IDX(index) (PROGRAM_TLS_VADDR + (index)*(PROGRAM_MAX_TLS_SIZE + __PROGRAM_TCB_SIZE))
+
+// arbitrary number, as I said, we can handle 1023 of them
+// however I want a limit for static ones
+#define PROGRAM_MAX_TLS_ENTRIES (64)
 
 enum pstatus_t {
     SCHED_RUNNING,
@@ -71,6 +91,8 @@ struct thread_t {
 
     void * stack;
     size_t stack_size;
+    size_t stack_guard_size;
+    struct thread_control_block * tcb;
 
     // bitmask of signals that the thread ignores
     sigset_t sa_mask;
@@ -80,6 +102,12 @@ struct thread_t {
     // needed because we can't launch signals inside syscalls
 
     siginfo_t sa_info_to_be_handled;
+
+    // lazy way to do futexes
+    const uint32_t * futex_addr;
+    pid_t futex_owner; // to wake up with EOWNERDEAD on thread quit
+    char is_waiting_on_futex; // because waiting with nanosleep is always SCHED_INTERR_SLEEP
+    char owner_dead; // when woken up
 
     // so that if a queue would've unblocked a thread that was no longer blocked
     // by that queue, it doesn't
@@ -115,10 +143,6 @@ struct process_t {
     unsigned long uid, gid;
     PAGE_DIRECTORY_TYPE * address_space_paddr;
 
-    char thread_stacks[PTHREAD_THREADS_MAX];
-    // a way to keep track of available address ranges, 1 = used
-    // PROGRAM_STACK_VADDR - i*PROGRAM_STACK_SIZE
-
     void * program_break;
 
     size_t argc;
@@ -142,6 +166,7 @@ struct process_t {
     inode_t * pwd, * root; // chdir(), chroot()
 
     file_descriptor_t * fds[FD_LIMIT_PROCESS];
+    unsigned char fd_flags[FD_LIMIT_PROCESS]; // FD_CLOFORK, FD_CLOEXEC
 
     time_t next_alarm;
 
@@ -194,16 +219,16 @@ struct sem_t {
 } typedef sem_t;
 
 
-void kernel_idle();
+__attribute__((noreturn)) void kernel_idle();
 void scheduler_init();
 void schedule(mcontext_t * context);
 void scheduler_print_process(const process_t * process);
 void scheduler_print_processes();
-
+void reload_pcb(const process_t * pprocess); // only works if in the same cr3 as pprocess
 
 // kernel_sched_sleep_queue.c
 void sleep_sched_tick();
-ssize_t sys_nanosleep(process_t * pprocess, thread_t * thread, struct timespec requested, struct timespec * elapsed);
+long sys_nanosleep(process_t * pprocess, thread_t * thread, struct timespec requested, struct timespec * elapsed);
 void sleep_remove_thread(process_t * pprocess, thread_t * thread);
 unsigned sys_alarm(unsigned seconds);
 void reschedule();
@@ -211,7 +236,10 @@ void reschedule();
 // 0 = couldn't destroy - not safe to destroy a kernel thread
 // both assume a locked scheduler (and by extension a critical section)
 char kernel_destroy_thread(process_t * parent_process, thread_t * thread);
-thread_t *  kernel_create_thread(process_t * parent_process, void (* entry_point)(void*), void * arg);
+// stack guard is the number of bytes (rounded up to pages) that will be unmapped at the stack bottom
+// to prevent stack overflows into another thread
+// only applies to userspace, kernel space threads ignore this
+thread_t * kernel_create_thread(process_t * parent_process, void (* entry_point)(void*), void * arg, size_t stack_guard);
 
 extern process_t * process_list;
 extern process_t * zombie_list;
@@ -238,11 +266,17 @@ int sys_sigprocmask(int how, const sigset_t * __restrict set, sigset_t * oset);
 int sys_sigsuspend(const sigset_t * set);
 int sys_sigqueue(pid_t pid, int signo, union sigval value);
 
+// futex.c
+long sys_futex(const uint32_t * wait_addr, int op, uint32_t val, pid_t owner, struct timespec * timeout);
+// awake robust futexes on thread exit
+// assumes locked scheduler
+void futex_wake_owner_dead(const process_t * parent, pid_t tid);
+
 // process_groups.c
 pid_t sys_getpgid(pid_t pid);
 pid_t sys_setsid();
 int   sys_setpgid(pid_t pid, pid_t pgid);
-
+pid_t sys_getsid(pid_t pid);
 // lock scheduler beforehand or have interrupts disabled
 void __signal_process(process_t * signaled, siginfo_t * sig);
 // the same, but locks the scheduler itself

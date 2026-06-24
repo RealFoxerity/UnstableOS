@@ -54,7 +54,7 @@ pid_t wait(int * wstatus) {
 pid_t waitpid(pid_t pid, int * wstatus, int options) {
     pid_t ret = syscall(SYSCALL_WAITPID, pid, wstatus, options);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
@@ -62,7 +62,7 @@ pid_t waitpid(pid_t pid, int * wstatus, int options) {
 int waitid(idtype_t idtype, id_t id, siginfo_t * infop, int options) {
     int ret = syscall(SYSCALL_WAITID, idtype, id, infop, options);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;

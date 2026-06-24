@@ -1,9 +1,9 @@
-#include "include/kernel_interrupts.h"
-#include "include/lowlevel.h"
-#include "include/kernel.h"
-#include "include/mm/kernel_memory.h"
-#include "../libc/src/include/string.h"
-#include "include/kernel_gdt_idt.h"
+#include "kernel_interrupts.h"
+#include "lowlevel.h"
+#include "kernel.h"
+#include "mm/kernel_memory.h"
+#include <string.h>
+#include "kernel_gdt_idt.h"
 #include <stdint.h>
 #include <stddef.h>
 
@@ -58,13 +58,32 @@ void tss_set_stack(unsigned long * new_esp) {
     tss.esp0 = (unsigned long) new_esp;
 }
 
-#define GDT_ENTRIES 6 // NULL descriptor (used as the gdtr store), kernel code, kernel data, user code, user data, tss
+#define GDT_ENTRIES 8 // NULL descriptor (used as the gdtr store), kernel code, kernel data, user code, user data, kernel tss, user tss gs
 
 static uint64_t * gdt_descriptor_entries = NULL;
 //static struct idt_gate idt_descriptor_entries[IDT_INTERR_VECTOR_COUNT] __attribute__((aligned(0x1000))) = {0};
 static struct idt_gate * idt_descriptor_entries = NULL;
 static struct dt_descriptor idtr = {0};
 void * kernel_ts_stack_top;
+
+static inline void reload_gdt() {
+    struct dt_descriptor gdtr = *(struct dt_descriptor *)gdt_descriptor_entries;
+
+    asm volatile (
+        "lgdt %0\n\t"
+        ::"m"(gdtr)
+    );
+}
+
+void set_gs_base(void * base) {
+    gdt_descriptor_entries[GDT_USER_GS] =
+        gdt_generate_descriptor(
+            (uint32_t)base,
+            1,
+            GDT_SEG_ACC_RW | GDT_SEG_ACC_NOT_SYS_SEG | GDT_SEG_ACC_PRIV_R3 | GDT_SEG_ACC_PRESENT,
+            GDT_SEG_FL_32BIT| GDT_SEG_FL_PAGED_LIMIT);
+    reload_gdt();
+}
 
 void construct_descriptor_tables() {
     asm volatile ("cli");
@@ -143,10 +162,10 @@ void construct_descriptor_tables() {
     tss_generate();
     gdt_descriptor_entries[GDT_KERNEL_TSS] = gdt_generate_descriptor((uint32_t)(&tss), sizeof(struct tss_segment)-1, GDT_SEG_ACC_PRESENT | GDT_SEG_ACC_ACCESSED | GDT_SYS_SEG_ACC_TYPE_32TSS_AVAIL, 0); // note: for TSS flags are always zero, not even GDT_SEG_FL_32BIT
 
-    struct dt_descriptor gdtr = *(struct dt_descriptor *)gdt_descriptor_entries;
-
+    set_gs_base(NULL);
+    // far jump into correct cs
+    // lgdt handled by set_gs_base
     asm volatile (
-        "lgdt %0\n\t"
         "ljmp $0x08, $thunk\n\t"
         "thunk:\n\t"
         "mov $0x10, %%ax\n\t" // 0x10 is the offset into gdt where the data segment is (3rd)
@@ -155,7 +174,7 @@ void construct_descriptor_tables() {
         "mov %%ax, %%fs\n\t"
         "mov %%ax, %%gs\n\t"
         "mov %%ax, %%ss\n\t"
-        :: "m"(gdtr)
+        :::"ax"
     );
 
     asm volatile ( // enabling of TSS, a) wouldn't make sense without interrupts, b) if an error occurs, we'd get triple fault without interrupts

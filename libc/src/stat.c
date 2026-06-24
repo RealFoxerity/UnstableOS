@@ -7,7 +7,7 @@
 int stat(const char * __restrict path, struct stat * __restrict buf) {
     int ret = syscall(SYSCALL_FSTATAT, AT_FDCWD, path, buf, 0);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
@@ -16,7 +16,7 @@ int stat(const char * __restrict path, struct stat * __restrict buf) {
 int fstat(int fd, struct stat * buf) {
     int ret = syscall(SYSCALL_FSTAT, fd, buf);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
@@ -25,7 +25,7 @@ int fstat(int fd, struct stat * buf) {
 int fstatat(int fd, const char * __restrict path, struct stat * __restrict buf, int flags) {
     int ret = syscall(SYSCALL_FSTATAT, fd, path, buf, flags);
     if (ret < 0) {
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;
@@ -34,7 +34,7 @@ int fstatat(int fd, const char * __restrict path, struct stat * __restrict buf, 
 mode_t umask(mode_t mask) {
     int ret = syscall(SYSCALL_UMASK);
     if (ret < 0) { // should never happen, but in case we want portability or smth
-        errno = -ret;
+        ___set_errno(-ret);
         return -1;
     }
     return ret;

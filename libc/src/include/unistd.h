@@ -66,6 +66,7 @@ pid_t gettid();
 pid_t getppid();
 
 pid_t getpgid(pid_t pid);
+pid_t getsid(pid_t pid);
 pid_t setsid();
 int   setpgid(pid_t pid, pid_t pgid);
 
@@ -73,7 +74,8 @@ unsigned sleep(unsigned seconds);
 unsigned alarm(unsigned seconds);
 int pause();
 
-long syscall(unsigned long syscall_number, ...);
+long syscall(unsigned long syscall_number, ...); // checks for pthread cancellability
+long _syscall(unsigned long syscall_number, ...); // doesn't
 
 void __attribute__((noreturn)) _exit(long exit_code);
 

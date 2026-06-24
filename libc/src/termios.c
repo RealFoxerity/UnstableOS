@@ -18,7 +18,7 @@ int tcsetattr(int fildes, int optional_actions, const struct termios *termios_p)
         case TCSAFLUSH:
             return ioctl(fildes, TCSETSF, termios_p);
         default:
-            errno = EINVAL;
+            ___set_errno(EINVAL);
             return -1;
     }
 }
@@ -50,7 +50,7 @@ int tcflow(int fildes, int action) {
         case TCION:
             return ioctl(fildes, TCXONC, action);
         default:
-            errno = EINVAL;
+            ___set_errno(EINVAL);
             return -1;
     }
 }
@@ -62,25 +62,25 @@ int tcflush(int fildes, int queue_selector) {
         case TCIOFLUSH:
             return ioctl(fildes, TCFLSH, queue_selector);
         default:
-            errno = EINVAL;
+            ___set_errno(EINVAL);
             return -1;
     }
 }
 
 int tcdrain(int fildes) {
     if (fildes < 0) {
-        errno = EBADF;
+        ___set_errno(EBADF);
     } else {
-        errno = ENOSYS;
+        ___set_errno(ENOSYS);
     }
     return -1;
 }
 
 int tcsendbreak(int fildes) {
     if (fildes < 0) {
-        errno = EBADF;
+        ___set_errno(EBADF);
     } else {
-        errno = ENOSYS;
+        ___set_errno(ENOSYS);
     }
     return -1;
 }
