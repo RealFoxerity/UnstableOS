@@ -66,7 +66,7 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
     memset(current_process->sa_pending_info, 0, sizeof(current_process->sa_pending_info));
     memset(current_process->sa_handlers, 0, sizeof(current_process->sa_handlers));
 
-    memset(&PROGRAM_PCB_VADDR->thread_slots, 0, PTHREAD_THREADS_MAX * sizeof(char));
+    memset(PROGRAM_PCB_VADDR->thread_slots, 0, PTHREAD_THREADS_MAX * sizeof(char));
 
     // we will destroy the current address space with this mapping, thus we need the paddr
     PAGE_DIRECTORY_TYPE * new_pd_paddr = paging_virt_addr_to_phys(new_prog.pd_vaddr);
@@ -129,11 +129,8 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
     current_thread->in_critical_section = 0;
 
     asm volatile ( // check the note in kernel_syscall.c
-        "mov %0, %%ds;"
-        "mov %0, %%es;"
-        "mov %0, %%fs;"
-        "mov %0, %%gs;"
-        "pushl %1\n\t" // save the new esp
+        "call fix_segments\n\t"
+        "pushl %0\n\t" // save the new esp
         "xor %%eax, %%eax\n\t" // zero out everything
         "xor %%ebx, %%ebx\n\t"
         "xor %%ecx, %%ecx\n\t"
@@ -141,8 +138,7 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
         "xor %%edi, %%edi\n\t"
         "xor %%esi, %%esi\n\t"
         "popl %%esp; iret;"
-        ::  "R"(new->context.iret_frame.ss),
-            "R"(target)
+        ::  "R"(target)
     );
     __builtin_unreachable();
 }

@@ -15,6 +15,8 @@
 #include <sys/wait.h>
 #include <pthread.h>
 
+#include "debug/backtrace.h"
+
 // all static functions assume locked scheduler
 // NEVER alter scheduler process lists with enabled interrupts on the same core, WILL DEADLOCK
 
@@ -48,6 +50,7 @@ __attribute__((naked)) void reschedule() {
 
 __attribute__((naked, noreturn)) void kernel_idle() { // loop to jump to when a thread is supposed to end
     asm volatile (
+        "sti\n\t"
         "loop:\n\t"
         "hlt; jmp loop"
     );
@@ -155,7 +158,7 @@ static inline void register_kernel_task(mcontext_t * context) {
     kernel_task->threads->kernel_stack = kernel_ts_stack_top;
     kernel_task->threads->kernel_stack_size = KERNEL_TS_STACK_SIZE;
 
-    kernel_task->address_space_paddr = paging_virt_addr_to_phys(KERNEL_ADDRESS_SPACE_VADDR);
+    kernel_task->address_space_paddr = kernel_address_space_paddr;
     kernel_task->threads->cr3_state = kernel_task->address_space_paddr;
 
     kernel_task->threads->status = SCHED_RUNNING;
@@ -202,7 +205,7 @@ static inline char scheduler_remove_process(process_t * process) {
     }
     if (process->threads != NULL) return 0;
 
-    paging_apply_address_space(paging_virt_addr_to_phys(KERNEL_ADDRESS_SPACE_VADDR));
+    paging_apply_address_space(kernel_address_space_paddr);
 
     PAGE_DIRECTORY_TYPE * mapped_as = paging_map_phys_addr_unspecified(process->address_space_paddr, PTE_PDE_PAGE_WRITABLE);
     paging_destroy_address_space(mapped_as);
@@ -267,6 +270,8 @@ static void inline switch_context(process_t * pprocess, thread_t * thread, mcont
         thread->context.esp = thread->kernel_stack - thread->kernel_stack_size;
         memcpy(thread->context.esp, &thread->context.iret_frame, sizeof(struct interr_frame));
     }
+    // hack to ensure stuff doesn't break accidentally
+    thread->context.iret_frame.flags |= IA_32_EFL_SYSTEM_INTER_EN;
 
     memcpy(context, &thread->context, sizeof(mcontext_t)-sizeof(struct interr_frame));
 
@@ -416,7 +421,11 @@ void schedule(mcontext_t * context) {
                     push_thread_to_end(checked_process, checked_thread);
 
                     paging_apply_address_space(checked_thread->cr3_state);
-                    if (checked_process->ring != 0) {
+
+                    if (checked_process->ring != 0 && // useless to do for the kernel
+                        checked_thread->cr3_state == checked_process->address_space_paddr && // see above
+                        paging_get_pte(checked_thread->tcb) != NULL // bug? either way, userspace's problem
+                    ) {
                         pthread_t thread_us = (pthread_t)checked_thread->tcb;
 
                         if (thread_us->__cancelable == PTHREAD_CANCEL_ENABLE &&
@@ -491,6 +500,8 @@ void schedule(mcontext_t * context) {
         }
     }
 
+    // strictly not necessary, but it's always good to not fuck with a different AS
+    paging_apply_address_space(kernel_address_space_paddr);
     switch_context(kernel_task, idle_task, context);
     spinlock_release(&scheduler_lock);
     current_process = kernel_task;

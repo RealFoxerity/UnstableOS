@@ -135,7 +135,7 @@ struct process_t {
         session;
 
     // these 2 can be manually checked, but are quicker to store as process metadata
-    unsigned long long pgrp_members; // 0 based, some functions (like setsid) throw EPERM on non-empty process groups
+    unsigned long pgrp_members; // 0 based, some functions (like setsid) throw EPERM on non-empty process groups
     char prgp_orphan; // process group loader died, some functions (like TCFLSH ioctl on ttys) throw EIO on orphans
 
     char after_exec; // some functions (like setpgid) throw EACCESS on child processes that underwent exec*()
