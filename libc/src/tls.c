@@ -1,5 +1,6 @@
 #include <UnstableOS/tls.h>
 #include <stddef.h>
+#include <stdint.h>
 
 struct thread_control_block * __tls_get_tcb() {
     uintptr_t __seg_gs * tcb_addr = NULL;

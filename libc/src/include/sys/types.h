@@ -22,8 +22,7 @@ typedef id_t uid_t;
 // unsigned short would be enough, however stdarg has undefined behavior for lesser types
 typedef unsigned int mode_t;
 
-#include <stdint.h>
-typedef int64_t off_t;
+typedef long long off_t;
 typedef off_t blkcnt_t;
 
 
