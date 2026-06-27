@@ -275,6 +275,18 @@ static void inline switch_context(process_t * pprocess, thread_t * thread, mcont
 
     memcpy(context, &thread->context, sizeof(mcontext_t)-sizeof(struct interr_frame));
 
+    // should be safe, fpe is raised on the *next* fp instruction
+    if (fxsave_available)
+        asm volatile(
+            "fxrstor %0"
+            ::"m"(thread->fpu_context)
+        );
+    else
+        asm volatile(
+            "frstor %0"
+            ::"m"(thread->fpu_context)
+        );
+
     set_gs_base(thread->tcb);
 
     reload_pcb(pprocess);
@@ -319,6 +331,22 @@ void schedule(mcontext_t * context) {
         } else {
             memcpy(&current_thread->context, context, sizeof(mcontext_t) - 2 * sizeof(void *));
         }
+
+        // eager fpu context save
+        // note: we should do FWAIT to insure the data is ready to be read
+        //       however, the schedule should take long enough for that to be true
+        //       + FWAIT would throw any potential FPEs
+        // this should be properly aligned assuming kalloc is 16 byte aligned
+        if (fxsave_available)
+            asm volatile(
+                "fxsave %0"
+                ::"m"(current_thread->fpu_context)
+            );
+        else
+            asm volatile(
+                "fnsave %0"
+                ::"m"(current_thread->fpu_context)
+            );
     }
     if (current_thread != NULL) current_thread->cr3_state = paging_get_address_space_paddr();
     //tss_set_stack(kernel_ts_stack_top); shouldn't be needed
@@ -329,7 +357,7 @@ void schedule(mcontext_t * context) {
     if (current_process != NULL && current_thread != NULL && current_thread->status == SCHED_RUNNING) {
         current_thread->status = SCHED_RUNNABLE;
         push_thread_to_end(current_process, current_thread);
-    } // status could've been set (eg by a syscall) to uninterruptable
+    } // status could've been set (eg by a syscall) to uninterruptible
 
     //scheduler_print_processes();
 

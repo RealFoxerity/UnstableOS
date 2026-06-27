@@ -170,7 +170,7 @@ void com_recv_byte(char com) { // called by interrupt
     }
     if (com_driver_thread == NULL) {
         spinlock_acquire(&scheduler_lock);
-        com_driver_thread = kernel_create_thread(kernel_task, (void (*)(void*))com_driver_loop, NULL, 0);
+        com_driver_thread = kernel_create_thread(kernel_task, current_thread, (void (*)(void*))com_driver_loop, NULL, 0);
         spinlock_release(&scheduler_lock);
     }
     // so that we can do interruptible spinlocks

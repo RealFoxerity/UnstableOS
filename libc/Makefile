@@ -1,7 +1,7 @@
 CC		:=i686-elf-gcc
 AS		:=i686-elf-as
 LD		:=i686-elf-ld
-CFLAGS	:=-ffreestanding -nostdlib -nodefaultlibs -DTARGET_I486 -Og -g -Isrc/include
+CFLAGS	:=-ffreestanding -nostdlib -nodefaultlibs -Og -g -Isrc/include -march=i486
 LDFLAGS	:=-T src/linker.ld -lgcc
 
 OBJS=$(shell find src/ -name "*.[cs]" | grep -vE "crt..s" | sed 's/[cs]$$/o/g') $(shell $(CC) --print-libgcc-file-name)

@@ -19,7 +19,15 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
     kassert(current_process->pid != 0 && current_process->ring != 0); // technically we could replace the kernel, but i'd rather not
 
     char * stack_state = NULL;
+    // the exec_safe_argv_dup isn't thread safe (primarily because of strcpy)
+    // this is a bandaid fix for it
+    // shouldn't be that bad performance-wise considering we only copy at max 16K
+    // though I assume we skip at least 2 ticks like this
+    // TODO: FIX!
+    spinlock_acquire(&scheduler_lock);
     ssize_t stack_state_sz = exec_safe_argv_dup(argv, envp, PROGRAM_STACK_VADDR, &stack_state);
+    spinlock_release(&scheduler_lock);
+
     if (stack_state_sz < 0) return stack_state_sz;
 
     int elf_fd = sys_openat(AT_FDCWD, path, O_RDONLY, 0);
@@ -92,7 +100,7 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
         current_process->semaphores[i] = NULL;
     }
 
-    thread_t * new = kernel_create_thread(current_process, new_prog.start, NULL, 0);
+    thread_t * new = kernel_create_thread(current_process, NULL, new_prog.start, NULL, 0);
     kassert(new);
     kassert(new->stack == PROGRAM_STACK_VADDR);
 
@@ -229,7 +237,7 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     __atomic_add_fetch(&proc->root->instances, 1, __ATOMIC_RELAXED);
 
 
-    thread_t * new_thread = kernel_create_thread(proc, new_prog.start, NULL, 0);
+    thread_t * new_thread = kernel_create_thread(proc, NULL, new_prog.start, NULL, 0);
     kassert(new_thread);
     kassert(new_thread->stack == PROGRAM_STACK_VADDR);
 

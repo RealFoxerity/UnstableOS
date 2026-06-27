@@ -30,6 +30,8 @@
 #include "pci/pci.h"
 #include "block/ata/ata.h"
 
+
+static char early_init = 1;
 // goes to 0 0 so that the scrolling of the panic message doesn't take forever
 #define KERNEL_PANIC_MSG "\e[H\e[0m\e[41m\n##############################\nKernel Panic:\n"
 void panic(char * reason) {
@@ -52,6 +54,8 @@ void panic(char * reason) {
     kprintf(KERNEL_PANIC_MSG);
     unwind_stack();
     kprintf("Reason: %s\n", reason); // SGR reset for serial consoles
+    if (early_init) goto hlt;
+
     kprintf("Trying to sync drive caches...\n");
     enable_interrupts();
     extern void hd_cache_flush();
@@ -59,6 +63,8 @@ void panic(char * reason) {
     kprintf("Synced; safe to reboot\n");
     disable_interrupts();
     //kalloc_print_heap_objects();
+
+    hlt:
     asm volatile (
         "cli\n\t"
         "hlt\n\t"
@@ -183,19 +189,16 @@ void kernel_print_cpu_info() {
         uint32_t full_brand_name[12 + 1] = {0}; // 48 ascii string, 1 to be null terminated
 
         asm volatile (
-            "mov %0, %%eax\n\t"
             "cpuid\n\t"
             :"=a"(full_brand_name[0]), "=b"(full_brand_name[1]), "=c"(full_brand_name[2]), "=d"(full_brand_name[3])
             :"a"(CPUID_VENDOR_FULL_1)
         );
         asm volatile (
-            "mov %0, %%eax\n\t"
             "cpuid\n\t"
             :"=a"(full_brand_name[4]), "=b"(full_brand_name[5]), "=c"(full_brand_name[6]), "=d"(full_brand_name[7])
             :"a"(CPUID_VENDOR_FULL_2)
         );
         asm volatile (
-            "mov %0, %%eax\n\t"
             "cpuid\n\t"
             :"=a"(full_brand_name[8]), "=b"(full_brand_name[9]), "=c"(full_brand_name[10]), "=d"(full_brand_name[11])
             :"a"(CPUID_VENDOR_FULL_3)
@@ -227,6 +230,58 @@ static void idle_func(void * _) {
     }
 }
 
+char mtrr_available   = 0;
+char pat_available    = 0;
+char fxsave_available = 0;
+
+
+static __attribute__((naked)) void enable_x87() {
+    asm volatile(
+        "movl %cr0, %eax;"
+        "orl $0x22, %eax;" // sets the MP and the NE bit
+        "andl $0xFFFFFFF3, %eax;" // clear the EM and TS bit
+        "movl %eax, %cr0;"
+        "fninit;"
+        "ret;"
+    );
+}
+
+static __attribute__((naked)) void enable_sse() {
+    asm volatile(
+        "movl %cr4, %eax;"
+        "orl $0x600, %eax;" // sets the OSFXSR and the OSXMMEXCPT bit
+        "movl %eax, %cr4;"
+        "ret;"
+    );
+}
+
+static void setup_features() {
+    // I would use __builtin_cpu_supports, but that doesn't check for x87
+    unsigned long supported_features = 0;
+    asm volatile (
+        "cpuid\n\t"
+        :"=d"(supported_features)
+        :"a"(CPUID_PROCESSOR_INFO_FEATURES)
+        :"ebx", "ecx"
+    );
+    if (!CPUID_1_FFLAGS_D_GET_FPU(supported_features))
+        panic("At least an Intel 486 with a builtin FPU is required to run this kernel!");
+    enable_x87();
+    if (CPUID_1_FFLAGS_D_GET_FXSR(supported_features))
+        fxsave_available = 1;
+    if (CPUID_1_FFLAGS_D_GET_MTRR(supported_features))
+        mtrr_available = 1;
+    if (CPUID_1_FFLAGS_D_GET_PAT(supported_features))
+        pat_available = 1;
+
+    if (CPUID_1_FFLAGS_D_GET_SSE(supported_features) && !fxsave_available)
+        kprintf("\e[91mWarning: SSE without FXSR is not a supported combination, won't setup SSE\e[0m\n");
+    if (CPUID_1_FFLAGS_D_GET_SSE2(supported_features) && !fxsave_available)
+        kprintf("\e[91mWarning: SSE2 without FXSR is not a supported combination, won't setup SSE2\e[0m\n");
+    if ((CPUID_1_FFLAGS_D_GET_SSE(supported_features) || CPUID_1_FFLAGS_D_GET_SSE2(supported_features)) &&
+        fxsave_available)
+            enable_sse();
+}
 
 void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     extern char is_klibc;
@@ -245,6 +300,8 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     kprintf("Running " KERNEL_VERSION ", compiled at "__TIMESTAMP__"\n");
 
     kernel_entry_addr_log();
+
+    setup_features();
 
     if (magic != MULTIBOOT_BOOTLOADER_MAGIC || !(mbd->flags & MULTIBOOT_INFO_MEM_MAP)) {
         kprintf("%p\n", mbd);
@@ -320,7 +377,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     enable_interrupts();
 
     scheduler_init();
-    idle_task         = kernel_create_thread(current_process, idle_func, NULL, 0);
+    idle_task         = kernel_create_thread(current_process, current_thread, idle_func, NULL, 0);
     idle_task->status = SCHED_UNINTERR_SLEEP;
 
     timer_init(0, 1000/KERNEL_TIMER_RESOLUTION_MSEC, TIMER_RATE); // kernel scheduler timer, also enables pic interrupts
@@ -350,6 +407,8 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
 
     extern void dev_initialize_static_devices();
     dev_initialize_static_devices();
+
+    early_init = 0;
 
     if (initrd_start + initrd_len > (void*)IDENT_MAPPING_MAX_ADDR)
         panic("initrd too large");
