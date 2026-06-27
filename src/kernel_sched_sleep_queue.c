@@ -88,7 +88,7 @@ void sleep_sched_tick() {
     if (sq->time_delta_usec <= RTC_TIME_RESOLUTION_USEC) {
         sleep_pop_thread();
     } else
-        __atomic_sub_fetch(&sq->time_delta_usec, RTC_TIME_RESOLUTION_USEC, __ATOMIC_RELAXED);
+        sq->time_delta_usec -= RTC_TIME_RESOLUTION_USEC;
 
     spinlock_release(&sleep_queue_lock);
 }

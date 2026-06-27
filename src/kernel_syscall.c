@@ -76,7 +76,7 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
         case SYSCALL_CREATE_THREAD:
             spinlock_acquire(&scheduler_lock);
             // theoretically don't have to check bounds since they would just cause a segmentation fault
-            thread_t * new = kernel_create_thread(current_process, (void*)arg1, (void*)arg2, arg3);
+            thread_t * new = kernel_create_thread(current_process, current_thread, (void*)arg1, (void*)arg2, arg3);
             if (!new)
                 return_value = 0;
             else

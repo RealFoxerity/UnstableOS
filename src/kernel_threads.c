@@ -17,13 +17,33 @@ static inline int get_thread_slot(process_t * parent_process) {
     return -1;
 }
 
+// fxsave
+static const unsigned short default_fx_context[] = {
+    0x37F, 0, // control and status word from fninit
+    0, // abridged ftw
+    0, 0, 0, 0, 0, 0, 0, 0, 0, // the rest of x87 context (ops and fips)
+    0x1F80, 0, // MXCSR - no flags, all SIMD exceptions masked as on poweron/reset
+    0xFFFF, 0x200, // MXCSR mask
+    // zeroed out ST/MM0 - ST/MM7
+    // zeroed out XMM0-XMM7
+};
+// fnsave
+static const unsigned short default_fn_context[] = {
+    0x37F, 0, // control word from fninit
+    0, 0, // status word
+    0xFFFF, 0, // x87 empty tag from fninit
+    0, 0, 0, 0, 0, 0, 0, 0 // empty pointers and ops as from fninit
+    // zeroed out ST0 - ST7
+};
+
 pid_t last_tid = 0;
-thread_t * kernel_create_thread(process_t * parent_process, void (* entry_point)(void*), void * arg, size_t stack_guard) {
+thread_t * kernel_create_thread(process_t * parent_process, thread_t * calling_thread, void (* entry_point)(void*), void * arg, size_t stack_guard) {
     if (stack_guard > PROGRAM_STACK_GUARD_MAX) return NULL;
     if (stack_guard == 0) stack_guard = PROGRAM_STACK_GUARD_DEFAULT;
 
     if (current_process == NULL) return NULL;
     if (kernel_task     == NULL) return NULL;
+    if (parent_process  == NULL) return NULL;
     //kprintf("create_thread_kernel(pid: %lu), free mem: %lu\n", parent_process->pid, pf_get_free_memory());
     if (pf_get_free_memory() < sizeof(thread_t)+PROGRAM_KERNEL_STACK_SIZE) panic("Not enough memory for thread creation");
 
@@ -47,6 +67,15 @@ thread_t * kernel_create_thread(process_t * parent_process, void (* entry_point)
     new->context.iret_frame.cs = parent_process->ring == 0 ? (GDT_KERNEL_CODE << 3) : ((GDT_USER_CODE << 3) | 3);
     new->context.iret_frame.flags = IA_32_EFL_ALWAYS_1 | IA_32_EFL_SYSTEM_INTER_EN;
     new->context.iret_frame.ip = entry_point;
+
+    if (calling_thread != NULL)
+        memcpy(new->fpu_context, calling_thread->fpu_context, sizeof(calling_thread->fpu_context));
+    else {
+        if (fxsave_available)
+            memcpy(new->fpu_context, default_fx_context, sizeof(default_fx_context));
+        else
+            memcpy(new->fpu_context, default_fn_context, sizeof(default_fn_context));
+    }
     new->cr3_state = parent_process->address_space_paddr;
 
     new->context.esp = new->kernel_stack - sizeof(struct interr_frame);

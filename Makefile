@@ -4,11 +4,11 @@ LD		:=i686-elf-ld
 
 # gnu has asm volatile instead of __asm
 CFLAGS	:=\
-	-ffreestanding -T src/linker.ld -nostdlib -nodefaultlibs -nostartfiles -O3 -g -std=gnu99 \
+	-ffreestanding -nostdlib -nodefaultlibs -nostartfiles -O3 -g -std=gnu99 \
 	-isystem src/include -isystem libc/src/include -isysroot . \
 	-Wall -Wno-unknown-pragmas -fno-strict-aliasing\
-	-fstack-protector
-LDFLAGS	:=-T src/linker.ld -lgcc
+	-fstack-protector -march=i486
+LDFLAGS	:=-T src/linker.ld libc/build/libc.a -lgcc
 
 OBJS=$(shell find src/ -name "*.[cs]" | sed 's/[cs]$$/o/g') $(shell $(CC) --print-libgcc-file-name)
 
@@ -16,7 +16,7 @@ OBJS=$(shell find src/ -name "*.[cs]" | sed 's/[cs]$$/o/g') $(shell $(CC) --prin
 all: kernel utils build/memdisk.tar build/hda.dd
 kernel: $(OBJS) libc
 	mkdir -p build
-	$(CC) $(CFLAGS) $(OBJS) libc/build/libc.a -o build/UnstableOS.bin
+	$(CC) $(CFLAGS) $(OBJS) -o build/UnstableOS.bin $(LDFLAGS)
 .PHONY: libc utils
 libc:
 	$(MAKE) -C libc

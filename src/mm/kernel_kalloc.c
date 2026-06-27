@@ -16,14 +16,14 @@ enum kalloc_flags {
     KALLOC_LAST_CHUNK = 4 // next_chunk = heap_top
 };
 
-#define KALLOC_ALIGNMENT sizeof(unsigned long)
+#define KALLOC_ALIGNMENT 16 // 16 for structures like the fpu state for fxsave and fxrstor
 
 struct heap_header { // aligning so that we try to avoid alignment check
     char magic[3];
     uint8_t flags;
     void * last_access; // who last performed free/alloc on this and related structures, useful when debugging
-    alignas(KALLOC_ALIGNMENT) struct heap_header * prev_chunk;
-    alignas(KALLOC_ALIGNMENT) struct heap_header * next_chunk;
+    struct heap_header * prev_chunk;
+    struct heap_header * next_chunk;
 };
 
 static void * kernel_heap_base = NULL;

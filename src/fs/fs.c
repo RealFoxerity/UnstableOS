@@ -178,7 +178,16 @@ ssize_t read_file(file_descriptor_t *file, void *buf, size_t count) {
     if (ret < 0 || S_ISFIFO(file->inode->mode) || S_ISCHR(file->inode->mode)) return ret;
 
     old_off += ret;
-    __atomic_store_n(&file->off, old_off, __ATOMIC_RELAXED);
+
+    // this would be lockless,
+    // but since off_t is ull,
+    // this requires a cmpxchg8b,
+    // which is unfortunately from i586 onwards
+    // __atomic_store_n(&file->off, old_off, __ATOMIC_RELAXED);
+
+    rw_spinlock_acquire_write(&file->access_lock);
+    file->off = old_off;
+    rw_spinlock_release_write(&file->access_lock);
     return ret;
 }
 
@@ -248,7 +257,11 @@ ssize_t write_file(file_descriptor_t *file, const void *buf, size_t count) {
     if (ret < 0 || S_ISFIFO(file->inode->mode) || S_ISCHR(file->inode->mode)) return ret;
 
     old_off += ret;
-    __atomic_store_n(&file->off, old_off, __ATOMIC_RELAXED);
+    // see comment in read_file
+    // __atomic_store_n(&file->off, old_off, __ATOMIC_RELAXED);
+    rw_spinlock_acquire_write(&file->access_lock);
+    file->off = old_off;
+    rw_spinlock_release_write(&file->access_lock);
     return ret;
 }
 
@@ -410,9 +423,11 @@ ssize_t sys_readdir(int fd, struct dirent * dent, size_t dent_size) {
 
     if (!file->inode->backing_superblock->funcs->readdir) return -EINVAL;
 
-    rw_spinlock_acquire_read(&file->access_lock);
+    // can't lock because i486 doesn't have 64 bit atomics,
+    // requiring us to lock writable inside readdir for setting offset
+    //rw_spinlock_acquire_read(&file->access_lock);
     ssize_t ret = file->inode->backing_superblock->funcs->readdir(file, dent, dent_size, file->off);
-    rw_spinlock_release_read(&file->access_lock);
+    //rw_spinlock_release_read(&file->access_lock);
 
     return ret;
 }

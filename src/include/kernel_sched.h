@@ -5,6 +5,8 @@
 #include <time.h>
 #include <signal.h>
 #include <limits.h>
+#include <stdalign.h>
+
 #include "kernel_interrupts.h"
 #include "kernel_spinlock.h"
 #include "mm/kernel_memory.h"
@@ -83,6 +85,10 @@ struct thread_t {
         mcontext_t context;
         v86_mcontext_t v86_context;
     };
+
+    // either for fxsave and fxrstor (full 512 bytes, incl sse and mmx)
+    // or for fsave and frstor (max 108 bytes, x87 only)
+    alignas(16) unsigned char fpu_context[512];
 
     pstatus_t status;
 
@@ -239,7 +245,8 @@ char kernel_destroy_thread(process_t * parent_process, thread_t * thread);
 // stack guard is the number of bytes (rounded up to pages) that will be unmapped at the stack bottom
 // to prevent stack overflows into another thread
 // only applies to userspace, kernel space threads ignore this
-thread_t * kernel_create_thread(process_t * parent_process, void (* entry_point)(void*), void * arg, size_t stack_guard);
+// specifying calling thread copies its FPU (and mmx/sse/sse2) state
+thread_t * kernel_create_thread(process_t * parent_process, thread_t * calling_thread, void (* entry_point)(void*), void * arg, size_t stack_guard);
 
 extern process_t * process_list;
 extern process_t * zombie_list;

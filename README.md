@@ -93,7 +93,7 @@ see [caveats.md](./caveats.md) for info
 - [ ] implement controlling terminal allocation
 - [x] errno in userspace instead of returning negative numbers
 - [ ] scheduler priorities?
-- [ ] any form of fpu
+- [x] any form of fpu - currently supported: x87, MMX, SSE, SSE2
 - [x] PCI
 - [ ] ACPI
 - [ ] Ethernet (ne2000)

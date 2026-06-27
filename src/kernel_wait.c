@@ -111,8 +111,13 @@ pid_t sys_waitpid(pid_t pid, int * wstatus, int options) {
     pid_t child_pid = child->pid;
 
     if (child->do_cleanup) {
-        __atomic_add_fetch(&current_process->dead_user_clicks, child->user_clicks, __ATOMIC_RELAXED);
-        __atomic_add_fetch(&current_process->dead_system_clicks, child->system_clicks, __ATOMIC_RELAXED);
+        // clock_t is a 64 bit type, this required cmpxchg8b, not available on i486
+        // __atomic_add_fetch(&current_process->dead_user_clicks, child->user_clicks, __ATOMIC_RELAXED);
+        // __atomic_add_fetch(&current_process->dead_system_clicks, child->system_clicks, __ATOMIC_RELAXED);
+        spinlock_acquire(&current_process->lock);
+        current_process->dead_user_clicks += child->user_clicks;
+        current_process->dead_system_clicks += child->system_clicks;
+        spinlock_release(&current_process->lock);
     }
 
     if (!found_in_process_list) {
@@ -240,8 +245,13 @@ int sys_waitid(idtype_t idtype, id_t id, siginfo_t * infop, int options) {
         child->pending_waiting = 0;
 
     if (child->do_cleanup) {
-        __atomic_add_fetch(&current_process->dead_user_clicks, child->user_clicks, __ATOMIC_RELAXED);
-        __atomic_add_fetch(&current_process->dead_system_clicks, child->system_clicks, __ATOMIC_RELAXED);
+        // clock_t is a 64 bit type, this required cmpxchg8b, not available on i486
+        // __atomic_add_fetch(&current_process->dead_user_clicks, child->user_clicks, __ATOMIC_RELAXED);
+        // __atomic_add_fetch(&current_process->dead_system_clicks, child->system_clicks, __ATOMIC_RELAXED);
+        spinlock_acquire(&current_process->lock);
+        current_process->dead_user_clicks += child->user_clicks;
+        current_process->dead_system_clicks += child->system_clicks;
+        spinlock_release(&current_process->lock);
     }
 
     *infop = child->pending_sigchld_info;

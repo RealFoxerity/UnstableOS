@@ -25,34 +25,40 @@
 #define IA_32_EFL_CPUID 0x200000 // can be changed = CPUID instruction is available
 
 
-#define CPUID_1_GET_FAMILY(x) ((x>>8)&0xFF)
-#define CPUID_1_GET_EXT_FAMILY(x) ((x>>20)&0xFFFF)
-#define CPUID_1_GET_MODEL(x) ((x>>4)&0x0F)
-#define CPUID_1_GET_EXT_MODEL(x) ((x>>16)&0x0F)
-#define CPUID_1_GET_TYPE(x) ((x>>12)&3)
-#define CPUID_1_GET_STEPPING(x) (x&0x0F)
-#define CPUID_1_GET_ADD_LOGICAL_PROC(x) ((x>>16) & 0xFF)
+#define CPUID_1_GET_FAMILY(x)       (((x)>>8)&0xFF)
+#define CPUID_1_GET_EXT_FAMILY(x)   (((x)>>20)&0xFFFF)
+#define CPUID_1_GET_MODEL(x)        (((x)>>4)&0x0F)
+#define CPUID_1_GET_EXT_MODEL(x)    (((x)>>16)&0x0F)
+#define CPUID_1_GET_TYPE(x)         (((x)>>12)&3)
+#define CPUID_1_GET_STEPPING(x)     ((x)&0x0F)
+#define CPUID_1_GET_ADD_LOGICAL_PROC(x) (((x)>>16) & 0xFF)
 
 
-#define CPUID_1_FFLAGS_D_GET_FPU(x) (x&1)
-#define CPUID_1_FFLAGS_D_GET_VME(x) ((x>>1)&1) // vm8086 extensions
-#define CPUID_1_FFLAGS_D_GET_DE(x) ((x>>2)&1) // debugging extensions
-#define CPUID_1_FFLAGS_D_GET_PSE(x) ((x>>3)&1) // supports 4M pages
-#define CPUID_1_FFLAGS_D_GET_TSC(x) ((x>>4)&1) // time stamp counter and RDTSC
-#define CPUID_1_FFLAGS_D_GET_MSR(x) ((x>>5)&1) // RDMSR and WRMSR
-#define CPUID_1_FFLAGS_D_GET_PAE(x) ((x>>6)&1)
-#define CPUID_1_FFLAGS_D_GET_MCE(x) ((x>>7)&1) // machine check exception
-#define CPUID_1_FFLAGS_D_GET_CX8(x) ((x>>8)&1) // CMPXCHG8B
-#define CPUID_1_FFLAGS_D_GET_APIC(x) ((x>>9)&1) // contains onboard apic
-#define CPUID_1_FFLAGS_D_GET_SEP(x) ((x>>11)&1) // has sysenter/sysexit
-#define CPUID_1_FFLAGS_D_GET_ACPI(x) ((x>>22)&1) // Onboard thermal control MSRs for ACPI
-#define CPUID_1_FFLAGS_D_GET_HTT(x) ((x>>28)&1) // "Max APIC IDs reserved field is Valid" (hyperthreading is enabled)
+#define CPUID_1_FFLAGS_D_GET_FPU(x)  ((x)&1)
+#define CPUID_1_FFLAGS_D_GET_VME(x)  (((x)>>1)&1) // vm8086 extensions
+#define CPUID_1_FFLAGS_D_GET_DE(x)   (((x)>>2)&1) // debugging extensions
+#define CPUID_1_FFLAGS_D_GET_PSE(x)  (((x)>>3)&1) // supports 4M pages
+#define CPUID_1_FFLAGS_D_GET_TSC(x)  (((x)>>4)&1) // time stamp counter and RDTSC
+#define CPUID_1_FFLAGS_D_GET_MSR(x)  (((x)>>5)&1) // RDMSR and WRMSR
+#define CPUID_1_FFLAGS_D_GET_PAE(x)  (((x)>>6)&1)
+#define CPUID_1_FFLAGS_D_GET_MCE(x)  (((x)>>7)&1) // machine check exception
+#define CPUID_1_FFLAGS_D_GET_CX8(x)  (((x)>>8)&1) // CMPXCHG8B
+#define CPUID_1_FFLAGS_D_GET_APIC(x) (((x)>>9)&1) // contains onboard apic
+#define CPUID_1_FFLAGS_D_GET_SEP(x)  (((x)>>11)&1) // has sysenter/sysexit
+#define CPUID_1_FFLAGS_D_GET_MTRR(x) (((x)>>12)&1) // memory type range register
+#define CPUID_1_FFLAGS_D_GET_PAT(x)  (((x)>>16)&1) // MTRR in 4K linear granularity
+#define CPUID_1_FFLAGS_D_GET_ACPI(x) (((x)>>22)&1) // Onboard thermal control MSRs for ACPI
+#define CPUID_1_FFLAGS_D_GET_MMX(x)  (((x)>>23)&1)
+#define CPUID_1_FFLAGS_D_GET_FXSR(x) (((x)>>24)&1) // extended floating point context save
+#define CPUID_1_FFLAGS_D_GET_SSE(x)  (((x)>>25)&1) // streaming simd extension
+#define CPUID_1_FFLAGS_D_GET_SSE2(x) (((x)>>26)&1) // streaming simd extension 2
+#define CPUID_1_FFLAGS_D_GET_HTT(x)  (((x)>>28)&1) // "Max APIC IDs reserved field is Valid" (hyperthreading is enabled)
 
 
-#define CPUID_1_FFLAGS_C_GET_VMX(x) ((x>>5)&1)
-#define CPUID_1_FFLAGS_C_GET_TM2(x) ((x>>8)&1) // supports thermal monitor 2
-#define CPUID_1_FFLAGS_C_GET_X2APIC(x) ((x>>21)&1)
-#define CPUID_1_FFLAGS_C_GET_HYPERVISOR(x) ((x>>31)&1) // hypervisor present
+#define CPUID_1_FFLAGS_C_GET_VMX(x) (((x)>>5)&1)
+#define CPUID_1_FFLAGS_C_GET_TM2(x) (((x)>>8)&1) // supports thermal monitor 2
+#define CPUID_1_FFLAGS_C_GET_X2APIC(x) (((x)>>21)&1)
+#define CPUID_1_FFLAGS_C_GET_HYPERVISOR(x) (((x)>>31)&1) // hypervisor present
 
 enum cpuid_funcs {
     CPUID_VENDOR_ID = 0,
@@ -74,7 +80,7 @@ enum cpuid_funcs {
 #define V86_FAR_SEG(laddr) (((laddr) >> 4) & 0xF000)
 #define V86_FAR_OFF(laddr) ((laddr) & X86_SEGMENT_SIZE)
 
-#define V86_FAR_MAKE(seg, off) (((seg) << 16) | off)
+#define V86_FAR_MAKE(seg, off) (((seg) << 16) | (off))
 // x86 achieved 20 bits of addressing by <<4 of the segment and using that as the base
 #define V86_FAR2LIN(seg, off) ((void *)(((unsigned long)(seg) & 0xFFFF) << 4) + ((unsigned long)(off) & 0xFFFF))
 
@@ -91,4 +97,8 @@ uint32_t inl(uint16_t port);
 void io_wait();
 
 char is_cpuid_supported();
+
+extern char mtrr_available;
+extern char pat_available;
+extern char fxsave_available;
 #endif
