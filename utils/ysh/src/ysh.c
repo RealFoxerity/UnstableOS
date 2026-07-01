@@ -46,6 +46,7 @@ int main(int argc, char ** argv) {
     while(1) {
         memset(input_buf, 0, MAX_INPUT_BUFFER);
         printf("> ");
+        fflush(stdout);
         read_bytes = read(0, input_buf, MAX_INPUT_BUFFER - 1);
         if (read_bytes == -1 && errno == EINTR) continue; // ctrl+c input cancel
         if (read_bytes < 0) {

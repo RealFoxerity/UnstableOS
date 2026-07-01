@@ -109,7 +109,8 @@ void print_interr_frame(struct interr_frame * interr_frame) {
 }
 
 void divide_error_handler(mcontext_t * ctx) {
-    kprintf("\n\n\e[0m\e[41m#### ISR: FPE caught! ####\e[0m\n\n");
+    kprintf("\n\e[0m\e[41m\n#### ISR: FPE caught! ####\n\n");
+    print_interr_frame(&ctx->iret_frame);
     unwind_stack_vaddr(*(void**)__builtin_frame_address(0));
 
     memcpy(&current_thread->context, ctx, sizeof(mcontext_t) - (ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *));

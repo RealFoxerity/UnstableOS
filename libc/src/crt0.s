@@ -19,5 +19,5 @@ _start:
 
     call main
     pushl %eax
-    call _exit
+    call exit
 .size _start, . - _start

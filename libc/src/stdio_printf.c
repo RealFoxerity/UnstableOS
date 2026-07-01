@@ -10,10 +10,7 @@
 
 #define PRINTF_MAX_FORMAT_OUT 128 // assuming no format is going to produce longer text than 32 chars
 
-
-char fmt_buf[PRINTF_MAX_FORMAT_OUT];
-
-size_t fmt_handler_printf(const char * s, va_list * args) { // caller has to call va_arg themselves!
+size_t fmt_handler_printf(char * fmt_buf, const char * s, va_list * args) { // caller has to call va_arg themselves!
     int padding = 0;
     int precision = 0; // currently zeroes integers
     const char * temp_ptr;
@@ -176,34 +173,40 @@ size_t fmt_handler_printf(const char * s, va_list * args) { // caller has to cal
     return padding_delta+1;
 }
 
-void __attribute__((format(printf, 1, 2))) printf(const char * format, ...) {
+int __attribute__((format(printf, 1, 2))) printf(const char * format, ...) {
     va_list args;
     va_start(args, format);
-    vfprintf(STDOUT_FILENO, format, args);
+    int ret = vfprintf(stdout, format, args);
     va_end(args);
+    return ret;
 }
-void __attribute__((format(printf, 2, 3))) fprintf(int fd, const char * format, ...) {
+int __attribute__((format(printf, 2, 3))) fprintf(FILE * restrict stream, const char * restrict format, ...) {
     va_list args;
     va_start(args, format);
-    vfprintf(fd, format, args);
+    int ret = vfprintf(stream, format, args);
     va_end(args);
-}
-
-void __attribute__((format(printf, 2, 3))) sprintf(char * s, const char * format, ...) {
-    va_list args;
-    va_start(args, format);
-    vsprintf(s, format, args);
-    va_end(args);
+    return ret;
 }
 
-void __attribute__((format(printf, 3, 4))) snprintf(char * s, size_t size, const char * format, ...) {
+int __attribute__((format(printf, 2, 3))) sprintf(char * restrict s, const char * restrict format, ...) {
     va_list args;
     va_start(args, format);
-    vsprintf(s, format, args);
+    int ret = vsprintf(s, format, args);
     va_end(args);
+    return ret;
 }
 
-void vsprintf(char * s, const char * format, va_list args) {
+int __attribute__((format(printf, 3, 4))) snprintf(char * restrict s, size_t size, const char * restrict format, ...) {
+    va_list args;
+    va_start(args, format);
+    int ret = vsnprintf(s, size, format, args);
+    va_end(args);
+    return ret;
+}
+
+int vsprintf(char * restrict s, const char * restrict format, va_list args) {
+    char fmt_buf[PRINTF_MAX_FORMAT_OUT];
+
     const char * next_percent = strchrnul(format, '%');
 
     size_t off = 0;
@@ -220,7 +223,7 @@ void vsprintf(char * s, const char * format, va_list args) {
             off += strlen(temp_ptr);
             i++;
         } else {
-            size_t inc = fmt_handler_printf(i, &args);
+            size_t inc = fmt_handler_printf(fmt_buf, i, &args);
             i += inc;
 
             memcpy(s+off, fmt_buf, strlen(fmt_buf));
@@ -235,9 +238,12 @@ void vsprintf(char * s, const char * format, va_list args) {
         i = next_percent;
     }
     s[off] = '\0';
+    return (int)off;
 }
 
-void vsnprintf(char * s, size_t size, const char * format, va_list args) {
+int vsnprintf(char * restrict s, size_t size, const char * restrict format, va_list args) {
+    char fmt_buf[PRINTF_MAX_FORMAT_OUT];
+
     const char * next_percent = strchrnul(format, '%');
     size --; // to do s[size] for \0
 
@@ -245,7 +251,7 @@ void vsnprintf(char * s, size_t size, const char * format, va_list args) {
     if (next_percent-format >= size) {
         memcpy(s+off, format, size);
         s[size] = '\0';
-        return;
+        return (int)size;
     }
 
     memcpy(s+off, format, next_percent-format);
@@ -260,19 +266,19 @@ void vsnprintf(char * s, size_t size, const char * format, va_list args) {
             if (off + strlen(temp_ptr) >= size) {
                 memcpy(s+off, temp_ptr, size - off);
                 s[size] = '\0';
-                return;
+                return (int)size;
             }
             memcpy(s+off, temp_ptr, strlen(temp_ptr));
             off += strlen(temp_ptr);
             i++;
         } else {
-            size_t inc = fmt_handler_printf(i, &args);
+            size_t inc = fmt_handler_printf(fmt_buf, i, &args);
             i += inc;
 
             if (off + strlen(fmt_buf) >= size) {
                 memcpy(s+off, fmt_buf, size - off);
                 s[size] = '\0';
-                return;
+                return (int)size;
             }
 
             memcpy(s+off, fmt_buf, strlen(fmt_buf));
@@ -284,7 +290,7 @@ void vsnprintf(char * s, size_t size, const char * format, va_list args) {
         if (off + next_percent-i >= size) {
             memcpy(s+off, i, size - off);
             s[size] = '\0';
-            return;
+            return (int)size;
         }
         memcpy(s+off, i, next_percent-i);
         off += next_percent-i;
@@ -292,31 +298,58 @@ void vsnprintf(char * s, size_t size, const char * format, va_list args) {
         i = next_percent;
     }
     s[off] = '\0';
+    return (int)off;
 }
 
 
-void vfprintf(int fd, const char * format, va_list args) {
+int vfprintf(FILE * restrict stream, const char * restrict format, va_list args) {
+    char fmt_buf[PRINTF_MAX_FORMAT_OUT];
+
     const char * next_percent = strchrnul(format, '%');
 
-    write(fd, format, next_percent-format);
+    int total_written = 0;
+    size_t written = -1;
+    written = fwrite(format, 1, next_percent-format, stream);
+    total_written += (int)written;
+    if (written < next_percent-format)
+        return total_written;
 
     const char * temp_ptr;
+    size_t len = 0;
     for (const char * i = next_percent; i < format + strlen(format); ) {
         i++; // character immediately following the %
 
         if (*i == 's') {
             temp_ptr = va_arg(args, const char *);
-            write(fd, temp_ptr, strlen(temp_ptr));
+            len = strlen(temp_ptr);
+            written = fwrite(temp_ptr, 1, len, stream);
+            if (written == -1)
+                return total_written;
+            total_written += (int)written;
+            if (written < len)
+                return total_written;
             i++;
         } else {
-            size_t inc = fmt_handler_printf(i, &args);
+            size_t inc = fmt_handler_printf(fmt_buf, i, &args);
             i += inc;
 
-            write(fd, fmt_buf, strlen(fmt_buf));
+            len = strlen(fmt_buf);
+            written = fwrite(fmt_buf, 1, strlen(fmt_buf), stream);
+            if (written == -1)
+                return total_written;
+            total_written += (int)written;
+            if (written < len)
+                return total_written;
         }
 
         next_percent = strchrnul(i, '%');
-        write(fd, i, next_percent-i);
+        written = fwrite(i, 1, next_percent-i, stream);
+        if (written == -1)
+            return total_written;
+        total_written += (int)written;
+        if (written < next_percent-i)
+            return total_written;
         i = next_percent;
     }
+    return total_written;
 }

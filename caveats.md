@@ -1,15 +1,12 @@
 ###  Known bugs
 ---
 - broken RTC 12 hr mode time reading on certain platforms
-- scanf() consumes \n
 - there is no check if pid exists or not, multiple issues with pid wraparound
 - multiple issues with instance fields wraparound in numerous structures
 - race can overflow a semaphore's value (unsigned long) back to 0
 - race can _maybe_ cause an incorrect EOWNERDEAD and inconsistent mutex in pthread_mutex_trylock()
 ### Known issues/quirks
 ---
-- very unwieldy way of handling userspace thread creation
-- Very slow scanf() implementation
 - almost all cases of out of memory are currently handled by kernel panic
 - `fork()` (intentionally) doesn't copy any other stack than the calling thread's (which can lead to lost argc/argv/environ)
 - userspace `readdir()` is not thread-safe (POSIX doesn't specify whether it has to be)
