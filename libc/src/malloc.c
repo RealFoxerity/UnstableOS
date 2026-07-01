@@ -39,7 +39,7 @@ void malloc_prepare(void * heap_struct_start, void * heap_top) { // don't call m
     memcpy(((struct malloc_heap_header*)heap_struct_start)->magic, MALLOC_MAGIC, 3);
 }
 
-void * __attribute__((malloc, malloc(free))) malloc(size_t size) {
+void * __attribute__((malloc, malloc(free), weak)) malloc(size_t size) {
     pthread_mutex_lock(&allocator_mutex);
     if (size % MALLOC_ALIGNMENT != 0) size = size + MALLOC_ALIGNMENT - size%MALLOC_ALIGNMENT;
 
@@ -87,7 +87,7 @@ void * __attribute__((malloc, malloc(free))) calloc(size_t nelem, size_t elsize)
     memset(ret, 0, nelem*elsize);
     return ret;
 }
-void free(void * p) {
+void __attribute__((weak)) free(void * p) {
     if (p == NULL) return;
     pthread_mutex_lock(&allocator_mutex);
     struct malloc_heap_header * current_heap_object = (struct malloc_heap_header * ) (p - sizeof(struct malloc_heap_header));
@@ -149,7 +149,7 @@ void free(void * p) {
     pthread_mutex_unlock(&allocator_mutex);
 }
 
-void * realloc(void * p, size_t size) {
+void * __attribute__((weak)) realloc(void * p, size_t size) {
     if (size == 0) {
         free(p);
         return NULL;

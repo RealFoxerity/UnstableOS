@@ -460,7 +460,13 @@ ssize_t tarfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_
             memcpy(&dent->d_name, this->path_fragment, strlen(this->path_fragment) + 1);
     }
     offset++;
-    __atomic_store_n(&fd->off, offset, __ATOMIC_RELAXED);
+    // once again, fd->off is unsigned long long - 64 bits
+    // this atomic requires cmpxchg8b, which is not on i486
+    // first was i586
+    // __atomic_store_n(&fd->off, offset, __ATOMIC_RELAXED);
+    rw_spinlock_acquire_write(&fd->access_lock);
+    fd->off = offset;
+    rw_spinlock_release_write(&fd->access_lock);
     return dent->d_reclen;
 }
 

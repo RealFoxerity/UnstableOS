@@ -59,12 +59,12 @@ void kprintf_write(const char * buf, size_t count) { // TODO: rewrite, this is h
     }
 }
 
-extern char fmt_buf[PRINTF_MAX_FORMAT_OUT];
-
-extern size_t fmt_handler_printf(const char * s, va_list * args);
+extern size_t fmt_handler_printf(char * fmt_buf, const char * s, va_list * args);
 
 
 void __attribute__((format(printf, 1, 2))) kprintf(const char * format, ...) {
+    char fmt_buf[PRINTF_MAX_FORMAT_OUT];
+
     va_list args;
     va_start(args, format);
 
@@ -81,7 +81,7 @@ void __attribute__((format(printf, 1, 2))) kprintf(const char * format, ...) {
             kprintf_write(temp_ptr, strlen(temp_ptr));
             i++;
         } else {
-            size_t inc = fmt_handler_printf(i, &args);
+            size_t inc = fmt_handler_printf(fmt_buf, i, &args);
             i += inc;
 
             kprintf_write(fmt_buf, strlen(fmt_buf));

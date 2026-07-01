@@ -30,7 +30,9 @@ union mutex_owner { // keep the same as in types.h, needed for cmpxchg
 };
 
 #define PTHREAD_SPINAMOUNT 1000
+extern char is_klibc;
 int pthread_mutex_lock(pthread_mutex_t *mutex) {
+    if (is_klibc) return 0;
     int error = pthread_mutex_trylock(mutex);
     switch (error) {
         case 0:
@@ -82,6 +84,7 @@ int pthread_mutex_lock(pthread_mutex_t *mutex) {
 
 // TODO: i guess rewrite when futex robust lists?
 int pthread_mutex_trylock(pthread_mutex_t *mutex) {
+    if (is_klibc) return 0;
     if (mutex == NULL)
         return EINVAL;
 
@@ -161,6 +164,7 @@ int pthread_mutex_trylock(pthread_mutex_t *mutex) {
     return EBUSY;
 }
 int pthread_mutex_unlock(pthread_mutex_t *mutex) {
+    if (is_klibc) return 0;
     if (mutex == NULL)
         return EINVAL;
 

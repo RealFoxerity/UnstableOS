@@ -6,12 +6,9 @@
 #define STDERR_FILENO 2
 
 #include <stdint.h>
+#include <stdio.h>
 
 #include <sys/types.h>
-
-#define SEEK_SET 0
-#define SEEK_CUR 1
-#define SEEK_END 2
 
 // if ICANON, putting this value into control chars disables the function
 // why is this here? wouldn't it make more sense to have it in termios.h?

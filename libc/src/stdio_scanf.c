@@ -1,22 +1,25 @@
-#include "include/ctype.h"
-#include "include/stdio.h"
-#include "include/stdlib.h"
-#include "../../src/include/errno.h"
-#include "include/unistd.h"
+#include <ctype.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <unistd.h>
 #include <stdarg.h>
 
+#include <string.h>
+#include <pthread.h>
+#include <assert.h>
 int __attribute__((format(scanf, 1, 2))) scanf(const char * restrict format, ...) {
     va_list args;
     va_start(args, format);
-    int ret =  vscanf(format, args);
+    int ret = vscanf(format, args);
     va_end(args);
     return ret;
 }
 
-int __attribute__((format(scanf, 2, 3))) fscanf(int fd, const char * restrict format, ...) {
+int __attribute__((format(scanf, 2, 3))) fscanf(FILE * restrict stream, const char * restrict format, ...) {
     va_list args;
     va_start(args, format);
-    int ret = vfscanf(fd, format, args);
+    int ret = vfscanf(stream, format, args);
     va_end(args);
     return ret;
 }
@@ -28,166 +31,219 @@ int __attribute__((format(scanf, 2, 3))) sscanf(const char * restrict s, const c
     va_end(args);
     return ret;
 }
-int vscanf(const char * restrict format, va_list args) {return vfscanf(STDIN_FILENO, format, args);}
+int vscanf(const char * restrict format, va_list args) {return vfscanf(stdin, format, args);}
 
 
-#define VFSCANF_MAX_STRING 4096
-int vfscanf(int fd, const char * restrict format, va_list args) {
-    // TODO: do properly, i'm way too lazy :P
-    // TODO: scanf should leave \n in the recv buffer - not consume it
-    // and my barely functioning implementation just consumes it as a side effect of calling read()
-    // TODO: increase max string, maybe chunk it and iterate args list?
-
-    char * buf = malloc(VFSCANF_MAX_STRING);
-    if (buf == NULL) {
-        ___set_errno(ENOMEM);
-        return -1;
+#define MAX_INT_LEN 32 // more than enough to represent the longest possible uint64
+long long stroll_stdio(FILE * stream, unsigned char base, char * success) {
+    char input[MAX_INT_LEN] = {0};
+    for (int i = 0; i < MAX_INT_LEN; i++) {
+        int c = fgetc(stream);
+        if (c == EOF && i == 0)
+            return *success = 0;
+        if (c == EOF)
+            break;
+        if (c != '+' && c != '-' && !isdigit((char)c)) {
+            if (!(base == 16 && tolower((char)c) >= 'a' && tolower((char)c) <= 'f')) {
+                ungetc(c, stream);
+                break;
+            }
+        }
+        input[i] = (char)c;
     }
 
-    size_t read_bytes = read(fd, buf, VFSCANF_MAX_STRING-1);
-    if (read_bytes < 0) {
-        free(buf);
-        ___set_errno(EBADF);
-        return -1;
-    }
-
-    buf[read_bytes] = '\0';
-
-    int ret = vsscanf(buf, format, args);
-
-    free(buf);
-
-    return ret;
+    long long out = strtoll(input, NULL, base);
+    *success = 1;
+    return out;
 }
 
-int vsscanf(const char * restrict s, const char * restrict format, va_list args) {
-    // TODO: maybe EINVAL is not the best option?
-    size_t soff = 0;
+static int vfscanf_unlocked(FILE * restrict stream, const char * restrict format, va_list args) {
     int matched_args = 0;
 
-    char * conv_end = NULL; // for stuff like strtoll
+    char conv_success = 0;
+
 
     for (size_t i = 0; format[i] != '\0'; i++) {
-        conv_end = NULL;
+        int c = EOF;
+
         if (isspace(format[i])) {
-            while (isspace(s[++soff]));
+            while (isspace((char)(c = fgetc(stream)))) {}
+            if (c == EOF || ungetc(c, stream) != c)
+                return (matched_args == 0 || ferror(stream)) ? EOF : matched_args;
             continue;
         }
 
         void * temp = NULL;
+
         if (format[i] == '%') {
+            long long temp_int = 0;
+            unsigned long long temp_ull = 0;
+
             i++;
             if (format[i] == '%') { // literal %
-                if (s[soff] != '%') return matched_args;
-                soff++;
+                if ((c = fgetc(stream) != '%')) {
+                    ungetc(c, stream);
+                    return (matched_args == 0 || ferror(stream)) ? EOF : matched_args;
+                }
                 continue;
             }
+
+            while (isspace((char)(c = fgetc(stream)))) {}
+            if (c == EOF || ungetc(c, stream) != c)
+                return (matched_args == 0 || ferror(stream)) ? EOF : matched_args;
 
             temp = va_arg(args, unsigned long *);
             if (temp == NULL) {
                 ___set_errno(EINVAL);
-                return -1;
+                return matched_args == 0 ? EOF : matched_args;
             }
 
             switch (format[i]) {
                 case 'c': // char
-                    *(char *)temp = s[soff];
-                    soff++;
+                    c = fgetc(stream);
+                    if (c == EOF)
+                        return (matched_args == 0 || ferror(stream)) ? EOF : matched_args;
+                    *(char *)temp = (char)c;
                     break;
                 case 's': // string, not secure!
-                    for (char * j = temp; !isspace(s[soff]) && s[soff] != '\0'; soff++, j++) *j = s[soff];
+                    for (char * j = temp; !isspace((char)(c = fgetc(stream))) && c != '\0'; j++) *j = (char)c;
+                    if (c == EOF || ungetc(c, stream) != c)
+                        return (matched_args == 0 || ferror(stream)) ? EOF : matched_args;
                     break;
                 case 'h': // short
                     i++;
                     switch (format[i]) {
                         case 'd':
-                            *(short*)temp = strtol(s + soff, &conv_end, 10);
-                            break;
-                        case 'u':
-                            *(unsigned short*)temp = strtoul(s + soff, &conv_end, 10);
+                            temp_int = (short)stroll_stdio(stream, 10, &conv_success);
+                            if (conv_success == 0)
+                                return (matched_args == 0 || ferror(stream)) ? EOF : matched_args;
+                            *(short*)temp = (short)temp_int;
                             break;
                         case 'x':
-                            *(unsigned short*)temp = strtoul(s + soff, &conv_end, 16);
+                        case 'u':
+                            temp_int = (unsigned short)stroll_stdio(stream, format[i] == 'u' ? 10 : 16, &conv_success);
+                            if (conv_success == 0)
+                                return (matched_args == 0 || ferror(stream)) ? EOF : matched_args;
+                            *(unsigned short*)temp = (unsigned short)temp_int;
                             break;
                         case 'h': // char
                             i++;
                             switch (format[i]) {
                                 case 'd':
-                                    *(char*)temp = strtol(s + soff, &conv_end, 10);
-                                    break;
-                                case 'u':
-                                    *(unsigned char*)temp = strtoul(s + soff, &conv_end, 10);
+                                    temp_int = (char)stroll_stdio(stream, 10, &conv_success);
+                                    if (conv_success == 0)
+                                        return (matched_args == 0 || ferror(stream)) ? EOF : matched_args;
+                                    *(char*)temp = (char)temp_int;
                                     break;
                                 case 'x':
-                                    *(unsigned char*)temp = strtoul(s + soff, &conv_end, 16);
+                                case 'u':
+                                    temp_int = (unsigned char)stroll_stdio(stream, format[i] == 'u' ? 10 : 16, &conv_success);
+                                    if (conv_success == 0)
+                                        return (matched_args == 0 || ferror(stream)) ? EOF : matched_args;
+                                    *(unsigned char*)temp = (unsigned char)temp_int;
                                     break;
                                 default:
                                     ___set_errno(EINVAL);
-                                    return -1;
+                                    return matched_args == 0 ? EOF : matched_args;
                             }
                             break;
                         default:
                             ___set_errno(EINVAL);
-                            return -1;
+                            return matched_args == 0 ? EOF : matched_args;
                     }
                     break;
-                case 'd': // signed int
-                    *(int*)temp = strtol(s + soff, &conv_end, 10);
-                    break;
-                case 'u': // unsigned int
-                    *(unsigned int*)temp = strtoul(s + soff, &conv_end, 10);
+                case 'd':
+                    temp_int = (int)stroll_stdio(stream, 10, &conv_success);
+                    if (conv_success == 0)
+                        return (matched_args == 0 || ferror(stream)) ? EOF : matched_args;
+                    *(int*)temp = (int)temp_int;
                     break;
                 case 'x':
-                    *(unsigned int*)temp = strtoul(s + soff, &conv_end, 16);
+                case 'u':
+                    temp_int = (unsigned int)stroll_stdio(stream, format[i] == 'u' ? 10 : 16, &conv_success);
+                    if (conv_success == 0)
+                        return (matched_args == 0 || ferror(stream)) ? EOF : matched_args;
+                    *(unsigned int*)temp = (unsigned int)temp_int;
                     break;
                 case 'l': // 32+ bit numbers
                     i++;
                     switch (format[i]) {
                         case 'd':
-                            *(long*)temp = strtol(s + soff, &conv_end, 10);
-                            break;
-                        case 'u':
-                            *(unsigned long*)temp = strtoul(s + soff, &conv_end, 10);
+                            temp_int = (long)stroll_stdio(stream, 10, &conv_success);
+                            if (conv_success == 0)
+                                return (matched_args == 0 || ferror(stream)) ? EOF : matched_args;
+                            *(long*)temp = (long)temp_int;
                             break;
                         case 'x':
-                            *(unsigned long*)temp = strtoul(s + soff, &conv_end, 16);
+                        case 'u':
+                            temp_int = (unsigned long)stroll_stdio(stream, format[i] == 'u' ? 10 : 16, &conv_success);
+                            if (conv_success == 0)
+                                return (matched_args == 0 || ferror(stream)) ? EOF : matched_args;
+                            *(unsigned long*)temp = (unsigned long)temp_int;
                             break;
                         case 'l':
                             i++;
                             switch (format[i]) {
                                 case 'd':
-                                    *(long long*)temp = strtoll(s + soff, &conv_end, 10);
-                                    break;
-                                case 'u':
-                                    *(unsigned long long*)temp = strtoull(s + soff, &conv_end, 10);
+                                    temp_int = stroll_stdio(stream, 10, &conv_success);
+                                    if (conv_success == 0)
+                                        return (matched_args == 0 || ferror(stream)) ? EOF : matched_args;
+                                    *(long long*)temp = temp_int;
                                     break;
                                 case 'x':
-                                    *(unsigned long long*)temp = strtoull(s + soff, &conv_end, 16);
+                                case 'u':
+                                    temp_ull = (unsigned long long)stroll_stdio(stream, format[i] == 'u' ? 10 : 16, &conv_success);
+                                    if (conv_success == 0)
+                                        return (matched_args == 0 || ferror(stream)) ? EOF : matched_args;
+                                    *(unsigned long long*)temp = temp_ull;
                                     break;
                                 default:
                                     ___set_errno(EINVAL);
-                                    return -1;
+                                    return matched_args == 0 ? EOF : matched_args;
                             }
                             break;
                         default:
                             ___set_errno(EINVAL);
-                            return -1;
+                            return matched_args == 0 ? EOF : matched_args;
                     }
                     break;
                 default:
                     ___set_errno(EINVAL);
-                    return -1;
+                    return matched_args == 0 ? EOF : matched_args;
                 // TODO: float, double
             }
-            if (s + soff == conv_end) return matched_args; // failed to parse
-            if (conv_end != NULL) soff = conv_end - s;
             matched_args++;
             continue;
         }
 
-        if (format[i] != s[soff]) return matched_args;
-        else soff ++;
+        if (format[i] != (c = fgetc(stream))) {
+            ungetc(c, stream);
+            return (matched_args == 0 || ferror(stream)) ? EOF : matched_args;
+        }
     }
 
     return matched_args;
+}
+
+int vfscanf(FILE * restrict stream, const char * restrict format, va_list args) {
+    if (stream == NULL) {
+        ___set_errno(EBADF);
+        return -1;
+    }
+    if (format == NULL) {
+        ___set_errno(EINVAL);
+        return -1;
+    }
+
+    assert(!pthread_mutex_lock(&stream->mutex));
+    int ret = vfscanf_unlocked(stream, format, args);
+    pthread_mutex_unlock(&stream->mutex);
+    return ret;
+}
+int vsscanf(const char * restrict s, const char * restrict format, va_list args) {
+    FILE * stream = fmemopen(s, strlen(s) + 1, "r");
+
+    int ret = vfscanf(stream, format, args);
+    fclose(stream);
+    return ret;
 }

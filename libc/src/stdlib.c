@@ -25,17 +25,19 @@ uint32_t rand() {
 
 void srand(uint32_t seed) {___internal_rand_state = seed;}
 
+extern void __stdio_deinit();
 void exit(long exit_code) {
+    __stdio_deinit();
+    _exit(exit_code);
+}
+
+void _exit(long exit_code) {
     syscall(SYSCALL_EXIT, exit_code);
     __builtin_unreachable();
 }
 
-void _exit(long exit_code) {
-    exit(exit_code);
-}
-
 void _Exit(long exit_code) {
-    exit(exit_code);
+    _exit(exit_code);
 }
 
 void abort() {

@@ -12,6 +12,7 @@
 #define CHILD_MAX 0xFFFFFFFF
 
 #define OPEN_MAX 128
+#define STREAM_MAX 0xFFFFFFFF // no limit, see stdio.h for FOPEN_MAX
 
 #define PAGE_SIZE 4096
 #define PAGESIZE PAGE_SIZE

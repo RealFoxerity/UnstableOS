@@ -1,11 +1,11 @@
 #include <stdalign.h>
 #include <stdint.h>
 #include <stddef.h>
-#include "../../libc/src/include/string.h"
-#include "../include/kernel.h"
-#include "../include/mm/kernel_memory.h"
-#include "../include/kernel_spinlock.h"
-#include "../include/kernel_sched.h" // so we can use current_process as an easy way to figure out if we need to spinlock
+#include <string.h>
+#include "kernel.h"
+#include "mm/kernel_memory.h"
+#include "kernel_spinlock.h"
+#include "kernel_sched.h" // so we can use current_process as an easy way to figure out if we need to spinlock
 #define KALLOC_MAGIC "KAL"
 
 spinlock_t kalloc_lock = {0};
@@ -37,6 +37,17 @@ void kalloc_prepare(void * heap_struct_start, void * allocated_heap_top, void * 
         .next_chunk = allocated_heap_top
     };
     memcpy(((struct heap_header*)heap_struct_start)->magic, KALLOC_MAGIC, 3);
+}
+
+// libc weak overrides
+void __attribute__((weak)) free(void * p) {
+    kfree(p);
+}
+void * __attribute__((malloc, malloc(free), weak)) malloc(size_t size) {
+    return kalloc(size);
+}
+void * __attribute__((weak)) realloc(void * p, size_t size) {
+    return krealloc(p, size);
 }
 
 #pragma clang diagnostic ignored "-Wignored-attributes"

@@ -17,10 +17,10 @@ void yield();
 //void malloc_prepare(void * heap_struct_start, void * heap_top);
 
 #pragma clang diagnostic ignored "-Wignored-attributes" // clang doesn't yet support malloc(x) attribute syntax
-void free(void * p);
-void * __attribute__((malloc, malloc(free))) malloc(size_t size);
+void __attribute__((weak)) free(void * p);
+void * __attribute__((malloc, malloc(free), weak)) malloc(size_t size);
 void * __attribute__((malloc, malloc(free))) calloc(size_t nelem, size_t elsize);
-void * realloc(void * p, size_t size);
+void * __attribute__((weak)) realloc(void * p, size_t size);
 
 #define EXIT_SUCCESS 0
 #define EXIT_FAILURE 1
