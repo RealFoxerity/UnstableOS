@@ -22,10 +22,7 @@ so
 #include <dirent.h>
 struct vfs_ops {
     int (*fs_init)   (superblock_t * sb); // called on mount, 0 = success
-    int (*fs_deinit) (superblock_t * sb); // called on umount, 0 = success
-
-    // it is assumed, that all specified paths are absolute,
-    // and are "relative" to the root of the superblock
+    int (*fs_deinit) (superblock_t * sb); // called on umount, 0 = success, TODO: error handling in umount
 
     // resolves symlink, returns string of target file, or NULL on error
     char * (*resolve_link)(superblock_t * sb, inode_t * link);
@@ -59,12 +56,7 @@ struct vfs_ops {
     //void(*rewinddir)(file_descriptor_t * fd);
 };
 
-#define SUPPORTED_FS_COUNT 2
-enum supported_filesystems {
-    FS_TARFS,
-    FS_DEVFS,
-};
-
+#include <UnstableOS/mount.h>
 extern const struct vfs_ops * fs_operations[SUPPORTED_FS_COUNT]; // defined in vfs.c, assigned in files belonging to individual fs
 
 // this entire structure is basically just for record keeping

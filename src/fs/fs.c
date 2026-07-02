@@ -130,6 +130,7 @@ int close_file(file_descriptor_t * file) {
 }
 
 ssize_t pread_file(file_descriptor_t *file, void *buf, size_t count, off_t offset) {
+    if (file->flags & O_PATH) return -EINVAL;
     if (offset < 0) return -EINVAL;
 
     int test = check_file(file);
@@ -192,6 +193,7 @@ ssize_t read_file(file_descriptor_t *file, void *buf, size_t count) {
 }
 
 ssize_t pwrite_file(file_descriptor_t *file, const void *buf, size_t count, off_t offset) {
+    if (file->flags & O_PATH) return -EINVAL;
     if (offset < 0) return -EINVAL;
 
     int test = check_file(file);
@@ -277,6 +279,7 @@ off_t seek_file(file_descriptor_t * file, off_t off, int whence) {
         default:
             return -EINVAL;
     }
+    if (file->flags & O_PATH) return -EINVAL;
 
     off_t ret = 0;
     if (S_ISFIFO(file->inode->mode)) { return -ESPIPE; }
@@ -420,6 +423,7 @@ ssize_t sys_readdir(int fd, struct dirent * dent, size_t dent_size) {
     if (test != 0) return test;
 
     if (!S_ISDIR(file->inode->mode)) return -ENOTDIR;
+    if (file->flags & O_PATH) return -EINVAL;
 
     if (!file->inode->backing_superblock->funcs->readdir) return -EINVAL;
 
@@ -475,6 +479,7 @@ int sys_fstatat(int fd, const char * __restrict path, struct stat * __restrict b
 long ioctl_file(file_descriptor_t * file, unsigned long command, void * arg) {
     int test = check_file(file);
     if (test != 0) return test;
+    if (file->flags & O_PATH) return -EINVAL;
 
     rw_spinlock_acquire_read(&file->access_lock);
     long ret = ioctl_dev(file, command, arg);
