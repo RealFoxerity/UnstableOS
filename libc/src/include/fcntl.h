@@ -26,6 +26,10 @@
 #define O_CLOEXEC   0x1000
 #define O_CLOFORK   0x2000
 
+// strictly use just as a reference point,
+// when passed to openat_inode, won't resolve the final mountpoint
+#define O_PATH      0x4000
+
 
 #define AT_FDCWD (-1)
 

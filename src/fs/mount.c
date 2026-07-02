@@ -105,9 +105,12 @@ long mount_dev(dev_t dev, inode_t * mount_point, unsigned char type, unsigned sh
     spinlock_acquire(&mount_point->lock);
     // mountpoints have an implicit +1 in the instance counter
     __atomic_add_fetch(&mount_point->instances, 1, __ATOMIC_RELAXED);
-    mount_point->is_mountpoint   = 1;
-    mount_point->device          = dev;
+    __atomic_add_fetch(&mount_point->backing_superblock->instances, 1, __ATOMIC_RELAXED);
+
     mount_point->next_superblock = new_superblock;
+    // ensure next_superblock is assigned before is_mountpoint so that we don't race in openat_inode
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    mount_point->is_mountpoint   = 1;
     spinlock_release(&mount_point->lock);
 
     /*
@@ -122,8 +125,17 @@ long sys_mount(const char * dev_path, const char * mount_path, unsigned char typ
     if (type >= SUPPORTED_FS_COUNT) return -ENODEV;
 
     inode_t * mount_inode = NULL, * dev_inode = NULL;
-    int ret = openat_inode(current_process->pwd, mount_path, O_RDONLY | O_DIRECTORY, 0, &mount_inode);
+    int ret = openat_inode(current_process->pwd, mount_path, O_RDONLY | O_DIRECTORY | O_PATH, 0, &mount_inode);
     if (ret < 0 || mount_inode == NULL) return ret;
+
+    if (!S_ISDIR(mount_inode->mode)) {
+        close_inode(mount_inode);
+        return -EINVAL;
+    }
+    if (mount_inode->is_mountpoint) {
+        close_inode(mount_inode);
+        return -EBUSY;
+    }
 
     switch (type) {
         case FS_DEVFS: // devfs doesn't require a device
@@ -140,7 +152,8 @@ long sys_mount(const char * dev_path, const char * mount_path, unsigned char typ
                 if (dev_inode != NULL ) close_inode(dev_inode);
                 return ret;
             }
-            if (S_ISDIR(dev_inode->mode) || S_ISFIFO(dev_inode->mode)) {
+            if (!(S_ISBLK(dev_inode->mode) || S_ISCHR(dev_inode->mode))) {
+                close_inode(mount_inode);
                 close_inode(dev_inode);
                 return -ENODEV;
             }
@@ -149,4 +162,41 @@ long sys_mount(const char * dev_path, const char * mount_path, unsigned char typ
             close_inode(mount_inode);
             return ret;
     }
+}
+
+long sys_umount(const char * mount_path) {
+    if (mount_path == NULL) return -EFAULT;
+    inode_t * mount_inode = NULL;
+    // this could be done without O_PATH (sb->mountpoint), but I think that it's cleaner like this
+    int ret = openat_inode(current_process->pwd, mount_path, O_RDONLY | O_DIRECTORY | O_PATH, 0, &mount_inode);
+    if (ret < 0 || mount_inode == NULL) return ret;
+
+    if (!mount_inode->is_mountpoint) {
+        close_inode(mount_inode);
+        return -EINVAL;
+    }
+    spinlock_acquire(&mount_tree_lock); // prevents openat_inode from creating a new instance
+
+    superblock_t * target = mount_inode->next_superblock;
+
+    if (target->instances > 0) {
+        spinlock_release(&mount_tree_lock);
+        close_inode(mount_inode);
+        return -EBUSY;
+    }
+
+    mount_inode->is_mountpoint = 0;
+    __atomic_sub_fetch(&mount_inode->instances, 1, __ATOMIC_RELAXED);
+    __atomic_sub_fetch(&mount_inode->backing_superblock->instances, 1, __ATOMIC_RELAXED);
+    close_inode(mount_inode);
+
+    if (target->funcs->fs_deinit)
+        target->funcs->fs_deinit(target);
+    if (target->fd)
+        close_file(target->fd);
+
+    target->is_mounted = 0;
+
+    spinlock_release(&mount_tree_lock);
+    return 0;
 }

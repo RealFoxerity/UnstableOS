@@ -38,6 +38,7 @@ enum syscalls {
     SYSCALL_FSTATAT,
 
     SYSCALL_MOUNT,
+    SYSCALL_UMOUNT,
 
     SYSCALL_EXEC,
     SYSCALL_FORK,

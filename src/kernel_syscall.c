@@ -325,12 +325,12 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
             return_value = sys_setpgid(arg1, arg2);
             break;
         case SYSCALL_MOUNT:
-            if (!paging_check_address_range((const void*)arg1, 1, 0, in_kernel)) {
-                return_value = -EFAULT;
-                break;
-            }
             asm volatile ("sti");
             return_value = sys_mount((const char*)arg1, (const char*)arg2, (unsigned char)arg3, (unsigned short)arg4);
+            break;
+        case SYSCALL_UMOUNT:
+            asm volatile ("sti");
+            return_value = sys_umount((const char*)arg1);
             break;
         case SYSCALL_OPENAT:
             asm volatile ("sti;");

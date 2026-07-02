@@ -142,8 +142,10 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
         kprintf("\e[0m\e[41mWarning: called openat with NULL pwd inode!\e[0m\n");
         return -EINVAL;
     }
-    if (path == NULL) return -EINVAL;
-
+    if (path == NULL) return -EFAULT;
+    if (flags & O_PATH) {
+        flags &= ~O_RDWR;
+    }
     mode &= ~current_process->umask;
 
     kassert(root_mountpoint);
@@ -211,6 +213,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
         sb = prev->backing_superblock;
         // our while loop closes the prev inode, so preincrement
         __atomic_add_fetch(&prev->instances, 1, __ATOMIC_RELAXED);
+        __atomic_add_fetch(&prev->backing_superblock->instances, 1, __ATOMIC_RELAXED);
     }
 
     kassert(sb->funcs);
@@ -283,6 +286,10 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
 
             prev = new;
             goto lookup_escape_again; // try again on parent superblock
+        }
+        if (last_fragment && flags & O_PATH) {
+            close_inode(prev);
+            break;
         }
         if (new->is_mountpoint) {
             sb = new->next_superblock;

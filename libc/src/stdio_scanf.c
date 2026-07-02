@@ -241,7 +241,7 @@ int vfscanf(FILE * restrict stream, const char * restrict format, va_list args) 
     return ret;
 }
 int vsscanf(const char * restrict s, const char * restrict format, va_list args) {
-    FILE * stream = fmemopen(s, strlen(s) + 1, "r");
+    FILE * stream = fmemopen((void*)s, strlen(s) + 1, "r");
 
     int ret = vfscanf(stream, format, args);
     fclose(stream);

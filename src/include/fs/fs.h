@@ -60,6 +60,8 @@ struct superblock_t {
     dev_t device; // bookkeeping
     file_descriptor_t * fd; // file descriptor belonging to the underlying device
 
+    size_t instances; // how many inodes have this as their backing superblock
+
     unsigned char fs_type; // no way we support >256 file systems, bookkeeping, alternatively, for kasserts in fs drivers
 
     spinlock_t lock;
@@ -184,12 +186,11 @@ long dup_file(file_descriptor_t * old_file, int startfd, int flags); // primaril
 int sys_dup(int oldfd);
 int sys_dup3(int oldfd, int newfd, int flags);
 
-#define MOUNT_RDONLY 1
-
+#include <UnstableOS/mount.h>
 long mount_dev(dev_t dev, inode_t * mount_point, unsigned char type, unsigned short options);
 long mount_root(dev_t dev, unsigned char type, unsigned short options);
 long sys_mount(const char * dev_path, const char * mount_path, unsigned char type, unsigned short options);
-
+long sys_umount(const char * mount_path);
 
 off_t generic_seek(file_descriptor_t *file, off_t off, int whence, off_t max_off);
 #endif
