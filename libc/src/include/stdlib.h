@@ -8,6 +8,8 @@
 
 uint32_t rand();
 void srand(uint32_t seed);
+
+int atexit(void (*func)());
 void __attribute__((noreturn)) exit(long exit_code);
 void __attribute__((noreturn)) _Exit(long exit_code);
 void __attribute__((noreturn)) abort();

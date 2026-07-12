@@ -97,6 +97,7 @@ static inline char * secure_strdup(const char * path, size_t max_len, size_t *le
     kassert(duped);
 
     memcpy(duped, path, path_len+1);
+    duped[path_len] = '\0';
     *len_out = path_len;
     return duped;
 }
@@ -118,7 +119,7 @@ int sys_openat(int fd, const char * path, unsigned short flags, mode_t mode) {
         ino = current_process->pwd;
 
     kassert(ino != NULL);
-    kassert(ino->instances > (ino->is_mountpoint)? 1 : 0);
+    kassert(ino->instances > (ino->is_mountpoint ? 1 : 0));
 
     inode_t * new = NULL;
     int ret = openat_inode(ino, path, flags, mode, &new);
@@ -142,6 +143,10 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
         kprintf("\e[0m\e[41mWarning: called openat with NULL pwd inode!\e[0m\n");
         return -EINVAL;
     }
+
+    if (!S_ISDIR(base->mode))
+        return -ENOTDIR;
+
     if (path == NULL) return -EFAULT;
     if (flags & O_PATH) {
         flags &= ~O_RDWR;
@@ -198,7 +203,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
     spinlock_acquire(&current_process->lock);
 
     // raced with close() on the base inode
-    if (base->instances <= (base->is_mountpoint) ? 1 : 0) {
+    if (base->instances <= (base->is_mountpoint ? 1 : 0)) {
         ret = -EINVAL;
         goto err;
     }
@@ -269,7 +274,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
         }
         // has to be below because we prefer returning ENOENT
         // devices are not governed by the mountpoint options
-        if (last_fragment && (S_ISREG(new->mode) || S_ISDIR(new->mode))) {
+        if (new && last_fragment && (S_ISREG(new->mode) || S_ISDIR(new->mode))) {
             if ((sb->mount_options & MOUNT_RDONLY ||
                 sb->funcs->pwrite == NULL)
                     && mode & O_WRONLY) {
@@ -291,7 +296,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
             close_inode(prev);
             break;
         }
-        if (new->is_mountpoint) {
+        if (new && new->is_mountpoint) {
             sb = new->next_superblock;
             kassert(sb);
             kassert(sb->funcs);

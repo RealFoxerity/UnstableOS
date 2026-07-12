@@ -39,5 +39,7 @@ int ___get_errno();
 #define EOWNERDEAD 33
 #define ENOTRECOVERABLE 34
 #define EDEADLK   35
-
+#define ENOTSUP   36
+#define ENAMETOOLONG 37
+#define EILSEQ    38
 #endif

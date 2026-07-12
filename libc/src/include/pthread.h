@@ -69,4 +69,7 @@ int pthread_setcancelstate(int state, int *oldstate);
 int pthread_setcanceltype(int type, int *oldtype);
 void pthread_testcancel();
 int pthread_cancel(pthread_t thread);
+
+// pthread_atfork.c
+int pthread_atfork(void (*prepare)(), void (*parent)(), void (*child)());
 #endif

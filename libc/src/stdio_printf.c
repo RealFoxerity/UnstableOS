@@ -10,7 +10,7 @@
 
 #define PRINTF_MAX_FORMAT_OUT 128 // assuming no format is going to produce longer text than 32 chars
 
-size_t fmt_handler_printf(char * fmt_buf, const char * s, va_list * args) { // caller has to call va_arg themselves!
+ssize_t fmt_handler_printf(char * fmt_buf, const char * s, va_list * args) { // caller has to call va_arg themselves!
     int padding = 0;
     int precision = 0; // currently zeroes integers
     const char * temp_ptr;
@@ -29,6 +29,7 @@ size_t fmt_handler_printf(char * fmt_buf, const char * s, va_list * args) { // c
     if (*s == '.') {
         s++;
         precision = atoi(s);
+        if (precision < 0) precision = -precision;
         if (*s == '-') s++;
         while (isdigit(*s)) s++;
     }
@@ -130,14 +131,8 @@ size_t fmt_handler_printf(char * fmt_buf, const char * s, va_list * args) { // c
                 default: goto inv_spec;
             }
             break;
-        //case 's': // has to be handled by the specific printf call
-        //    temp_ptr = va_arg(args, const char *);
-        //    if (-padding > (long)strlen(fmt_buf)) { // only doing right-side padding
-        //        if (padding >= PRINTF_MAX_FORMAT_OUT) padding = PRINTF_MAX_FORMAT_OUT - 1;
-        //        memset(fmt_buf, ' ', padding);
-        //        fmt_buf[padding] = '\0';
-        //    }
-        //    return temp_ptr;
+        case 's': // has to be handled by the specific printf call
+            return -precision - 1;
         case 'c':
             fmt_buf[0] = va_arg(*args, int);
             fmt_buf[1] = '\0';
@@ -213,23 +208,27 @@ int vsprintf(char * restrict s, const char * restrict format, va_list args) {
     memcpy(s+off, format, next_percent-format);
     off += next_percent-format;
 
-    const char * temp_ptr;
     for (const char * i = next_percent; i < format + strlen(format); ) {
         i++; // character immediately following the %
 
-        if (*i == 's') {
-            temp_ptr = va_arg(args, const char *);
-            memcpy(s+off, temp_ptr, strlen(temp_ptr));
-            off += strlen(temp_ptr);
-            i++;
-        } else {
-            size_t inc = fmt_handler_printf(fmt_buf, i, &args);
-            i += inc;
+        ssize_t inc = fmt_handler_printf(fmt_buf, i, &args);
+        const char * buf = fmt_buf;
+        size_t len = strlen(buf);
+        if (inc < 0) {
+            buf = va_arg(args, const char *);
+            len = strlen(buf);
+            if (inc < -1) {
+                if (len > -inc - 1)
+                    len = -inc - 1;
+            }
 
-            memcpy(s+off, fmt_buf, strlen(fmt_buf));
-            off += strlen(fmt_buf);
+            while (*i++ != 's') {}
+        } else {
+            i += inc;
         }
 
+        memcpy(s+off, buf, len);
+        off += len;
 
         next_percent = strchrnul(i, '%');
         memcpy(s+off, i, next_percent-i);
@@ -257,33 +256,31 @@ int vsnprintf(char * restrict s, size_t size, const char * restrict format, va_l
     memcpy(s+off, format, next_percent-format);
     off += next_percent-format;
 
-    const char * temp_ptr;
     for (const char * i = next_percent; i < format + strlen(format); ) {
         i++; // character immediately following the %
 
-        if (*i == 's') {
-            temp_ptr = va_arg(args, const char *);
-            if (off + strlen(temp_ptr) >= size) {
-                memcpy(s+off, temp_ptr, size - off);
-                s[size] = '\0';
-                return (int)size;
+        ssize_t inc = fmt_handler_printf(fmt_buf, i, &args);
+        const char * buf = fmt_buf;
+        size_t len = strlen(buf);
+        if (inc < 0) { // smuggled string precision from fmt handler
+            buf = va_arg(args, const char *);
+            len = strlen(buf);
+            if (inc < -1) {
+                if (len > -inc - 1)
+                    len = -inc - 1;
             }
-            memcpy(s+off, temp_ptr, strlen(temp_ptr));
-            off += strlen(temp_ptr);
-            i++;
+            while (*i++ != 's') {}
         } else {
-            size_t inc = fmt_handler_printf(fmt_buf, i, &args);
             i += inc;
-
-            if (off + strlen(fmt_buf) >= size) {
-                memcpy(s+off, fmt_buf, size - off);
-                s[size] = '\0';
-                return (int)size;
-            }
-
-            memcpy(s+off, fmt_buf, strlen(fmt_buf));
-            off += strlen(fmt_buf);
         }
+
+        if (off + len >= size) {
+            memcpy(s+off, buf, size - off);
+            s[size] = '\0';
+            return (int)size;
+        }
+        memcpy(s+off, buf, len);
+        off += len;
 
         next_percent = strchrnul(i, '%');
 
@@ -319,28 +316,28 @@ int vfprintf(FILE * restrict stream, const char * restrict format, va_list args)
     for (const char * i = next_percent; i < format + strlen(format); ) {
         i++; // character immediately following the %
 
-        if (*i == 's') {
-            temp_ptr = va_arg(args, const char *);
-            len = strlen(temp_ptr);
-            written = fwrite(temp_ptr, 1, len, stream);
-            if (written == -1)
-                return total_written;
-            total_written += (int)written;
-            if (written < len)
-                return total_written;
-            i++;
-        } else {
-            size_t inc = fmt_handler_printf(fmt_buf, i, &args);
-            i += inc;
+        ssize_t inc = fmt_handler_printf(fmt_buf, i, &args);
+        const char * buf = fmt_buf;
+        len = strlen(buf);
 
-            len = strlen(fmt_buf);
-            written = fwrite(fmt_buf, 1, strlen(fmt_buf), stream);
-            if (written == -1)
-                return total_written;
-            total_written += (int)written;
-            if (written < len)
-                return total_written;
+        if (inc < 0) { // smuggled string precision from fmt handler
+            buf = va_arg(args, const char *);
+            len = strlen(buf);
+            if (inc < -1) {
+                if (len > -inc - 1)
+                    len = -inc - 1;
+            }
+            while (*i++ != 's') {}
+        } else {
+            i += inc;
         }
+
+        written = fwrite(buf, 1, len, stream);
+        if (written == -1)
+            return total_written;
+        total_written += (int)written;
+        if (written < len)
+            return total_written;
 
         next_percent = strchrnul(i, '%');
         written = fwrite(i, 1, next_percent-i, stream);

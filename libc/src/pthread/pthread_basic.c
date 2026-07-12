@@ -8,6 +8,8 @@
 #include <limits.h>
 #include <stdlib.h>
 
+static size_t thread_count = 1;
+
 pthread_t pthread_self() {
     return (pthread_t)__tls_get_tcb();
 }
@@ -22,6 +24,10 @@ __attribute__((noreturn)) void pthread_exit(void *value_ptr) {
     // run the dtors
     pthread_t us = pthread_self();
     us->__ret = value_ptr;
+
+    if (__atomic_sub_fetch(&thread_count, 1, __ATOMIC_ACQUIRE) == 0)
+        exit((long)value_ptr);
+
     _syscall(SYSCALL_EXIT_THREAD);
     __builtin_unreachable();
 }
@@ -99,6 +105,7 @@ struct wrapped_args {
 };
 
 static __attribute__((noreturn)) void pthread_create_wrapper(struct wrapped_args *args) {
+    __atomic_add_fetch(&thread_count, 1, __ATOMIC_RELEASE);
     struct wrapped_args largs = *args; // to free as soon as possible
     free(args);
     pthread_exit(largs.start_routine(largs.arg));

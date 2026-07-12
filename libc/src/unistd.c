@@ -151,7 +151,7 @@ int chroot(const char * path) {
     return ret;
 }
 
-pid_t fork() {
+pid_t _Fork() {
     pid_t ret = syscall(SYSCALL_FORK);
     if (ret < 0) {
         ___set_errno(-ret);
@@ -159,6 +159,18 @@ pid_t fork() {
     }
     return ret;
 }
+
+pid_t fork() {
+    extern void __atfork_handler(pid_t new_pid);
+    __atfork_handler(-1);
+    pid_t new = _Fork();
+
+    // in case the parent handlers are supposed to restore some context
+    if (new == -1) new = 1;
+    __atfork_handler(new);
+    return new;
+}
+
 pid_t spawn(const char * path, char * const* argv, char * const* envp) {
     pid_t ret = syscall(SYSCALL_SPAWN, path, argv, envp);
     if (ret < 0) {

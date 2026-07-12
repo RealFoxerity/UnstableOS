@@ -36,5 +36,8 @@ static const char * __errno_msgs[] = {
     [ETIMEDOUT] = "Connection timed out",
     [EOWNERDEAD]= "Previous owner died",
     [ENOTRECOVERABLE] = "State not recoverable",
-    [EDEADLK] = "Resource deadlock would occur"
+    [EDEADLK]   = "Resource deadlock would occur",
+    [ENOTSUP]   = "Not supported",
+    [ENAMETOOLONG] = "Filename too long",
+    [EILSEQ]    = "Illegal byte sequence"
 };
