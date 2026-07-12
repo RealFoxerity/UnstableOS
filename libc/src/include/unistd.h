@@ -46,6 +46,7 @@ int chdir(const char * path);
 int chroot(const char * path);
 
 pid_t fork();
+pid_t _Fork();
 pid_t spawn(const char * path, char * const* argv, char * const* envp);
 int exec(const char * path);
 int execv(const char * path, char * const* argv);

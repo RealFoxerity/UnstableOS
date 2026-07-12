@@ -10,6 +10,7 @@
 
 // we don't have a limit at all
 #define CHILD_MAX 0xFFFFFFFF
+#define ATEXIT_MAX 0xFFFFFFFF
 
 #define OPEN_MAX 128
 #define STREAM_MAX 0xFFFFFFFF // no limit, see stdio.h for FOPEN_MAX

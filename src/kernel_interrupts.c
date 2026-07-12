@@ -113,6 +113,11 @@ void divide_error_handler(mcontext_t * ctx) {
     print_interr_frame(&ctx->iret_frame);
     unwind_stack_vaddr(*(void**)__builtin_frame_address(0));
 
+    if (current_process->pid == 0) {
+        panic("Kernel task cannot be recovered from a floating point exception");
+        __builtin_unreachable();
+    }
+
     memcpy(&current_thread->context, ctx, sizeof(mcontext_t) - (ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *));
     signal_thread(current_process, current_thread, &(siginfo_t){
         .si_signo = SIGFPE,
