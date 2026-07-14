@@ -624,7 +624,7 @@ __attribute__((interrupt, no_caller_saved_registers)) void interr_cmos_rtc(struc
     enum rtc_interrupt_bitmasks called_ints = rtc_get_last_interrupt_type();
 
     if (called_ints & RTC_INT_PERIODIC) {
-        // this is bad, not atomic; i386 unfortunately doesn't really have atomic 64 bit increments
+        // this is bad, not atomic; i486 unfortunately doesn't really have atomic 64 bit increments
         // should be fine considering we're only doing this in this interrupt
         if (interrupt_frame->cs & 3) {
             current_process->user_clicks ++;
@@ -632,7 +632,7 @@ __attribute__((interrupt, no_caller_saved_registers)) void interr_cmos_rtc(struc
             current_process->system_clicks ++;
         }
         uptime_clicks ++;
-        sleep_sched_tick();
+        sleep_sched_tick(1);
 
         console_blink_cursor();
     }
@@ -642,8 +642,16 @@ __attribute__((interrupt, no_caller_saved_registers)) void interr_cmos_rtc(struc
         //kprintf("Recieved RTC alarm interrupt\n");
     }
     if (called_ints & RTC_INT_UPDATE_ENDED) {
+        // round up to account for tick loss from disabled interrupts
+        time_t old_clicks = uptime_clicks;
+        time_t rounded_time = old_clicks + RTC_TIMER_RESOLUTION_HZ - 1;
+        rounded_time -= rounded_time % RTC_TIMER_RESOLUTION_HZ;
+        uptime_clicks = rounded_time;
+
+        sleep_sched_tick(rounded_time - old_clicks);
+
         system_time_sec ++;
-        if (system_time_sec % 120 == 0) { // to account for potencial interrupt/syscall/whatever drift manually sync time every 2 minutes
+        if (system_time_sec % 120 == 0) { // to account for potential interrupt/syscall/whatever drift manually sync time every 2 minutes
             extern time_t rtc_get_time();
             system_time_sec = rtc_get_time();
         }

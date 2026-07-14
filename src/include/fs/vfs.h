@@ -31,8 +31,8 @@ struct vfs_ops {
     // returns standard errnos or VFS_LOOKUP_ESCAPE on root/..
     // in the case last/. returns the last pointer without altering anything
     // if last == NULL, last is assumed to be mounted /
-    // implementations should accept empty string and "." to mean the current directory
-    long (*lookup)   (superblock_t * sb, inode_t * last, const char * pathname, inode_t ** inode_out);
+    // implementations should accept "." to mean the current directory
+    int (*lookup)   (superblock_t * sb, inode_t * last, const char * pathname, inode_t ** inode_out);
     int (*release)   (inode_t *); // closing of the very last instance of an inode
 
     int (*stat)      (inode_t * file, struct stat * buf);
@@ -42,14 +42,17 @@ struct vfs_ops {
     off_t (*seek)    (file_descriptor_t * fd, off_t off, int whence);
 
 
-    int (*unlink)    (superblock_t * sb, const char * pathname);
-    int (*rmdir)     (superblock_t * sb, const char * pathname);
+    int (*unlink)    (inode_t * file);
+    int (*rmdir)     (inode_t * file);
+    int (*trunc)     (inode_t * file, off_t length);
 
-    inode_t*(*create)(superblock_t * sb, inode_t * parent, const char * pathname, mode_t mode);
+    inode_t *(*creat)(inode_t * parent, const char * pathname, mode_t mode);
+    inode_t *(*mkdir)(inode_t * parent, const char * pathname, mode_t mode);
 
     // note: fd offset 0 is considered the "." folder to simplify userspace rewinddir()
     // the function implementation is required to set fd->off to new offset
     // do not just read fd->off, use offset, fd->off is prone to races
+    // always check valid offsets, seekdir isn't passed to vfs seek
     ssize_t (*readdir) (file_descriptor_t * fd, struct dirent * dent, size_t dent_size, off_t offset);
     //off_t(*telldir)(file_descriptor_t * fd); // handled via normal seek()
     //off_t(*seekdir)(file_descriptor_t * fd);

@@ -23,7 +23,9 @@ size_t strlen(const char * s);
 size_t strnlen(const char * s, size_t n);
 
 char * strcpy(char *__restrict dest, const char *__restrict src);
+char * stpcpy(char * __restrict dest, const char * __restrict src);
 char * strncpy(char *__restrict dest, const char *__restrict src, size_t dsize);
+char * stpncpy(char *__restrict dest, const char *__restrict src, size_t dsize);
 
 char strcmp(const char * s1, const char * s2);
 char strncmp(const char * s1, const char * s2, size_t n);
@@ -36,6 +38,9 @@ char * strdup(const char * s);
 char * strndup(const char * s, size_t n);
 
 char * strtok(char * __restrict src, const char * __restrict delim);
+char * strtok_r(char * __restrict src, const char * __restrict delim, char ** __restrict saveptr);
+
+char * strpbrk(const char *s, const char *accept);
 
 // in stdio.c along with perror
 char *strerror(int errnum);

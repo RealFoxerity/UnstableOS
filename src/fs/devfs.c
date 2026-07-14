@@ -153,7 +153,7 @@ const struct vfs_ops devfs_op = {
 };
 
 // there are no subfolders, so we just iterate the list and ignore the last parameter
-long devfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t ** inode_out) {
+int devfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t ** inode_out) {
     kassert(sb);
     kassert(pathname);
 
@@ -172,7 +172,7 @@ long devfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inod
     if (devfs_id == 0 && !(pathlen == 1 && pathname[0] == '.')) return -ENOENT;
 
     long status = register_inode(&(inode_t) {
-           .id                 = (void*)devfs_id,
+           .id                 = devfs_id,
            .backing_superblock = sb,
            .mode               = devfs_id == 0 ?
                                      S_IFDIR | S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH :

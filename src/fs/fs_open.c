@@ -251,7 +251,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
 
         if (status == -ENOENT) {
             if (last_fragment &&
-                sb->funcs->create != NULL &&
+                sb->funcs->creat != NULL &&
                 flags & O_CREAT)
             {
                 if (sb->mount_options & MOUNT_RDONLY) {
@@ -259,7 +259,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
                     ret = -EROFS;
                     goto err;
                 }
-                new = sb->funcs->create(sb, prev, final_path, mode);
+                new = sb->funcs->creat(prev, final_path, mode);
                 close_inode(prev);
                 break;
             }
@@ -292,11 +292,16 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
             prev = new;
             goto lookup_escape_again; // try again on parent superblock
         }
+        if (new == NULL) {
+            close_inode(prev);
+            ret = -ENXIO;
+            goto err;
+        }
         if (last_fragment && flags & O_PATH) {
             close_inode(prev);
             break;
         }
-        if (new && new->is_mountpoint) {
+        if (new->is_mountpoint) {
             sb = new->next_superblock;
             kassert(sb);
             kassert(sb->funcs);
@@ -312,6 +317,11 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
             if (status < 0) {
                 close_inode(prev);
                 ret = status;
+                goto err;
+            }
+            if (new == NULL) {
+                close_inode(prev);
+                ret = -ENXIO;
                 goto err;
             }
         }

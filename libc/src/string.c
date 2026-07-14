@@ -185,9 +185,18 @@ char * strncpy(char *__restrict dest, const char *__restrict src, size_t dsize) 
     return dest;
 }
 
-char * strcpy(char *__restrict dest, const char *__restrict src) {
-    return strncpy(dest, src, strlen(src) + 1);
+char * stpncpy(char *__restrict dest, const char *__restrict src, size_t dsize) {
+    return strncpy(dest, src, dsize) + strnlen(src, dsize) + 1;
 }
+
+char * strcpy(char *__restrict dest, const char *__restrict src) {
+    return memcpy(dest, src, strlen(src) + 1);
+}
+
+char * stpcpy(char * __restrict dest, const char * __restrict src) {
+    return strcpy(dest, src) + strlen(src) + 1;
+}
+
 
 char memcmp(const void *s1, const void *s2, size_t n) {
     for (size_t i = 0; i < n; i++) {
@@ -254,36 +263,37 @@ char * strdup(const char * s) {
 }
 
 
-char * strtok(char * __restrict src, const char * __restrict delim) {
-    static char * last_tok = NULL;
-    if (src != NULL) last_tok = src;
-    if (last_tok == NULL) return NULL;
+char * strtok_r(char * __restrict src, const char * __restrict delim, char ** __restrict saveptr) {
+    if (src != NULL) *saveptr = src;
+    if (saveptr == NULL) return NULL;
+    if (*saveptr == NULL) return NULL;
 
     // nothing more to parse
-    if (*last_tok == '\0') return NULL;
+    if (**saveptr == '\0') return NULL;
 
-    // find the next token
-    for (size_t i = 0; last_tok[i] != '\0'; i++) {
-        for (int j = 0; delim[j] != '\0'; j++) {
-            if (last_tok[i] == delim[j]) goto fail;
-        }
-        last_tok += i;
-        break;
-        fail:
-        continue;
+    char * old = *saveptr;
+    *saveptr = strpbrk(*saveptr, delim);
+
+    if (*saveptr != NULL && **saveptr != '\0') {
+        **saveptr = '\0';
+        (*saveptr)++;
+        while (strpbrk((*saveptr)++, delim) == *saveptr) {}
     }
 
-    // end the next token
-    size_t i = 0;
-    for (i = 0; last_tok[i] != '\0'; i++) {
-        for (int j = 0; delim[j] != '\0'; j++) {
-            if (last_tok[i] == delim[j]) goto found;
-        }
-    }
-    found:
-    last_tok[i] = '\0';
+    return old;
+}
 
-    char * ret = last_tok;
-    last_tok += i + 1;
-    return ret;
+char * strtok(char * __restrict src, const char * __restrict delim) {
+    static char * last_tok = NULL;
+    return strtok_r(src, delim, &last_tok);
+}
+
+char * strpbrk(const char *s, const char *accept) {
+    do {
+        for (size_t i = 0; accept[i] != '\0'; i++) {
+            if (*s == accept[i])
+                return (char *)s;
+        }
+    } while (*++s != '\0');
+    return NULL;
 }

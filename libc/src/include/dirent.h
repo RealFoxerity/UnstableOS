@@ -16,8 +16,6 @@
 #define DT_SOCK 6
 */
 
-typedef size_t ino_t;
-
 struct dirent {
     ino_t d_ino;
     off_t d_off;

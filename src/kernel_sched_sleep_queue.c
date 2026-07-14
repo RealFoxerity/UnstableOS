@@ -81,14 +81,18 @@ void sleep_remove_thread(process_t * pprocess, thread_t * thread) {
     spinlock_release(&sleep_queue_lock);
 }
 
-void sleep_sched_tick() {
+void sleep_sched_tick(size_t ticks) {
     if (sq == NULL) return;
     spinlock_acquire(&sleep_queue_lock);
 
-    if (sq->time_delta_usec <= RTC_TIME_RESOLUTION_USEC) {
+    size_t delta = RTC_TIME_RESOLUTION_USEC * ticks;
+
+    while (sq && sq->time_delta_usec <= delta) {
+        delta -= sq->time_delta_usec;
         sleep_pop_thread();
-    } else
-        sq->time_delta_usec -= RTC_TIME_RESOLUTION_USEC;
+    }
+    if (sq)
+        sq->time_delta_usec -= delta;
 
     spinlock_release(&sleep_queue_lock);
 }

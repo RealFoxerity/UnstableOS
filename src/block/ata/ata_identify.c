@@ -44,6 +44,10 @@ static void ata_parse_drive_identify(struct ata_drive * drive) {
 
     drive->sector_size = drive->identify_block->bytes_per_sector;
 
+    // some really old harddrives, and vmware apparently, set this to 0
+    if (drive->sector_size == 0)
+        drive->sector_size = 512;
+
     drive->sector_count = drive->identify_block->current_sectors_per_track *
                           drive->identify_block->current_head_count *
                           drive->identify_block->current_cylinder_count;

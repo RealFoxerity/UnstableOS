@@ -7,7 +7,7 @@ Plan: all base spec, no TCT, TSH, TPS, TSA, TSS, TPP, RPP
 - [x] pthread_equal()
 - [x] pthread_exit() - without the pthread_cleanup_* and pthread_key_*
 - [x] pthread_join()
-- [ ] pthread_atfork()
+- [x] pthread_atfork()
 - [x] pthread_attr_init()
 - [x] pthread_attr_destroy()
 - [x] pthread_attr_getdetachstate()

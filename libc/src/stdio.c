@@ -1,6 +1,5 @@
 #include "include/stdio.h"
 #include "include/stdlib.h"
-#include "../../src/include/kernel.h"
 #include "include/unistd.h"
 #include "include/string.h"
 

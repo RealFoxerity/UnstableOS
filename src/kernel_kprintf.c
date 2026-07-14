@@ -59,7 +59,7 @@ void kprintf_write(const char * buf, size_t count) { // TODO: rewrite, this is h
     }
 }
 
-extern size_t fmt_handler_printf(char * fmt_buf, const char * s, va_list * args);
+extern ssize_t fmt_handler_printf(char * fmt_buf, const char * s, va_list * args);
 
 
 void __attribute__((format(printf, 1, 2))) kprintf(const char * format, ...) {
@@ -76,16 +76,22 @@ void __attribute__((format(printf, 1, 2))) kprintf(const char * format, ...) {
     for (const char * i = next_percent; i < format + strlen(format); ) {
         i++; // character immediately following the %
         
-        if (*i == 's') {
-            temp_ptr = va_arg(args, const char *);
-            kprintf_write(temp_ptr, strlen(temp_ptr));
-            i++;
-        } else {
-            size_t inc = fmt_handler_printf(fmt_buf, i, &args);
-            i += inc;
+        ssize_t inc = fmt_handler_printf(fmt_buf, i, &args);
+        const char * buf = fmt_buf;
+        size_t len = strlen(buf);
+        if (inc < 0) {
+            buf = va_arg(args, const char *);
+            len = strlen(buf);
+            if (inc < -1) {
+                if (len > -inc - 1)
+                    len = -inc - 1;
+            }
 
-            kprintf_write(fmt_buf, strlen(fmt_buf));
+            while (*i++ != 's') {}
+        } else {
+            i += inc;
         }
+        kprintf_write(buf, len);
 
         next_percent = strchrnul(i, '%');
         kprintf_write(i, next_percent-i);
