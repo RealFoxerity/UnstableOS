@@ -96,10 +96,10 @@ long mount_dev(dev_t dev, inode_t * mount_point, unsigned char type, unsigned sh
     new_superblock->funcs         = fs_operations[type];
     kassert(new_superblock->funcs->lookup);
 
-    if (new_superblock->funcs->fs_init && new_superblock->funcs->fs_init(new_superblock) != 0) {
+    if (new_superblock->funcs->fs_init && (ret = new_superblock->funcs->fs_init(new_superblock)) != 0) {
         close_file(file);
         new_superblock->is_mounted = 0;
-        return -EINVAL;
+        return ret;
     }
 
     spinlock_acquire(&mount_point->lock);

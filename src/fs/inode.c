@@ -75,7 +75,7 @@ inode_t * get_inode_raw_device(dev_t device) { // gets the inode representing a 
     return inode;
 }
 
-inode_t * __get_inode(superblock_t * sb, void * inode_number) {
+inode_t * __get_inode(superblock_t * sb, off_t inode_number) {
     kassert(kernel_inodes);
 
     inode_t * inode = NULL;
@@ -92,7 +92,7 @@ inode_t * __get_inode(superblock_t * sb, void * inode_number) {
     return inode;
 }
 
-inode_t * get_inode(superblock_t * sb, void * inode_number) {
+inode_t * get_inode(superblock_t * sb, off_t inode_number) {
     spinlock_acquire(&kernel_inode_lock);
     inode_t * inode = __get_inode(sb, inode_number);
     spinlock_release(&kernel_inode_lock);
@@ -141,8 +141,9 @@ long register_inode(const inode_t * inode, inode_t ** inode_out) {
 }
 
 void close_inode(inode_t *inode) {
-    spinlock_acquire(&inode->lock);
-    spinlock_acquire(&kernel_inode_lock);
+    if (inode == NULL) return;
+    spinlock_acquire_interruptible(&inode->lock);
+    spinlock_acquire_interruptible(&kernel_inode_lock);
     __atomic_sub_fetch(&inode->backing_superblock->instances, 1, __ATOMIC_RELAXED);
     if (__atomic_sub_fetch(&inode->instances, 1, __ATOMIC_RELAXED) == 0) {
         if (inode->backing_superblock &&
@@ -162,7 +163,7 @@ long inode_from_device(dev_t device, inode_t ** inode_out) {
     static unsigned long ephemeral_id = 0;
 
     inode_t new = {
-        .id = (void*)__atomic_fetch_add(&ephemeral_id, 1, __ATOMIC_RELAXED),
+        .id = __atomic_fetch_add(&ephemeral_id, 1, __ATOMIC_RELAXED),
         .mode = DEV_IS_CHAR(device) ? S_IFCHR : S_IFBLK,
         .device = device,
     };

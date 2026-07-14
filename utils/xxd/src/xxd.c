@@ -92,7 +92,7 @@ int main(int argc, char ** argv) {
         print_buf_size += parsed_bytes;
     }
 
-    print_buffer(print_buf, print_buf_size);
+    if (parsed_bytes > 0) print_buffer(print_buf, print_buf_size);
 
     if (read_bytes < 0) {
         printf("xxd: error while reading %s: %s\n", argv[1], strerror(errno));

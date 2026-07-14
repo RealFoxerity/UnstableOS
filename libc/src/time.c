@@ -103,7 +103,7 @@ struct tm * localtime_r(const time_t * __restrict timer, struct tm * __restrict 
 
 time_t mktime(struct tm * timeptr) {
     struct tm dup = *timeptr;
-    dup.tm_year += 70;
+    dup.tm_year -= 70;
     if (dup.tm_year < 0) {
         dup.tm_sec *= -1;
         dup.tm_min *= -1;

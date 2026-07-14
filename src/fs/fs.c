@@ -78,7 +78,7 @@ static int check_file(const file_descriptor_t * file) {
 
     kassert(file->instances > 0);
     kassert(file->inode != NULL);
-    kassert(file->inode->instances > (file->inode->is_mountpoint)? 1 : 0);
+    kassert(file->inode->instances > (file->inode->is_mountpoint ? 1 : 0));
 
     return 0;
 }
@@ -273,6 +273,9 @@ off_t seek_file(file_descriptor_t * file, off_t off, int whence) {
 
     switch (whence) {
         case SEEK_SET:
+            // seekdir behavior, bounds are irrelevant
+            if (S_ISDIR(file->inode->mode))
+                return file->off = off;
         case SEEK_CUR:
         case SEEK_END:
             break;

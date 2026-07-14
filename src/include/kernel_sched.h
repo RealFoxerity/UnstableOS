@@ -233,7 +233,7 @@ void scheduler_print_processes();
 void reload_pcb(const process_t * pprocess); // only works if in the same cr3 as pprocess
 
 // kernel_sched_sleep_queue.c
-void sleep_sched_tick();
+void sleep_sched_tick(size_t ticks);
 long sys_nanosleep(process_t * pprocess, thread_t * thread, struct timespec requested, struct timespec * elapsed);
 void sleep_remove_thread(process_t * pprocess, thread_t * thread);
 unsigned sys_alarm(unsigned seconds);

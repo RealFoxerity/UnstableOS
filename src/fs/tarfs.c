@@ -296,7 +296,7 @@ static char is_valid_node(const struct tar_node * root, const struct tar_node * 
     return 1;
 }
 
-long tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t ** inode_out) {
+int tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t ** inode_out) {
     if (!pathname) return -EFAULT;
     if (!sb) return -EFAULT;
     if (!inode_out) return -EFAULT;
@@ -305,7 +305,7 @@ long tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inod
 
     size_t pathlen = strlen(pathname);
 
-    struct tar_node * prev = last == NULL ? sb->data : last->id;
+    struct tar_node * prev = last == NULL ? sb->data : (void*)(uintptr_t)last->id;
 
     if (!S_ISDIR(prev->mode)) return -ENOTDIR;
 
@@ -338,7 +338,7 @@ long tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inod
     }
 
     inode_t new_inode = {
-        .id = result,
+        .id = (off_t)(uintptr_t)result,
         .backing_superblock = sb,
         .mode = result->mode,
         .size = result->size,
@@ -375,7 +375,7 @@ ssize_t tarfs_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) 
     superblock_t * sb = fd->inode->backing_superblock;
     file_descriptor_t * tar_fd = sb->fd;
     struct tar_node * root = sb->data;
-    struct tar_node * this = fd->inode->id;
+    struct tar_node * this = (void*)(uintptr_t)fd->inode->id;
 
     if (!S_ISREG(this->mode)) return -EINVAL;
 
@@ -400,7 +400,7 @@ off_t tarfs_seek(file_descriptor_t * fd, off_t off, int whence) {
     kassert(fd->inode);
     kassert(fd->inode->id);
 
-    struct tar_node * node = fd->inode->id;
+    struct tar_node * node = (void*)(uintptr_t)fd->inode->id;
     return generic_seek(fd, off, whence, node->size);
 }
 
@@ -414,7 +414,7 @@ ssize_t tarfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_
 
     superblock_t * sb = fd->inode->backing_superblock;
     struct tar_node * root = sb->data;
-    struct tar_node * this = fd->inode->id;
+    struct tar_node * this = (void*)(uintptr_t)fd->inode->id;
 
     if (!is_valid_node(root, this)) panic("Invalid this/root TARFS node combo!");
 
@@ -479,7 +479,7 @@ int tarfs_stat(inode_t * file, struct stat * buf) {
     superblock_t * sb = file->backing_superblock;
 
     struct tar_node * root = sb->data;
-    struct tar_node * this = file->id;
+    struct tar_node * this = (void*)(uintptr_t)file->id;
 
     if (!is_valid_node(root, this)) panic("Invalid this/root TARFS node combo!");
 

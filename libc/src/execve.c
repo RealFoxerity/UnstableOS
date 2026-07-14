@@ -33,7 +33,8 @@ static char * find_file(const char * file) {
     search_paths = strdup(search_paths);
     assert(search_paths);
 
-    char * checked_path = strtok(search_paths, ":");
+    char * saveptr = NULL;
+    char * checked_path = strtok_r(search_paths, ":", &saveptr);
     char * final_path = NULL;
 
     struct stat info = {0};
@@ -48,7 +49,7 @@ static char * find_file(const char * file) {
 
         if (stat(final_path, &info) == 0)
             return final_path;
-        checked_path = strtok(NULL, ":");
+        checked_path = strtok_r(NULL, ":", &saveptr);
         free(final_path);
     }
     free(search_paths);

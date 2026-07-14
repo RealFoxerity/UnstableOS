@@ -18,7 +18,7 @@
 struct pipe;
 
 struct inode_t {
-    void * id; // unique identifier *for a given filesystem*
+    ino_t id; // unique identifier *for a given filesystem*
 
     mode_t mode; // __I*
 
@@ -120,7 +120,7 @@ long inode_from_device(dev_t device, inode_t ** inode_out);
 // considering there can't (shouldn't) be 2 inodes with the same id and sb pointer,
 // this looks up such an inode from the kernel's inode list, returning NULL when it can't
 // locks inode lock itself
-inode_t * get_inode(superblock_t * sb, void * inode_number);
+inode_t * get_inode(superblock_t * sb, off_t inode_number);
 // exactly the same but increases instances if found and creates if not
 long register_inode(const inode_t * inode, inode_t ** inode_out);
 void close_inode(inode_t * inode);

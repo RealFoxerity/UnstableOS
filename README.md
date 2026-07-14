@@ -28,7 +28,7 @@ List of defined syscalls can be found in [<UnstableOS/syscalls.h>](./libc/src/in
 ---
 - PS/2 keyboards and mice
 - RS/232 (serial)
-- Tar as a filesystem
+- Tar as a filesystem, FAT
 - mountable devtmpfs
 - RTC
 - VGA, VBE, BGA
@@ -76,7 +76,7 @@ see [caveats.md](./caveats.md) for info
 - [x] ATA PIO with read cache
 - [ ] ATA DMA
 - [ ] AHCI
-- [ ] VFAT
+- [X] VFAT, but read only and without LFNs so far
 - [ ] ATAPI
 - [ ] ISO9660
 - [x] pipes

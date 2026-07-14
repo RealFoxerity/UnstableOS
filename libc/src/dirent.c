@@ -10,9 +10,9 @@
 
 DIR * fdopendir(int fd) {
     if (fd < 0) return NULL;
-    DIR * new = malloc(sizeof(DIR) + MAX_FILENAME_LEN);
+    DIR * new = malloc(sizeof(DIR) + sizeof(struct dirent) + MAX_FILENAME_LEN);
     assert(new);
-    new->dent_size = sizeof(DIR) + MAX_FILENAME_LEN;
+    new->dent_size = sizeof(struct dirent) + MAX_FILENAME_LEN;
     new->fd = fd;
     return new;
 }
@@ -39,7 +39,11 @@ int closedir(DIR * dirp) {
 struct dirent * readdir(DIR * dirp) {
     if (dirp == NULL) return NULL;
     ssize_t ret = syscall(SYSCALL_READDIR, dirp->fd, &dirp->dent, dirp->dent_size);
+
+    if (ret < 0)
+        ___set_errno(-ret);
     if (ret <= 0) return NULL;
+
     return &dirp->dent;
 }
 void rewinddir(DIR * dirp) {
