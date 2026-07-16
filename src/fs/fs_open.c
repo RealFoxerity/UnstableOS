@@ -280,7 +280,8 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
 
         if (status == -ENOENT) {
             if (last_fragment &&
-                sb->funcs->creat != NULL &&
+                ((!(flags & O_DIRECTORY) && sb->funcs->creat != NULL) ||
+                    (flags & O_DIRECTORY && sb->funcs->mkdir != NULL)) &&
                 flags & O_CREAT)
             {
                 if (sb->mount_options & MOUNT_RDONLY) {
@@ -288,8 +289,21 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
                     ret = -EROFS;
                     goto err;
                 }
-                new = sb->funcs->creat(prev, final_path, mode);
+
+                if (flags & O_DIRECTORY)
+                    status = sb->funcs->mkdir(prev, final_path, mode, &new);
+                else
+                    status = sb->funcs->creat(prev, final_path, mode, &new);
+
                 close_inode(prev);
+                if (status < 0) {
+                    ret = status;
+                    goto err;
+                }
+                if (new == NULL) {
+                    ret = -ENXIO;
+                    goto err;
+                }
                 break;
             }
             close_inode(prev);
@@ -324,6 +338,18 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
         if (new == NULL) {
             close_inode(prev);
             ret = -ENXIO;
+            goto err;
+        }
+        if (last_fragment &&
+            flags & O_CREAT && (
+                flags & O_EXCL ||
+                (flags & O_DIRECTORY && !S_ISDIR(new->mode)) ||
+                (!(flags & O_DIRECTORY) && S_ISDIR(new->mode))
+            )
+        ) {
+            close_inode(prev);
+            close_inode(new);
+            ret = -EEXIST;
             goto err;
         }
         if (last_fragment && flags & O_PATH) {

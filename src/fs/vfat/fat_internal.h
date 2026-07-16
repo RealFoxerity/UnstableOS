@@ -51,6 +51,7 @@ long fat_name_to_short(const char *pathname, char shortname[11]);
 void fat_short_to_name(const char shortname[11], char out[13]);
 
 time_t fat_time_to_epoch(struct fat_time ft, struct fat_date fd);
+void fat_epoch_to_time(time_t epoch, struct fat_time * ft, struct fat_date * fd);
 
 #include "fs/fs.h"
 
@@ -64,6 +65,6 @@ size_t fat_get_free_cluster(const superblock_t * sb); // -1 if io error, 0 if no
 int fat_free_chain(size_t first_freed, superblock_t *sb); // 0 if success, frees all clusters starting at first_freed
 int fat_end_chain(size_t last_alloced, superblock_t *sb); // 0 if success, terminates chain at last alloced
 off_t fat_lookup_cluster_generic(const char name[11], size_t dir_cluster, superblock_t * sb, struct fat_dir_entry * out);
-off_t fat12_lookup(const char name[12], superblock_t * sb, struct fat_dir_entry * out);
+off_t fat12_lookup(const char name[11], superblock_t * sb, struct fat_dir_entry * out);
 off_t fat_get_parent(off_t dentry, superblock_t * sb, struct fat_dir_entry * out);
 #endif

@@ -440,6 +440,10 @@ int sys_unlinkat(int fd, const char *path, int flags) {
         close_inode(unlinked);
         return -ENOTDIR;
     }
+    if (!(flags & AT_REMOVEDIR) && S_ISDIR(unlinked->mode)) {
+        close_inode(unlinked);
+        return -EISDIR;
+    }
 
     if (unlinked->backing_superblock &&
         unlinked->backing_superblock->funcs &&

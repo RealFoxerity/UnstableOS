@@ -14,8 +14,8 @@ enum syscalls {
     SYSCALL_DUP,
     SYSCALL_DUP3, // use flags -1 to act as dup2
 
-    SYSCALL_MKDIR,
-    //SYSCALL_CREATE, handled by OPEN
+    //SYSCALL_MKDIR, handled by open with O_CREAT | O_DIRECTORY
+    //SYSCALL_CREATE, handled by open with O_CREAT
     SYSCALL_UNLINKAT,
     SYSCALL_UMASK,
 

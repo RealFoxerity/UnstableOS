@@ -124,9 +124,9 @@ size_t fat_get_free_cluster(const superblock_t * sb) {
 
     for (size_t cl = fi->last_free_cluster; cl < fi->data_clusters; cl++) {
         size_t next = fat_next_in_chain(cl, sb);
-        next &= ~0xF0000000; // reserved on fat32
         if (next == -1)
             return -1;
+        next &= ~0xF0000000; // reserved on fat32
         if (next == 0) {
             fi->last_free_cluster = next;
             return cl;
@@ -134,9 +134,9 @@ size_t fat_get_free_cluster(const superblock_t * sb) {
     }
     for (size_t cl = 2; cl < fi->last_free_cluster; cl++) {
         size_t next = fat_next_in_chain(cl, sb);
-        next &= ~0xF0000000;
         if (next == -1)
             return -1;
+        next &= ~0xF0000000;
         if (next == 0) {
             fi->last_free_cluster = next;
             return cl;
@@ -175,15 +175,8 @@ int fat_free_chain(size_t first_freed, superblock_t *sb) {
 }
 
 int fat_end_chain(size_t last_alloced, superblock_t *sb) {
-    struct fat_info * fi = sb->data;
-    size_t cluster_limit = fi->type == FAT12 ?
-        FAT_CLUSTER_END_FAT12 :
-        fi->type == FAT16 ?
-            FAT_CLUSTER_END_FAT16 :
-            FAT_CLUSTER_END_FAT32;
-
     size_t cl = fat_next_in_chain(last_alloced, sb);
-    if (fat_set_chain(last_alloced, cluster_limit, sb) != 0)
+    if (fat_set_chain(last_alloced, 0xFFFFFFFF, sb) != 0)
         return -EIO;
 
     return fat_free_chain(cl, sb);
