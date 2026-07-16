@@ -281,7 +281,7 @@ static char signal_dispatch_thread(process_t * group, thread_t * signaled, sigin
     signaled->status = SCHED_RUNNABLE;
 
     // signals invalidate any sleeping queues
-    __atomic_add_fetch(&signaled->magic_queue_value, 1, __ATOMIC_RELAXED);
+    __atomic_add_fetch(&signaled->magic_queue_value, 1, __ATOMIC_ACQUIRE);
     return 1;
 }
 

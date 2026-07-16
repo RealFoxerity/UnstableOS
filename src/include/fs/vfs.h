@@ -42,8 +42,10 @@ struct vfs_ops {
     off_t (*seek)    (file_descriptor_t * fd, off_t off, int whence);
 
 
+    // doubles as rmdir if file is a directory
+    // implementations are required to do all locking needed to not race on unlink and open/lookup
+    // MT safety is guaranteed by sys_unlinkat, don't need to lock the inode separately
     int (*unlink)    (inode_t * file);
-    int (*rmdir)     (inode_t * file);
     int (*trunc)     (inode_t * file, off_t length);
 
     inode_t *(*creat)(inode_t * parent, const char * pathname, mode_t mode);

@@ -204,6 +204,10 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
             asm volatile ("sti;");
             return_value = sys_dup3(arg1, arg2, arg3);
             break;
+        case SYSCALL_UNLINKAT:
+            asm volatile ("sti;");
+            return_value = sys_unlinkat(arg1, (const char *)arg2, arg3);
+            break;
         case SYSCALL_SEEK:
             if (!paging_check_address_range((off_t*)arg2, sizeof(off_t), 0, in_kernel)) {
                 return_value = -EFAULT;
@@ -299,7 +303,7 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
             }
 
             // TODO: not thread safe, fix
-            if (__atomic_sub_fetch(&current_process->semaphores[arg1]->used, 1, __ATOMIC_RELAXED) == 0)
+            if (__atomic_sub_fetch(&current_process->semaphores[arg1]->used, 1, __ATOMIC_RELEASE) == 0)
                 kfree(current_process->semaphores[arg1]);
             current_process->semaphores[arg1] = NULL;
             break;
@@ -492,7 +496,6 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
             return_value = sys_ioctl(arg1, arg2, (void *)arg3);
             break;
         case SYSCALL_MKDIR:
-        case SYSCALL_UNLINK:
         default:
             return_value = -ENOSYS;
             break;

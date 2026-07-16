@@ -1,6 +1,9 @@
 #ifndef FS_VFAT_FAT_INTERNAL_H
 #define FS_VFAT_FAT_INTERNAL_H
 
+#include "kernel.h"
+#define dkprintf(fmt, ...) kprintf("fat: " fmt, ##__VA_ARGS__)
+
 
 #define FAT_DIR_FREE 0xE5
 #define FAT_DIR_END  0x00
@@ -56,8 +59,10 @@ int fat_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t
 // all below require external locking
 
 size_t fat_next_in_chain(size_t last_cluster, const superblock_t * sb);
-int fat_set_chain(size_t last_cluster, size_t next, const superblock_t * sb);
+int fat_set_chain(size_t last_cluster, size_t next, const superblock_t * sb); // 0 if success
 size_t fat_get_free_cluster(const superblock_t * sb); // -1 if io error, 0 if not found
+int fat_free_chain(size_t first_freed, superblock_t *sb); // 0 if success, frees all clusters starting at first_freed
+int fat_end_chain(size_t last_alloced, superblock_t *sb); // 0 if success, terminates chain at last alloced
 off_t fat_lookup_cluster_generic(const char name[11], size_t dir_cluster, superblock_t * sb, struct fat_dir_entry * out);
 off_t fat12_lookup(const char name[12], superblock_t * sb, struct fat_dir_entry * out);
 off_t fat_get_parent(off_t dentry, superblock_t * sb, struct fat_dir_entry * out);

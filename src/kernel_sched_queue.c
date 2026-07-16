@@ -22,7 +22,7 @@ static void __thread_queue_unblock(thread_queue_t * thread_queue) {
     } else {
         rerun = 1;
     }
-    if (__atomic_sub_fetch(&thread_queue->queue.thread->instances, 1, __ATOMIC_RELAXED) == 0) kfree(thread_queue->queue.thread);
+    if (__atomic_sub_fetch(&thread_queue->queue.thread->instances, 1, __ATOMIC_RELEASE) == 0) kfree(thread_queue->queue.thread);
 
     if (next != NULL) {
         memcpy(&thread_queue->queue, thread_queue->queue.next, sizeof(struct __thread_queue_inner));
@@ -61,7 +61,7 @@ void thread_queue_unblock_all(thread_queue_t * thread_queue) {
 
 // pprocess and thread here to allow adding other threads than current
 void __thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread) {
-    if (__atomic_add_fetch(&thread->instances, 1, __ATOMIC_RELAXED) == UINT32_MAX) panic("Overflown thread instance count!");
+    if (__atomic_add_fetch(&thread->instances, 1, __ATOMIC_RELEASE) == UINT32_MAX) panic("Overflown thread instance count!");
 
     if (thread_queue->queue.parent_process == NULL) {
         thread_queue->queue.parent_process = pprocess;

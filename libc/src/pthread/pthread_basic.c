@@ -25,7 +25,7 @@ __attribute__((noreturn)) void pthread_exit(void *value_ptr) {
     pthread_t us = pthread_self();
     us->__ret = value_ptr;
 
-    if (__atomic_sub_fetch(&thread_count, 1, __ATOMIC_ACQUIRE) == 0)
+    if (__atomic_sub_fetch(&thread_count, 1, __ATOMIC_RELEASE) == 0)
         exit((long)value_ptr);
 
     _syscall(SYSCALL_EXIT_THREAD);
@@ -105,7 +105,7 @@ struct wrapped_args {
 };
 
 static __attribute__((noreturn)) void pthread_create_wrapper(struct wrapped_args *args) {
-    __atomic_add_fetch(&thread_count, 1, __ATOMIC_RELEASE);
+    __atomic_add_fetch(&thread_count, 1, __ATOMIC_ACQUIRE);
     struct wrapped_args largs = *args; // to free as soon as possible
     free(args);
     pthread_exit(largs.start_routine(largs.arg));

@@ -104,8 +104,7 @@ long mount_dev(dev_t dev, inode_t * mount_point, unsigned char type, unsigned sh
 
     spinlock_acquire(&mount_point->lock);
     // mountpoints have an implicit +1 in the instance counter
-    __atomic_add_fetch(&mount_point->instances, 1, __ATOMIC_RELAXED);
-    __atomic_add_fetch(&mount_point->backing_superblock->instances, 1, __ATOMIC_RELAXED);
+    __atomic_add_fetch(&mount_point->instances, 1, __ATOMIC_ACQUIRE);
 
     mount_point->next_superblock = new_superblock;
     // ensure next_superblock is assigned before is_mountpoint so that we don't race in openat_inode
@@ -125,7 +124,7 @@ long sys_mount(const char * dev_path, const char * mount_path, unsigned char typ
     if (type >= SUPPORTED_FS_COUNT) return -ENODEV;
 
     inode_t * mount_inode = NULL, * dev_inode = NULL;
-    int ret = openat_inode(current_process->pwd, mount_path, O_RDONLY | O_DIRECTORY | O_PATH, 0, &mount_inode);
+    int ret = openat_inode((inode_t*)AT_FDCWD, mount_path, O_RDONLY | O_DIRECTORY | O_PATH, 0, &mount_inode);
     if (ret < 0 || mount_inode == NULL) return ret;
 
     if (!S_ISDIR(mount_inode->mode)) {
@@ -143,7 +142,7 @@ long sys_mount(const char * dev_path, const char * mount_path, unsigned char typ
             close_inode(mount_inode);
             return ret;
         default:
-            ret = openat_inode(current_process->pwd,
+            ret = openat_inode((inode_t*)AT_FDCWD,
                 dev_path,
                 O_RDONLY | ((options & MOUNT_RDONLY) ? 0 : O_WRONLY),
                 0,
@@ -168,7 +167,7 @@ long sys_umount(const char * mount_path) {
     if (mount_path == NULL) return -EFAULT;
     inode_t * mount_inode = NULL;
     // this could be done without O_PATH (sb->mountpoint), but I think that it's cleaner like this
-    int ret = openat_inode(current_process->pwd, mount_path, O_RDONLY | O_DIRECTORY | O_PATH, 0, &mount_inode);
+    int ret = openat_inode((inode_t*)AT_FDCWD, mount_path, O_RDONLY | O_DIRECTORY | O_PATH, 0, &mount_inode);
     if (ret < 0 || mount_inode == NULL) return ret;
 
     if (!mount_inode->is_mountpoint) {
@@ -186,8 +185,7 @@ long sys_umount(const char * mount_path) {
     }
 
     mount_inode->is_mountpoint = 0;
-    __atomic_sub_fetch(&mount_inode->instances, 1, __ATOMIC_RELAXED);
-    __atomic_sub_fetch(&mount_inode->backing_superblock->instances, 1, __ATOMIC_RELAXED);
+    __atomic_sub_fetch(&mount_inode->instances, 1, __ATOMIC_RELEASE);
     close_inode(mount_inode);
 
     if (target->funcs->fs_deinit)

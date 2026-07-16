@@ -42,6 +42,9 @@ int dup(int fd);
 int dup2(int oldfd, int newfd);
 int dup3(int oldfd, int newfd, int flag);
 
+int unlink(const char *path);
+int rmdir(const char *path);
+
 int chdir(const char * path);
 int chroot(const char * path);
 

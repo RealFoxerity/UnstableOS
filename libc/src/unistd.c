@@ -5,12 +5,13 @@
 #include <time.h>
 #include <errno.h>
 #include <UnstableOS/syscalls.h>
+#include <UnstableOS/tls.h>
 #include <sys/ioctl.h>
 
 #include <assert.h>
 #include <endian.h>
 
-#include "UnstableOS/tls.h"
+#include <fcntl.h>
 
 void swab(const void *restrict src, void *restrict dest, ssize_t nbytes) {
     if (nbytes < 2) return;
@@ -133,6 +134,13 @@ int dup3(int oldfd, int newfd, int flag) {
     return ret;
 }
 
+int unlink(const char *path) {
+    return unlinkat(AT_FDCWD, path, 0);
+}
+
+int rmdir(const char *path) {
+    return unlinkat(AT_FDCWD, path, AT_REMOVEDIR);
+}
 
 int chdir(const char * path) {
     int ret = syscall(SYSCALL_CHDIR, path);

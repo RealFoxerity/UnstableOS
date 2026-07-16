@@ -95,7 +95,7 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
 
     for (int i = 0; i < SEM_NSEMS_MAX; i++) {
         if (current_process->semaphores[i] == NULL) continue;
-        if (__atomic_sub_fetch(&current_process->semaphores[i]->used, 1, __ATOMIC_RELAXED) == 0)
+        if (__atomic_sub_fetch(&current_process->semaphores[i]->used, 1, __ATOMIC_RELEASE) == 0)
             kfree(current_process->semaphores[i]);
         current_process->semaphores[i] = NULL;
     }
@@ -114,7 +114,7 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
     new->kernel_stack_size = current_thread->kernel_stack_size;
     new->sa_mask = current_thread->sa_mask;
 
-    if (__atomic_sub_fetch(&current_thread->instances, 1, __ATOMIC_RELAXED) == 0)
+    if (__atomic_sub_fetch(&current_thread->instances, 1, __ATOMIC_RELEASE) == 0)
         kfree(current_thread);
 
     current_thread = new;
@@ -191,7 +191,7 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     proc->next_alarm = 0;
     proc->user_clicks = proc->system_clicks = proc->dead_user_clicks = proc->dead_system_clicks = 0;
     proc->parent = current_process;
-    proc->pid = __atomic_add_fetch(&last_pid, 1, __ATOMIC_RELAXED);
+    proc->pid = __atomic_add_fetch(&last_pid, 1, __ATOMIC_ACQUIRE);
     proc->address_space_paddr = paging_virt_addr_to_phys(new_prog.pd_vaddr);
     proc->program_break = PROGRAM_HEAP_VADDR;
     proc->threads = NULL;
@@ -230,11 +230,11 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
 
     for (int i = 0; i < FD_LIMIT_PROCESS; i++)
         if (proc->fds[i] && !(proc->fd_flags[i] & (O_CLOEXEC >> 12)) && !(proc->fd_flags[i] & (O_CLOFORK >> 12)))
-            __atomic_add_fetch(&proc->fds[i]->instances, 1, __ATOMIC_RELAXED);
+            __atomic_add_fetch(&proc->fds[i]->instances, 1, __ATOMIC_ACQUIRE);
         else proc->fds[i] = NULL;
 
-    __atomic_add_fetch(&proc->pwd->instances, 1, __ATOMIC_RELAXED);
-    __atomic_add_fetch(&proc->root->instances, 1, __ATOMIC_RELAXED);
+    __atomic_add_fetch(&proc->pwd->instances, 1, __ATOMIC_ACQUIRE);
+    __atomic_add_fetch(&proc->root->instances, 1, __ATOMIC_ACQUIRE);
 
 
     thread_t * new_thread = kernel_create_thread(proc, NULL, new_prog.start, NULL, 0);

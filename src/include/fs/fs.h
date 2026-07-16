@@ -185,6 +185,7 @@ ssize_t pipe_read(const file_descriptor_t * file, void * s, size_t n);
 long dup_file(file_descriptor_t * old_file, int startfd, int flags); // primarily for fcntl
 int sys_dup(int oldfd);
 int sys_dup3(int oldfd, int newfd, int flags);
+int sys_unlinkat(int fd, const char *path, int flags);
 
 #include <UnstableOS/mount.h>
 long mount_dev(dev_t dev, inode_t * mount_point, unsigned char type, unsigned short options);

@@ -208,7 +208,7 @@ int fat_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t
         if (!S_ISDIR(last->mode))
             return -ENOTDIR;
         *inode_out = last;
-        __atomic_add_fetch(&last->instances, 1, __ATOMIC_RELAXED);
+        __atomic_add_fetch(&last->instances, 1, __ATOMIC_ACQUIRE);
         return 0;
     }
 

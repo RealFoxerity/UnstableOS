@@ -53,3 +53,12 @@ int fcntl(int fildes, int cmd, ...) {
     }
     return ret;
 }
+
+int unlinkat(int fd, const char *path, int flag) {
+    int ret = syscall(SYSCALL_UNLINKAT, fd, path, flag);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return ret;
+}

@@ -76,7 +76,7 @@ see [caveats.md](./caveats.md) for info
 - [x] ATA PIO with read cache
 - [ ] ATA DMA
 - [ ] AHCI
-- [X] VFAT, but read only and without LFNs so far
+- [X] VFAT, not yet complete and without LFNs so far
 - [ ] ATAPI
 - [ ] ISO9660
 - [x] pipes

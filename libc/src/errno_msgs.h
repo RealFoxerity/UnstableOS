@@ -39,5 +39,7 @@ static const char * __errno_msgs[] = {
     [EDEADLK]   = "Resource deadlock would occur",
     [ENOTSUP]   = "Not supported",
     [ENAMETOOLONG] = "Filename too long",
-    [EILSEQ]    = "Illegal byte sequence"
+    [EILSEQ]    = "Illegal byte sequence",
+    [ENOSPC]    = "No space left on device",
+    [ENOTEMPTY] = "Directory not empty",
 };
