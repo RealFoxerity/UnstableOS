@@ -42,4 +42,6 @@ int ___get_errno();
 #define ENOTSUP   36
 #define ENAMETOOLONG 37
 #define EILSEQ    38
+#define ENOSPC    39
+#define ENOTEMPTY 40
 #endif

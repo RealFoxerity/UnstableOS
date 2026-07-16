@@ -180,7 +180,7 @@ struct process_t {
     clock_t dead_user_clicks, dead_system_clicks;
 
     char is_stopped;
-    char do_cleanup;
+    char do_cleanup; // 1 = cleanup requested, 2 = thread to destroy dispatched, 3 = destroyed
     char pending_waiting; // 1 = pending_sigchld_info changed from last time we ran waitpid
     siginfo_t pending_sigchld_info; // for complete waitid() info
 
@@ -307,6 +307,6 @@ int signal_process_group(pid_t process_group, siginfo_t * info);
 // macros to call when the thread cannot be cleaned up safely at that point
 // automatically called when doing spinlock_acquire and spinlock_release
 // is valid for the duration of a syscall (as the end of a syscall forces counter to 0)
-#define CRIT_SEC_START {__atomic_add_fetch(&current_thread->in_critical_section, 1, __ATOMIC_RELAXED);}
-#define CRIT_SEC_END {__atomic_sub_fetch(&current_thread->in_critical_section, 1, __ATOMIC_RELAXED);}
+#define CRIT_SEC_START {__atomic_add_fetch(&current_thread->in_critical_section, 1, __ATOMIC_ACQUIRE);}
+#define CRIT_SEC_END {__atomic_sub_fetch(&current_thread->in_critical_section, 1, __ATOMIC_RELEASE);}
 #endif

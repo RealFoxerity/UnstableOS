@@ -164,7 +164,6 @@ pid_t sys_fork(mcontext_t * ctx) {
     kassert(current_process->ring != 0); // i really don't want to deal with the kernel forking
 
     spinlock_acquire(&address_spaces_lock); // we need scheduler to reschedule if lockee
-    spinlock_acquire(&scheduler_lock);
 
     process_t * new_proc = kalloc(sizeof(process_t));
     kassert(new_proc);
@@ -175,7 +174,11 @@ pid_t sys_fork(mcontext_t * ctx) {
     if (current_process->pgrp_leader) {
         __atomic_add_fetch(&current_process->pgrp_leader->pgrp_members, 1, __ATOMIC_RELAXED);
     }
+    __atomic_add_fetch(&current_process->pwd->instances, 1, __ATOMIC_ACQUIRE);
+    __atomic_add_fetch(&current_process->root->instances, 1, __ATOMIC_ACQUIRE);
     spinlock_release(&current_process->lock);
+
+    spinlock_acquire(&scheduler_lock);
 
     /*
      * too lazy to rewrite to the new PCB approach
@@ -204,18 +207,15 @@ pid_t sys_fork(mcontext_t * ctx) {
     // "duplicate" all file descriptors and semaphores, TODO: fix the UINT32_MAX :3
     for (int i = 0; i < FD_LIMIT_PROCESS; i++) {
         if (new_proc->fds[i] && !(new_proc->fd_flags[i] & (O_CLOFORK >> 12)))
-            kassert(__atomic_add_fetch(&new_proc->fds[i]->instances, 1, __ATOMIC_RELAXED) != UINT32_MAX);
+            kassert(__atomic_add_fetch(&new_proc->fds[i]->instances, 1, __ATOMIC_RELEASE) != UINT32_MAX);
         else
             new_proc->fds[i] = NULL;
     }
 
     for (int i = 0; i < SEM_NSEMS_MAX; i++) {
         if (current_process->semaphores[i])
-            kassert(__atomic_add_fetch(&current_process->semaphores[i]->used, 1, __ATOMIC_RELAXED) != UINT32_MAX);
+            kassert(__atomic_add_fetch(&current_process->semaphores[i]->used, 1, __ATOMIC_RELEASE) != UINT32_MAX);
     }
-
-    __atomic_add_fetch(&current_process->pwd->instances, 1, __ATOMIC_RELAXED);
-    __atomic_add_fetch(&current_process->root->instances, 1, __ATOMIC_RELAXED);
 
     thread_t * new_thread = kalloc(sizeof(thread_t));
     kassert(new_thread);

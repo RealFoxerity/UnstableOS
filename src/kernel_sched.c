@@ -117,8 +117,12 @@ static inline void scheduler_init_kernel_task() {
     reschedule(); // fastest way to correctly enter in the kernel task is to let the interrupt gather info
 }
 
+static __attribute__((noreturn)) void scheduler_process_reaper(void * arg);
+thread_t * process_reaper = NULL;
 void scheduler_init() {
     scheduler_init_kernel_task();
+    process_reaper = kernel_create_thread(current_process, current_thread, scheduler_process_reaper, NULL, 0);
+    kassert(process_reaper);
 }
 
 static inline void push_process_to_end(process_t * process) {
@@ -182,30 +186,28 @@ static inline void register_kernel_task(mcontext_t * context) {
 }
 
 
-static inline char scheduler_remove_process(process_t * process) {
+static void scheduler_remove_process(process_t * process) {
     if (!process->prgp_orphan) { // in case we need to call remove_process > 1
         process->prgp_orphan = 1;
         if (process->pgrp_leader) {
             __atomic_sub_fetch(&process->pgrp_leader->pgrp_members, 1, __ATOMIC_RELAXED);
         }
+        spinlock_acquire(&scheduler_lock);
         for (process_t * pgrp_proc = process_list; pgrp_proc != NULL; pgrp_proc = pgrp_proc->next) {
             if (pgrp_proc->pgrp == process->pgrp) {
                 pgrp_proc->pgrp_leader = NULL;
                 pgrp_proc->prgp_orphan = 1;
             }
         }
+        spinlock_release(&scheduler_lock);
     }
 
-    for (thread_t * thread = process->threads; thread != NULL; ) {
+    for (thread_t * thread = process->threads; thread != NULL; thread = process->threads) {
         if (!kernel_destroy_thread(process, thread)) {
-            thread = thread->next;
-        } else {
-            thread = process->threads;
+            //thread = thread->next;
+            reschedule();
         }
     }
-    if (process->threads != NULL) return 0;
-
-    paging_apply_address_space(kernel_address_space_paddr);
 
     PAGE_DIRECTORY_TYPE * mapped_as = paging_map_phys_addr_unspecified(process->address_space_paddr, PTE_PDE_PAGE_WRITABLE);
     paging_destroy_address_space(mapped_as);
@@ -213,21 +215,34 @@ static inline char scheduler_remove_process(process_t * process) {
 
     for (int i = 0; i < FD_LIMIT_PROCESS; i++) {
         if (process->fds[i]) {
-            close_file_forced(process->fds[i]);
+            close_file(process->fds[i]);
         }
     }
 
+    close_inode(process->pwd);
+    close_inode(process->root);
+
     for (int i = 0; i < SEM_NSEMS_MAX; i++) {
         if (process->semaphores[i] == NULL) continue;
-        if (__atomic_sub_fetch(&process->semaphores[i]->used, 1, __ATOMIC_RELAXED) == 0)
+        if (__atomic_sub_fetch(&process->semaphores[i]->used, 1, __ATOMIC_RELEASE) == 0)
             kfree(process->semaphores[i]);
     }
 
-    UNLINK_DOUBLE_LINKED_LIST(process, process_list)
-
     //kfree(process);
     // not freed because we want to form a zombie queue for wait()
-    return 1;
+}
+
+static process_t * to_reap = NULL;
+static __attribute__((noreturn)) void scheduler_process_reaper(void * arg) {
+    while (1) {
+        if (to_reap == NULL) {
+            process_reaper->status = SCHED_UNINTERR_SLEEP;
+            continue;
+        }
+        scheduler_remove_process(to_reap);
+        to_reap->do_cleanup = 3;
+        to_reap = NULL;
+    }
 }
 
 void reload_pcb(const process_t * pprocess) {
@@ -376,8 +391,20 @@ void schedule(mcontext_t * context) {
                 }
                 panic("Tried to kill init");
             }
-            if (!scheduler_remove_process(checked_process))
-                goto partial_cleanup;
+            switch (checked_process->do_cleanup) {
+                case 1:
+                    if (to_reap == NULL) {
+                        to_reap                     = checked_process;
+                        checked_process->do_cleanup = 2;
+                    }
+                case 2:
+                default:
+                    process_reaper->status = SCHED_RUNNABLE;
+                    goto partial_cleanup;
+                case 3:
+                    UNLINK_DOUBLE_LINKED_LIST(checked_process, process_list);
+                    break;
+            }
 
             // reparent all child processes if any
             kassert(init_task);

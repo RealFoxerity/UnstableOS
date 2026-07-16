@@ -141,7 +141,7 @@ void * pfalloc_ref_inc(void * page) {
         void * new_page = pfalloc_dup_page(page);
         return new_page;
     } else {
-        __atomic_add_fetch(&page_frame_table[page_index], 1, __ATOMIC_RELAXED);
+        __atomic_add_fetch(&page_frame_table[page_index], 1, __ATOMIC_ACQUIRE);
         return page;
     }
 }
@@ -211,7 +211,7 @@ void pffree(void *page) {
         kprintf("Warning: Tried to double free a paddr %p!\n", page);
         return;
     }
-    __atomic_sub_fetch(&page_frame_table[page_index], 1, __ATOMIC_RELAXED);
+    __atomic_sub_fetch(&page_frame_table[page_index], 1, __ATOMIC_RELEASE);
 }
 
 void pffree_1M(void * block_1M_start) {
@@ -231,7 +231,7 @@ void pffree_1M(void * block_1M_start) {
             gfx_spinlock.state = SPINLOCK_UNLOCKED;
             kprintf("Warning: Tried to double free element %d of 1M block paddr %p\n", page_index+i, block_1M_start);
         }
-        __atomic_sub_fetch(&page_frame_table[page_index+i], 1, __ATOMIC_RELAXED);
+        __atomic_sub_fetch(&page_frame_table[page_index+i], 1, __ATOMIC_RELEASE);
     }
 }
 

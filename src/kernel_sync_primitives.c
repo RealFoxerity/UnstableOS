@@ -53,12 +53,6 @@ static inline void check_deadlock(sem_t * sem, process_t * pprocess) { // tested
 }
 
 void spinlock_acquire(spinlock_t * lock) { // disables interrupts after lock
-    spinlock_acquire_interruptible(lock);
-    asm volatile("cli");
-}
-
-// same as normal spinlock_acquire, but doesn't call cli
-void spinlock_acquire_interruptible(spinlock_t * lock) {
     if (!lock) panic("Tried to lock a NULL spinlock");
     CRIT_SEC_START
 
@@ -71,14 +65,20 @@ void spinlock_acquire_interruptible(spinlock_t * lock) {
         return;
     }
 
+    asm volatile("cli");
     if (__atomic_compare_exchange_n(&lock->state, &(unsigned long){SPINLOCK_UNLOCKED}, SPINLOCK_LOCKED, 0, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED))
         return; // in case we don't even need the sti
 
-    asm volatile("sti");
     do {
         //asm volatile ("pause");
         reschedule();
     } while (lock->state != SPINLOCK_UNLOCKED || !__atomic_compare_exchange_n(&lock->state, &(unsigned long){SPINLOCK_UNLOCKED}, SPINLOCK_LOCKED, 0, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED));
+}
+
+// same as normal spinlock_acquire, but doesn't call cli
+void spinlock_acquire_interruptible(spinlock_t * lock) {
+    spinlock_acquire(lock);
+    asm volatile("sti;");
 }
 
 // WARNING NO WAY TO DETECT DEADLOCKS FOR SPINLOCKING
@@ -108,7 +108,7 @@ void rw_spinlock_acquire_read(rw_spinlock_t * lock) {
     if (!lock) panic("Tried to lock a NULL rw spinlock");
     spinlock_acquire_interruptible(&lock->vlock);
 
-    if (__atomic_add_fetch(&lock->value, 1, __ATOMIC_RELAXED) == 1) {
+    if (__atomic_add_fetch(&lock->value, 1, __ATOMIC_ACQUIRE) == 1) {
         spinlock_acquire_interruptible(&lock->wlock);
         CRIT_SEC_END
     }
@@ -123,7 +123,7 @@ void rw_spinlock_release_read(rw_spinlock_t * lock) {
     if (lock->value == 0)
         panic("Tried to release a read rw spinlock with 0 instances");
 
-    if (__atomic_sub_fetch(&lock->value, 1, __ATOMIC_RELAXED) == 0) {
+    if (__atomic_sub_fetch(&lock->value, 1, __ATOMIC_RELEASE) == 0) {
         CRIT_SEC_START
         spinlock_release(&lock->wlock);
     }

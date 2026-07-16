@@ -52,6 +52,7 @@ size_t fat_next_in_chain(size_t last_cluster, const superblock_t * sb) {
                 fi->fat_start_sector * fi->bytes_per_sector + sizeof(uint32_t) * last_cluster
             ) != sizeof(uint32_t))
                 return -1;
+            next_32 &= ~0xF0000000; // reserved bits
             if (next_32 > FAT_CLUSTER_END_FAT32)
                 next_32 &= ~0x000F;
             return next_32;
@@ -61,11 +62,12 @@ size_t fat_next_in_chain(size_t last_cluster, const superblock_t * sb) {
 
 int fat_set_chain(size_t last_cluster, size_t next, const superblock_t * sb) {
     kassert(last_cluster >= 2);
-    kassert(next >= 2);
 
     struct fat_info * fi = sb->data;
     if (last_cluster - 2 > fi->data_clusters)
         return -EINVAL;
+
+    next &= ~0xF0000000; // reserved bits on fat32
 
     if (next == 0)
         fi->last_free_cluster = last_cluster;
@@ -75,7 +77,6 @@ int fat_set_chain(size_t last_cluster, size_t next, const superblock_t * sb) {
             case FAT12:
                 // read, modify, write
                 kassert(last_cluster < FAT_CLUSTER_END_FAT12);
-                kassert(next < FAT_CLUSTER_END_FAT12);
 
                 uint16_t old;
                 off_t fat_offset = last_cluster * 3 / 2;
@@ -84,7 +85,7 @@ int fat_set_chain(size_t last_cluster, size_t next, const superblock_t * sb) {
                     sizeof(uint16_t),
                     (fi->fat_start_sector + i*fi->sectors_per_fat)*fi->bytes_per_sector + fat_offset
                 ) != sizeof(uint16_t))
-                    return 0;
+                    return -EIO;
                 if (last_cluster % 2) {
                     old &= 0x000F;
                     old |= next << 4;
@@ -96,7 +97,6 @@ int fat_set_chain(size_t last_cluster, size_t next, const superblock_t * sb) {
                 goto fat16;
             case FAT16:
                 kassert(last_cluster < FAT_CLUSTER_END_FAT16);
-                kassert(next < FAT_CLUSTER_END_FAT16);
                 fat16:
                 if (pwrite_file(
                     sb->fd, &(uint16_t){next},
@@ -107,7 +107,6 @@ int fat_set_chain(size_t last_cluster, size_t next, const superblock_t * sb) {
                 break;
             case FAT32:
                 kassert(last_cluster < FAT_CLUSTER_END_FAT32);
-                kassert(next < FAT_CLUSTER_END_FAT32);
                 if (pwrite_file(
                     sb->fd, &(uint32_t){next},
                     sizeof(uint32_t),
@@ -125,6 +124,7 @@ size_t fat_get_free_cluster(const superblock_t * sb) {
 
     for (size_t cl = fi->last_free_cluster; cl < fi->data_clusters; cl++) {
         size_t next = fat_next_in_chain(cl, sb);
+        next &= ~0xF0000000; // reserved on fat32
         if (next == -1)
             return -1;
         if (next == 0) {
@@ -134,6 +134,7 @@ size_t fat_get_free_cluster(const superblock_t * sb) {
     }
     for (size_t cl = 2; cl < fi->last_free_cluster; cl++) {
         size_t next = fat_next_in_chain(cl, sb);
+        next &= ~0xF0000000;
         if (next == -1)
             return -1;
         if (next == 0) {
@@ -142,4 +143,48 @@ size_t fat_get_free_cluster(const superblock_t * sb) {
         }
     }
     return 0;
+}
+
+int fat_free_chain(size_t first_freed, superblock_t *sb) {
+    struct fat_info * fi = sb->data;
+    size_t cluster_limit = fi->type == FAT12 ?
+        FAT_CLUSTER_END_FAT12 :
+        fi->type == FAT16 ?
+            FAT_CLUSTER_END_FAT16 :
+            FAT_CLUSTER_END_FAT32;
+
+    size_t cl = first_freed;
+
+    while (cl < cluster_limit) {
+        size_t next = fat_next_in_chain(cl, sb);
+        if (fat_set_chain(cl, 0, sb) != 0) {
+            dkprintf("Warning: I/O error on freeing cluster chain from %lu at %lu, rest will become orphaned!\n", first_freed, cl);
+            return -EIO;
+        }
+        if (next == 0) {
+            dkprintf("Warning: cluster chain already partially freed\n");
+            return 0;
+        }
+        if (next < 2) {
+            dkprintf("Warning: invalid next cluster in cluster chain! %lu @ %lu -> %lu\n", first_freed, cl, next);
+            return -EIO;
+        }
+        cl = next;
+    }
+    return 0;
+}
+
+int fat_end_chain(size_t last_alloced, superblock_t *sb) {
+    struct fat_info * fi = sb->data;
+    size_t cluster_limit = fi->type == FAT12 ?
+        FAT_CLUSTER_END_FAT12 :
+        fi->type == FAT16 ?
+            FAT_CLUSTER_END_FAT16 :
+            FAT_CLUSTER_END_FAT32;
+
+    size_t cl = fat_next_in_chain(last_alloced, sb);
+    if (fat_set_chain(last_alloced, cluster_limit, sb) != 0)
+        return -EIO;
+
+    return fat_free_chain(cl, sb);
 }

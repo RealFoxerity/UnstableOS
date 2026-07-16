@@ -181,7 +181,7 @@ long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
             __atomic_store(
                         &terminals[MINOR(dev)]->iqueue.head,
                         &terminals[MINOR(dev)]->iqueue.tail,
-                        __ATOMIC_RELAXED
+                        __ATOMIC_RELEASE
                     );
             tty_flush_input(terminals[MINOR(dev)]);
 
@@ -224,7 +224,7 @@ long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
                     __atomic_store(
                         &terminals[MINOR(dev)]->iqueue.head,
                         &terminals[MINOR(dev)]->iqueue.tail,
-                        __ATOMIC_RELAXED
+                        __ATOMIC_RELEASE
                     );
                     tty_flush_input(terminals[MINOR(dev)]);
                     return 0;
@@ -232,7 +232,7 @@ long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
                     __atomic_store(
                         &terminals[MINOR(dev)]->oqueue.head,
                         &terminals[MINOR(dev)]->oqueue.tail,
-                        __ATOMIC_RELAXED
+                        __ATOMIC_RELEASE
                     );
 #if TTY_QUEUE_MODE == 2
                     thread_queue_unblock_all(&terminals[MINOR(dev)]->oqueue.write_queue);
@@ -242,12 +242,12 @@ long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
                     __atomic_store(
                         &terminals[MINOR(dev)]->iqueue.head,
                         &terminals[MINOR(dev)]->iqueue.tail,
-                        __ATOMIC_RELAXED
+                        __ATOMIC_RELEASE
                     );
                     __atomic_store(
                         &terminals[MINOR(dev)]->oqueue.head,
                         &terminals[MINOR(dev)]->oqueue.tail,
-                        __ATOMIC_RELAXED
+                        __ATOMIC_RELEASE
                     );
                     tty_flush_input(terminals[MINOR(dev)]);
 #if TTY_QUEUE_MODE == 2

@@ -100,14 +100,14 @@ int close_file_forced(file_descriptor_t * file) {
     inode_t * inode = file->inode; // to not race on freeing
     unsigned short old_flags = file->flags;
 
-    if (__atomic_sub_fetch(&file->instances, 1, __ATOMIC_RELAXED) == 0) {
+    if (__atomic_sub_fetch(&file->instances, 1, __ATOMIC_RELEASE) == 0) {
         // to have the correct SIGPIPE behavior
         // has to be done here, because the inode doesn't carry flags
         if (S_ISFIFO(file->inode->mode)) {
             if (old_flags & O_RDONLY)
-                __atomic_sub_fetch(&inode->pipe->readers, 1, __ATOMIC_RELAXED);
+                __atomic_sub_fetch(&inode->pipe->readers, 1, __ATOMIC_RELEASE);
             else
-                __atomic_sub_fetch(&inode->pipe->writers, 1, __ATOMIC_RELAXED);
+                __atomic_sub_fetch(&inode->pipe->writers, 1, __ATOMIC_RELEASE);
             thread_queue_unblock_all_nonreentrant(&inode->pipe->read_queue);
             thread_queue_unblock_all_nonreentrant(&inode->pipe->write_queue);
         }
@@ -221,7 +221,7 @@ ssize_t pwrite_file(file_descriptor_t *file, const void *buf, size_t count, off_
     } else if (!(S_ISBLK(file->inode->mode) || S_ISCHR(file->inode->mode))) {
         kassert(file->inode->backing_superblock);
         kassert(file->inode->backing_superblock->funcs);
-        if (!(file->inode->backing_superblock->mount_options & MOUNT_RDONLY)) {
+        if (file->inode->backing_superblock->mount_options & MOUNT_RDONLY) {
             kprintf("Warning: File descriptor marked writable on read-only fs, readjusting...\n");
             file->flags ^= O_WRONLY;
             rw_spinlock_release_read(&file->access_lock);
@@ -365,7 +365,7 @@ long dup_file(file_descriptor_t * old_file, int startfd, int flags) {
         return -EMFILE;
     }
 
-    __atomic_add_fetch(&old_file->instances, 1, __ATOMIC_RELAXED);
+    __atomic_add_fetch(&old_file->instances, 1, __ATOMIC_ACQUIRE);
 
     current_process->fd_flags[fd] = 0;
     current_process->fds[fd] = old_file;
@@ -395,7 +395,7 @@ int sys_dup3(int oldfd, int newfd, int flags) {
         return -EBADF;
     }
 
-    __atomic_add_fetch(&current_process->fds[oldfd]->instances, 1, __ATOMIC_RELAXED);
+    __atomic_add_fetch(&current_process->fds[oldfd]->instances, 1, __ATOMIC_ACQUIRE);
 
     if (current_process->fds[newfd] != NULL) { // close the fd
         rw_spinlock_acquire_read(&current_process->fds[newfd]->access_lock);
@@ -416,7 +416,42 @@ int sys_dup3(int oldfd, int newfd, int flags) {
     return newfd;
 }
 
+int sys_unlinkat(int fd, const char *path, int flags) {
+    // partially copied over sys_openat
+    if ((fd < 0 || fd >= FD_LIMIT_PROCESS) && fd != AT_FDCWD) return -EBADF;
 
+    inode_t * ino = NULL;
+    if (fd != AT_FDCWD) {
+        file_descriptor_t * file = current_process->fds[fd];
+        if (file == NULL) return -EBADF;
+        kassert(file->instances > 0);
+        ino = file->inode;
+    } else
+        ino = (inode_t*)AT_FDCWD;
+
+    kassert(ino != NULL);
+    kassert(ino->instances > (ino->is_mountpoint ? 1 : 0));
+
+    inode_t * unlinked = NULL;
+    int ret = openat_inode(ino, path, O_WRONLY , 0, &unlinked);
+    if (ret < 0) return ret;
+
+    if (flags & AT_REMOVEDIR && !S_ISDIR(unlinked->mode)) {
+        close_inode(unlinked);
+        return -ENOTDIR;
+    }
+
+    if (unlinked->backing_superblock &&
+        unlinked->backing_superblock->funcs &&
+        unlinked->backing_superblock->funcs->unlink)
+    {
+        ret = unlinked->backing_superblock->funcs->unlink(unlinked);
+        close_inode(unlinked);
+        return ret;
+    }
+    close_inode(unlinked);
+    return -ENOTSUP; // maybe EINVAL?
+}
 
 ssize_t sys_readdir(int fd, struct dirent * dent, size_t dent_size) {
     if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
@@ -464,7 +499,7 @@ int sys_fstatat(int fd, const char * __restrict path, struct stat * __restrict b
     inode_t * new = NULL;
 
     if (fd == AT_FDCWD)
-        base = current_process->pwd;
+        base = (inode_t*)AT_FDCWD;
     else {
         if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
         int test = check_file(current_process->fds[fd]);
@@ -557,16 +592,14 @@ off_t generic_seek(file_descriptor_t *file, off_t off, int whence, off_t max_off
     switch (whence) {
         case SEEK_SET:
             if (off < 0) return -EINVAL;
-            if (off > max_off) return -EINVAL;
             return (file->off = off);
         case SEEK_CUR:
             if (old_off + off > old_off && off < 0) return -EINVAL; // underflow - negative offset
             if (old_off + off < old_off && off > 0) return -E2BIG; // overflow
 
-            if (old_off + off > max_off) return -EINVAL;
             return (file->off = old_off + off);
         case SEEK_END:
-            if (off > 0) return -EINVAL;
+            if (off > 0) return (file->off = max_off + off);
             if (off == 0) return (file->off = max_off);
             if (-off <= old_off) return (file->off = old_off - off);
             return -EINVAL; // negative offset

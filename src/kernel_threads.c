@@ -193,7 +193,7 @@ char kernel_destroy_thread(process_t * parent_process, thread_t * thread) {
 
     UNLINK_DOUBLE_LINKED_LIST(thread, parent_process->threads);
 
-    if (__atomic_sub_fetch(&thread->instances, 1, __ATOMIC_RELAXED) == 0) kfree(thread);
+    if (__atomic_sub_fetch(&thread->instances, 1, __ATOMIC_RELEASE) == 0) kfree(thread);
     //reschedule(); // kernel_destroy_thread is meant to be ran from within schedule(), calling reschedule() would deadlock the scheduler for a given running core
     return 1;
 }

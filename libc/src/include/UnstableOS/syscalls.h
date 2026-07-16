@@ -16,7 +16,7 @@ enum syscalls {
 
     SYSCALL_MKDIR,
     //SYSCALL_CREATE, handled by OPEN
-    SYSCALL_UNLINK,
+    SYSCALL_UNLINKAT,
     SYSCALL_UMASK,
 
     SYSCALL_READ,

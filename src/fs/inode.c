@@ -106,7 +106,7 @@ long register_inode(const inode_t * inode, inode_t ** inode_out) {
     spinlock_acquire(&kernel_inode_lock);
     inode_t * new_inode = __get_inode(inode->backing_superblock, inode->id);
     if (new_inode != NULL) {
-        __atomic_add_fetch(&new_inode->instances, 1, __ATOMIC_RELAXED);
+        __atomic_add_fetch(&new_inode->instances, 1, __ATOMIC_ACQUIRE);
         goto ret;
     }
 
@@ -134,7 +134,7 @@ long register_inode(const inode_t * inode, inode_t ** inode_out) {
 
     ret:
     if (new_inode && new_inode->backing_superblock)
-        __atomic_add_fetch(&new_inode->backing_superblock->instances, 1, __ATOMIC_RELAXED);
+        __atomic_add_fetch(&new_inode->backing_superblock->instances, 1, __ATOMIC_ACQUIRE);
     *inode_out = new_inode;
     spinlock_release(&kernel_inode_lock);
     return status;
@@ -144,8 +144,8 @@ void close_inode(inode_t *inode) {
     if (inode == NULL) return;
     spinlock_acquire_interruptible(&inode->lock);
     spinlock_acquire_interruptible(&kernel_inode_lock);
-    __atomic_sub_fetch(&inode->backing_superblock->instances, 1, __ATOMIC_RELAXED);
-    if (__atomic_sub_fetch(&inode->instances, 1, __ATOMIC_RELAXED) == 0) {
+    if (__atomic_sub_fetch(&inode->instances, 1, __ATOMIC_RELEASE) == 0) {
+        __atomic_sub_fetch(&inode->backing_superblock->instances, 1, __ATOMIC_RELEASE);
         if (inode->backing_superblock &&
             inode->backing_superblock->funcs &&
             inode->backing_superblock->funcs->release)

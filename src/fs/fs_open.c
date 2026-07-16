@@ -116,7 +116,7 @@ int sys_openat(int fd, const char * path, unsigned short flags, mode_t mode) {
         kassert(file->instances > 0);
         ino = file->inode;
     } else
-        ino = current_process->pwd;
+        ino = (inode_t*)AT_FDCWD;
 
     kassert(ino != NULL);
     kassert(ino->instances > (ino->is_mountpoint ? 1 : 0));
@@ -139,15 +139,27 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
         kprintf("\e[0m\e[41mWarning: called openat with NULL root inode!\e[0m\n");
         return -EINVAL;
     }
-    if (current_process->pwd == NULL) {
-        kprintf("\e[0m\e[41mWarning: called openat with NULL pwd inode!\e[0m\n");
-        return -EINVAL;
+    char preincremented = 0;
+    if (base == (inode_t*)AT_FDCWD) {
+        spinlock_acquire(&current_process->lock);
+        base = current_process->pwd;
+        kassert(base);
+        __atomic_add_fetch(&base->instances, 1, __ATOMIC_ACQUIRE);
+        spinlock_release(&current_process->lock);
+        preincremented = 1;
     }
 
-    if (!S_ISDIR(base->mode))
+    if (!S_ISDIR(base->mode)) {
+        if (preincremented)
+            close_inode(base);
         return -ENOTDIR;
+    }
 
-    if (path == NULL) return -EFAULT;
+    if (path == NULL) {
+        if (preincremented)
+            close_inode(base);
+        return -EFAULT;
+    }
     if (flags & O_PATH) {
         flags &= ~O_RDWR;
     }
@@ -158,12 +170,18 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
 
     size_t pathlen;
     char * dup_path = secure_strdup(path, PATH_MAX, &pathlen);
-    if (dup_path == NULL) return -EFAULT;
+    if (dup_path == NULL) {
+        if (preincremented)
+            close_inode(base);
+        return -EFAULT;
+    }
 
     // deciding whether normal path (/,///+) or meta directory //
     if (strcmp(dup_path, PATH_METADIR) == 0) {
         kprintf("Stub: we don't yet support the // meta directory!\n");
         kfree(dup_path);
+        if (preincremented)
+            close_inode(base);
         return -EINVAL;
     }
 
@@ -194,13 +212,21 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
 
     char * final_path = dup_path;
 
+    spinlock_acquire(&current_process->lock);
+    inode_t * current_root = current_process->root;
+        kassert(current_root);
+    __atomic_add_fetch(&current_root->instances, 1, __ATOMIC_ACQUIRE);
+    spinlock_release(&current_process->lock);
+
     superblock_t * sb;
     if (dup_path[0] == '/') {
         final_path ++; // skip the first slash
-        base = current_process->root;
+        if (preincremented) {
+            close_inode(base);
+            preincremented = 0;
+        }
+        base = current_root;
     }
-
-    spinlock_acquire(&current_process->lock);
 
     // raced with close() on the base inode
     if (base->instances <= (base->is_mountpoint ? 1 : 0)) {
@@ -217,8 +243,8 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
     else {
         sb = prev->backing_superblock;
         // our while loop closes the prev inode, so preincrement
-        __atomic_add_fetch(&prev->instances, 1, __ATOMIC_RELAXED);
-        __atomic_add_fetch(&prev->backing_superblock->instances, 1, __ATOMIC_RELAXED);
+        if (!preincremented)
+            __atomic_add_fetch(&prev->instances, 1, __ATOMIC_ACQUIRE);
     }
 
     kassert(sb->funcs);
@@ -226,7 +252,10 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
 
     // so that prev is never null, simplifying chroot checks
     if (prev->is_mountpoint && prev != root_mountpoint->mountpoint) {
+        inode_t * prev_back = prev;
         sb->funcs->lookup(sb, NULL, ".", &prev);
+        if (preincremented)
+            close_inode(prev_back);
     }
 
     kassert(prev->is_mountpoint == 0 || prev == root_mountpoint->mountpoint);
@@ -239,7 +268,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
 
         lookup_escape_again:
         if (strcmp(PATH_PARENT, final_path) == 0 &&
-            prev == current_process->root) {
+            prev == current_root) {
                 if (last_fragment) {
                     new = prev;
                     break;
@@ -285,7 +314,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
         }
         if (status == VFS_LOOKUP_ESCAPE) {
             new = sb->mountpoint;
-            __atomic_add_fetch(&new->instances, 1, __ATOMIC_RELAXED);
+            __atomic_add_fetch(&new->instances, 1, __ATOMIC_ACQUIRE);
             sb = new->backing_superblock;
             close_inode(prev);
 
@@ -343,7 +372,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
     *out = new;
 
     err:
-    spinlock_release(&current_process->lock);
+    close_inode(current_root);
     spinlock_release(&mount_tree_lock);
     kfree(dup_path);
     return ret;
@@ -351,29 +380,42 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
 
 int sys_chdir(const char * path) {
     inode_t * new = NULL;
-    int ret = openat_inode(current_process->pwd, path, O_DIRECTORY | O_RDONLY, 0, &new);
+    spinlock_acquire(&current_process->lock);
+    inode_t * curr_pwd = current_process->pwd; // not race with another chdir
+    __atomic_add_fetch(&curr_pwd->instances, 1, __ATOMIC_ACQUIRE);
+    spinlock_release(&current_process->lock);
+
+    int ret = openat_inode(curr_pwd, path, O_DIRECTORY | O_RDONLY, 0, &new);
+    close_inode(curr_pwd);
+
     if (ret < 0) return ret;
     if (new == NULL) return -EINVAL;
 
     spinlock_acquire(&current_process->lock);
     inode_t * old_pwd = current_process->pwd;
     current_process->pwd = new;
-    close_inode(old_pwd);
     spinlock_release(&current_process->lock);
+    close_inode(old_pwd);
 
     return 0;
 }
 
 int sys_chroot(const char * path) {
     inode_t * new = NULL;
-    int ret = openat_inode(current_process->pwd, path, O_DIRECTORY | O_RDONLY, 0, &new);
+    spinlock_acquire(&current_process->lock);
+    inode_t * curr_pwd = current_process->pwd; // not race with chdir
+    __atomic_add_fetch(&curr_pwd->instances, 1, __ATOMIC_ACQUIRE);
+    spinlock_release(&current_process->lock);
+
+    int ret = openat_inode(curr_pwd, path, O_DIRECTORY | O_RDONLY, 0, &new);
+    close_inode(curr_pwd);
     if (ret < 0) return ret;
     if (new == NULL) return -EINVAL;
 
     spinlock_acquire(&current_process->lock);
     inode_t * old_root = current_process->root;
     current_process->root = new;
-    close_inode(old_root);
     spinlock_release(&current_process->lock);
+    close_inode(old_root);
     return 0;
 }

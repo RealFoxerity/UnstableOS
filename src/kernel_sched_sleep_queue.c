@@ -30,9 +30,9 @@ static void sleep_pop_thread() {
         sq->thread->status = SCHED_RUNNABLE;
 
         // like signals, sleeping (when used internally) can invalidate thread wait queues
-        __atomic_add_fetch(&sq->thread->magic_queue_value, 1, __ATOMIC_RELAXED);
+        __atomic_add_fetch(&sq->thread->magic_queue_value, 1, __ATOMIC_ACQUIRE);
     }
-    if (__atomic_sub_fetch(&sq->thread->instances, 1, __ATOMIC_RELAXED) == 0) kfree(sq->thread);
+    if (__atomic_sub_fetch(&sq->thread->instances, 1, __ATOMIC_RELEASE) == 0) kfree(sq->thread);
 
     struct sleep_queue * old = sq;
     sq = sq->next;
@@ -46,7 +46,7 @@ void sleep_remove_thread(process_t * pprocess, thread_t * thread) {
 
     spinlock_acquire(&sleep_queue_lock);
     if (sq->thread == thread && sq->process == pprocess) {
-        if (__atomic_sub_fetch(&thread->instances, 1, __ATOMIC_RELAXED) == 0) kfree(thread);
+        if (__atomic_sub_fetch(&thread->instances, 1, __ATOMIC_RELEASE) == 0) kfree(thread);
 
         struct sleep_queue * old_sq = sq;
         if (sq->next != NULL) {
@@ -63,7 +63,7 @@ void sleep_remove_thread(process_t * pprocess, thread_t * thread) {
 
     while (curr != NULL) {
         if (curr->thread == thread && curr->process == pprocess) {
-            if (__atomic_sub_fetch(&thread->instances, 1, __ATOMIC_RELAXED) == 0) kfree(thread);
+            if (__atomic_sub_fetch(&thread->instances, 1, __ATOMIC_RELEASE) == 0) kfree(thread);
 
             prev->next = curr->next;
 
@@ -118,7 +118,7 @@ long sys_nanosleep(process_t * pprocess, thread_t * thread, struct timespec requ
         .thread = thread,
         .magic_queue_value = thread->magic_queue_value,
     };
-    if (__atomic_add_fetch(&thread->instances, 1, __ATOMIC_RELAXED) == UINT32_MAX) panic("Overflown thread instance count!");
+    if (__atomic_add_fetch(&thread->instances, 1, __ATOMIC_RELEASE) == UINT32_MAX) panic("Overflown thread instance count!");
 
     spinlock_acquire(&sleep_queue_lock);
 

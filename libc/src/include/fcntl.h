@@ -32,7 +32,7 @@
 
 
 #define AT_FDCWD (-1)
-
+#define AT_REMOVEDIR 1
 #include "sys/types.h"
 #include "sys/stat.h"
 
@@ -62,5 +62,6 @@ int creat(const char * path, mode_t mode);
 #define FD_CLOFORK O_CLOFORK
 
 int fcntl(int fildes, int cmd, ...);
+int unlinkat(int fd, const char *path, int flag);
 
 #endif
