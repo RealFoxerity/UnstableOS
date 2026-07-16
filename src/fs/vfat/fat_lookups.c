@@ -23,11 +23,10 @@ off_t fat_lookup_cluster_generic(const char name[11], size_t dir_cluster, superb
             FAT_CLUSTER_END_FAT16 :
             FAT_CLUSTER_END_FAT32;
 
-    size_t last_cluster = dir_cluster;
     size_t visited_clusters = 0;
-    while (last_cluster < cluster_limit && visited_clusters < fat_info->max_chain_len) {
+    while (dir_cluster < cluster_limit && visited_clusters < fat_info->max_chain_len) {
         for (size_t i = 0; i < fat_info->bytes_per_sector * fat_info->sectors_per_cluster / sizeof(struct fat_dir_entry); i++) {
-            off_t dir_off = fat_info->data_sector_start + (last_cluster - 2) * fat_info->sectors_per_cluster;
+            off_t dir_off = fat_info->data_sector_start + (dir_cluster - 2) * fat_info->sectors_per_cluster;
             dir_off *= fat_info->bytes_per_sector;
             dir_off += i * sizeof(struct fat_dir_entry);
             if (pread_file(sb->fd,
@@ -39,19 +38,20 @@ off_t fat_lookup_cluster_generic(const char name[11], size_t dir_cluster, superb
             if (dentry_buf.name[0] == FAT_DIR_END) return -ENOENT;
             if (dentry_buf.attr & FAT_DENTRY_ATTR_VOLLBL) continue;
             if (memcmp(dentry_buf.name, name, 11) == 0) {
-                *out = dentry_buf;
+                if (out)
+                    *out = dentry_buf;
                 return dir_off;
             }
         }
-        last_cluster = fat_next_in_chain(last_cluster, sb);
-        if (last_cluster < 2 || dir_cluster == -1)
+        dir_cluster = fat_next_in_chain(dir_cluster, sb);
+        if (dir_cluster < 2 || dir_cluster == -1)
             return -EIO;
         visited_clusters++;
     }
     return -ENOENT;
 }
 
-off_t fat12_lookup(const char name[12], superblock_t * sb, struct fat_dir_entry * out) {
+off_t fat12_lookup(const char name[11], superblock_t * sb, struct fat_dir_entry * out) {
     struct fat_info * fi = sb->data;
 
     struct fat_dir_entry dentry_buf = {0};
@@ -67,7 +67,8 @@ off_t fat12_lookup(const char name[12], superblock_t * sb, struct fat_dir_entry 
         if (dentry_buf.name[0] == FAT_DIR_END) return -ENOENT;
         if (dentry_buf.attr & FAT_DENTRY_ATTR_VOLLBL) continue;
         if (memcmp(dentry_buf.name, name, 11) == 0) {
-            *out = dentry_buf;
+            if (out)
+                *out = dentry_buf;
             return dir_off;
         }
     }

@@ -1,8 +1,8 @@
-#include "include/sys/stat.h"
-#include "include/fcntl.h"
-#include "include/unistd.h"
-#include "include/errno.h"
-#include "../../src/include/kernel.h"
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
+#include <UnstableOS/syscalls.h>
 
 int stat(const char * __restrict path, struct stat * __restrict buf) {
     int ret = syscall(SYSCALL_FSTATAT, AT_FDCWD, path, buf, 0);
@@ -38,4 +38,8 @@ mode_t umask(mode_t mask) {
         return -1;
     }
     return ret;
+}
+
+int mkdir(const char *path, mode_t mode) {
+    return mkdirat(AT_FDCWD, path, mode);
 }

@@ -39,6 +39,7 @@
 int open(const char * path, unsigned short flags, ...);
 int openat(int fd, const char * path, unsigned short flags, ...);
 int creat(const char * path, mode_t mode);
+int mkdirat(int fd, const char *path, mode_t mode);
 
 #define F_DUPFD         1
 #define F_DUPFD_CLOEXEC 2

@@ -94,7 +94,22 @@ time_t fat_time_to_epoch(struct fat_time ft, struct fat_date fd) {
     int yday = 0;
     for (int i = 0; i < fd.month - 1; i++)
         yday += month_days[i];
-    yday += fd.day;
+    yday += fd.day - 1; // fat dates are 1 based, yday is not
     tm.tm_yday = yday;
     return mktime(&tm);
+}
+
+void fat_epoch_to_time(time_t epoch, struct fat_time * ft, struct fat_date * fd) {
+    kassert(ft);
+    kassert(fd);
+    struct tm tm;
+    gmtime_r(&epoch, &tm);
+
+    ft->hours = tm.tm_hour;
+    ft->minutes = tm.tm_min;
+    ft->seconds = tm.tm_sec/2;
+
+    fd->year = tm.tm_year - 80;
+    fd->month = tm.tm_mon;
+    fd->day = tm.tm_mday;
 }

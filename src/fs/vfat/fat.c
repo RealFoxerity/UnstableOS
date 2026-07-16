@@ -551,13 +551,17 @@ ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t off
         size_t curr_cl = start_cl;
         if (curr_cl == 0) {
             size_t new_cl = fat_get_free_cluster(sb);
+            if (new_cl == -1) {
+                rw_spinlock_release_write(&fi->fs_lock);
+                return -EIO;
+            }
             if (new_cl == 0) {
                 rw_spinlock_release_write(&fi->fs_lock);
                 return -ENOSPC;
             }
 
             // should be caught by hd cache, gets the fs consistent quicker
-            if (fat_set_chain(new_cl, cluster_limit, sb) != 0) {
+            if (fat_set_chain(new_cl, 0xFFFFFFFF, sb) != 0) {
                 rw_spinlock_release_write(&fi->fs_lock);
                 return -EIO;
             }
@@ -608,6 +612,10 @@ ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t off
             }
             if (new_cl >= cluster_limit) {
                 new_cl = fat_get_free_cluster(sb);
+                if (new_cl == -1) {
+                    rw_spinlock_release_write(&fi->fs_lock);
+                    return -EIO;
+                }
                 if (new_cl == 0) {
                     rw_spinlock_release_write(&fi->fs_lock);
                     return -ENOSPC;
@@ -618,7 +626,7 @@ ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t off
                     return -EIO;
                 }
                 // should be caught by hd cache, gets the fs consistent quicker
-                if (fat_set_chain(new_cl, cluster_limit, sb) != 0) {
+                if (fat_set_chain(new_cl, 0xFFFFFFFF, sb) != 0) {
                     rw_spinlock_release_write(&fi->fs_lock);
                     dkprintf("Error: I/O error on writing cluster chain terminator, locking fs as read-only!\n"
                                     "\tRun fsck/chkdsk as soon as possible and do not mount as read-write!\n");
@@ -822,6 +830,279 @@ int fat_unlink(inode_t * file) {
     return 0;
 }
 
+static off_t fat_get_free_dentry(size_t start_cl, superblock_t * sb, char shortname[11]) {
+    struct fat_dir_entry dentry_buf = {0};
+    struct fat_info * fi = sb->data;
+
+    size_t cluster_limit = fi->type == FAT12 ?
+    FAT_CLUSTER_END_FAT12 :
+    fi->type == FAT16 ?
+        FAT_CLUSTER_END_FAT16 :
+        FAT_CLUSTER_END_FAT32;
+
+    if ((start_cl != 0 && start_cl < 2) || start_cl >= cluster_limit)
+        return -EIO;
+
+    if (start_cl == 0) { // FAT12/16 root directory
+        kassert(fi->type != FAT32);
+        if (fat12_lookup(shortname, sb, NULL) > 0) // assuming correct VFS usage, this shouldn't happen
+            return -EEXIST;
+
+        for (int i = 0; i < fi->fat12.root_dir_entries; i++) {
+            off_t dir_off = fi->fat12.root_dir_sector * fi->bytes_per_sector + i * sizeof(struct fat_dir_entry);
+            if (pread_file(sb->fd,
+                    &dentry_buf, sizeof(dentry_buf),
+                    dir_off
+                ) != sizeof(dentry_buf))
+                return -EIO;
+            if ((unsigned char)dentry_buf.name[0] == FAT_DIR_FREE)
+                return dir_off;
+            if (dentry_buf.name[0] == FAT_DIR_END) {
+                if (i == fi->fat12.root_dir_entries - 1)
+                    return dir_off;
+                dentry_buf = (struct fat_dir_entry){0};
+                if (pwrite_file(sb->fd,
+                    &dentry_buf, sizeof(dentry_buf),
+                    dir_off + sizeof(dentry_buf)
+                ) != sizeof(dentry_buf))
+                    return -EIO;
+                return dir_off;
+            }
+            //if (dentry_buf.attr & FAT_DENTRY_ATTR_VOLLBL) continue;
+        }
+        return -ENOSPC;
+    }
+
+    if (fat_lookup_cluster_generic(shortname, start_cl, sb, NULL) > 0) // assuming correct VFS usage, this shouldn't happen
+        return -EEXIST;
+
+    size_t visited_clusters = 0;
+    while (start_cl < cluster_limit && visited_clusters < fi->max_chain_len) {
+        for (size_t i = 0; i < fi->bytes_per_sector * fi->sectors_per_cluster / sizeof(struct fat_dir_entry); i++) {
+            off_t dir_off = fi->data_sector_start + (start_cl - 2) * fi->sectors_per_cluster;
+            dir_off *= fi->bytes_per_sector;
+            dir_off += i * sizeof(struct fat_dir_entry);
+            if (pread_file(sb->fd,
+                    &dentry_buf, sizeof(dentry_buf),
+                    dir_off
+                ) != sizeof(dentry_buf))
+                return -EIO;
+            if ((unsigned char)dentry_buf.name[0] == FAT_DIR_FREE)
+                return dir_off;
+            if (dentry_buf.name[0] == FAT_DIR_END) {
+                if (i == fi->bytes_per_sector * fi->sectors_per_cluster / sizeof(struct fat_dir_entry) - 1)
+                    return dir_off;
+                dentry_buf = (struct fat_dir_entry){0};
+                if (pwrite_file(sb->fd,
+                    &dentry_buf, sizeof(dentry_buf),
+                    dir_off + sizeof(dentry_buf)
+                ) != sizeof(dentry_buf))
+                    return -EIO;
+                return dir_off;
+            }
+            //if (dentry_buf.attr & FAT_DENTRY_ATTR_VOLLBL) continue;
+        }
+        start_cl = fat_next_in_chain(start_cl, sb);
+        if (start_cl < 2 || start_cl == -1)
+            return -EIO;
+        visited_clusters++;
+    }
+
+    size_t new_cl = fat_get_free_cluster(sb);
+    if (new_cl == -1)
+        return -EIO;
+    if (new_cl == 0)
+        return -ENOSPC;
+
+    if (fat_set_chain(new_cl, 0xFFFFFFFF, sb) != 0)
+        return -EIO;
+
+    if (fat_set_chain(start_cl, new_cl, sb) != 0)
+        return -EIO;
+
+    off_t dir_off = fi->data_sector_start + (new_cl - 2) * fi->sectors_per_cluster;
+    dir_off *= fi->bytes_per_sector;
+
+    dentry_buf = (struct fat_dir_entry){0};
+    if (pwrite_file(sb->fd,
+        &dentry_buf, sizeof(dentry_buf),
+        dir_off + sizeof(dentry_buf)
+    ) != sizeof(dentry_buf))
+        return -EIO;
+    return dir_off;
+}
+
+static int __fat_creat(inode_t * parent, const char * pathname, mode_t mode, inode_t ** inode_out, char folder) {
+    kassert(parent);
+    kassert(inode_out);
+    if (!pathname)
+        return -EFAULT;
+
+    if (!S_ISDIR(parent->mode))
+        return -ENOTDIR;
+
+    char shortname[11] = {0};
+    int ret = fat_name_to_short(pathname, shortname);
+    if (ret)
+        return ret;
+
+    kassert(parent->backing_superblock);
+    superblock_t * sb = parent->backing_superblock;
+    struct fat_info * fi = sb->data;
+
+    struct fat_dir_entry parent_buf = {0};
+    size_t start_cl = 0;
+
+    rw_spinlock_acquire_write(&fi->fs_lock);
+    if (parent->id == 0 && fi->type == FAT32)
+        start_cl = fi->root_dir_cluster;
+    else if (parent->id != 0) {
+        if (pread_file(sb->fd,
+            &parent_buf, sizeof(parent_buf),
+            parent->id) != sizeof(parent_buf)
+        ) {
+            rw_spinlock_release_write(&fi->fs_lock);
+            return -EIO;
+        }
+        start_cl = parent_buf.start_cluster;
+        if (fi->type == FAT32)
+            start_cl |= parent_buf.fat32_cluster_hi;
+        if (start_cl == 0) {
+            start_cl = fat_get_free_cluster(sb);
+            if (start_cl == -1) {
+                rw_spinlock_release_write(&fi->fs_lock);
+                return -EIO;
+            }
+            if (start_cl == 0) {
+                rw_spinlock_release_write(&fi->fs_lock);
+                return -ENOSPC;
+            }
+            if (fat_set_chain(start_cl, 0xFFFFFFFF, sb) != 0) {
+                rw_spinlock_release_write(&fi->fs_lock);
+                return -EIO;
+            }
+            parent_buf.start_cluster = start_cl;
+            if (fi->type == FAT32)
+                parent_buf.fat32_cluster_hi = start_cl >> 16;
+
+            if (pwrite_file(sb->fd,
+                &parent_buf, sizeof(parent_buf),
+                parent->id) != sizeof(parent_buf)
+            ) {
+                rw_spinlock_release_write(&fi->fs_lock);
+                return -EIO;
+            }
+        }
+    }
+
+    off_t free_dentry = fat_get_free_dentry(start_cl, sb, shortname);
+    if (free_dentry < 0) {
+        rw_spinlock_release_write(&fi->fs_lock);
+        return (int)free_dentry;
+    }
+
+    struct fat_dir_entry dentry_buf = {0};
+
+    dentry_buf.attr |= folder ? FAT_DENTRY_ATTR_SUBDIR : 0;
+
+    memcpy(dentry_buf.name, shortname, 11);
+
+    struct fat_date fd;
+    struct fat_time ft;
+    fat_epoch_to_time(system_time_sec, &ft, &fd);
+    dentry_buf.cdate = dentry_buf.mdate = dentry_buf.adate = fd;
+    dentry_buf.ctime = dentry_buf.mtime = ft;
+    dentry_buf.ctime_10ms = (uptime_clicks % 1024) / 10 + (system_time_sec % 2) * 100;
+
+    size_t new_dir_cl;
+    if (folder) {
+        new_dir_cl = fat_get_free_cluster(sb);
+        if (new_dir_cl == -1) {
+            rw_spinlock_release_write(&fi->fs_lock);
+            return -EIO;
+        }
+        if (new_dir_cl == 0) {
+            rw_spinlock_release_write(&fi->fs_lock);
+            return -ENOSPC;
+        }
+
+        if (fat_set_chain(new_dir_cl, 0xFFFFFFFF, sb) != 0) {
+            rw_spinlock_release_write(&fi->fs_lock);
+            return -EIO;
+        }
+
+        dentry_buf.start_cluster = new_dir_cl;
+        if (fi->type == FAT32)
+            dentry_buf.fat32_cluster_hi = new_dir_cl >> 16;
+
+        struct fat_dir_entry dot_dir = dentry_buf;
+        memcpy(dot_dir.name, ".          ", 11);
+
+        off_t dir_off = (new_dir_cl - 2) * fi->sectors_per_cluster + fi->data_sector_start;
+        dir_off *= fi->bytes_per_sector;
+
+        if (pwrite_file(sb->fd,
+            &dot_dir, sizeof(dot_dir),
+            dir_off) != sizeof(dot_dir)
+        ) {
+            rw_spinlock_release_write(&fi->fs_lock);
+            dkprintf("Warning: I/O error while creating a directory, cluster %lu is now orphaned!\n", new_dir_cl);
+            return -EIO;
+        }
+
+        dot_dir = parent_buf;
+
+        memcpy(dot_dir.name, "..         ", 11);
+
+        if (pwrite_file(sb->fd,
+            &dot_dir, sizeof(dot_dir),
+            dir_off + sizeof(struct fat_dir_entry)) != sizeof(dot_dir)
+        ) {
+            rw_spinlock_release_write(&fi->fs_lock);
+            dkprintf("Warning: I/O error while creating a directory, cluster %lu is now orphaned!\n", new_dir_cl);
+            return -EIO;
+        }
+
+        dot_dir = (struct fat_dir_entry){0};
+
+        if (pwrite_file(sb->fd,
+            &dot_dir, sizeof(dot_dir),
+            dir_off + 2 * sizeof(struct fat_dir_entry)) != sizeof(dot_dir)
+        ) {
+            rw_spinlock_release_write(&fi->fs_lock);
+            dkprintf("Warning: I/O error while creating a directory, cluster %lu is now orphaned!\n", new_dir_cl);
+            return -EIO;
+        }
+    }
+
+    if (pwrite_file(sb->fd,
+        &dentry_buf, sizeof(dentry_buf),
+        free_dentry) != sizeof(dentry_buf)
+    ) {
+        rw_spinlock_release_write(&fi->fs_lock);
+        if (folder) {
+            dkprintf("Warning: I/O error while creating a directory, cluster %lu is now orphaned!\n", new_dir_cl);
+        }
+        return -EIO;
+    }
+    rw_spinlock_release_write(&fi->fs_lock);
+
+    inode_t new = {
+        .id = free_dentry,
+        .backing_superblock = sb,
+        .mode = 0777 | (folder ? S_IFDIR : S_IFREG),
+    };
+    return register_inode(&new, inode_out);
+}
+
+
+int fat_creat(inode_t * parent, const char * pathname, mode_t mode, inode_t ** inode_out) {
+    return __fat_creat(parent, pathname, mode, inode_out, 0);
+}
+
+int fat_mkdir(inode_t * parent, const char * pathname, mode_t mode, inode_t ** inode_out) {
+    return __fat_creat(parent, pathname, mode, inode_out, 1);
+}
 struct vfs_ops fat_ops = {
     .fs_init   = fat_init,
     .fs_deinit = fat_deinit,
@@ -832,4 +1113,6 @@ struct vfs_ops fat_ops = {
     .pread     = fat_pread,
     .pwrite    = fat_pwrite,
     .unlink    = fat_unlink,
+    .creat     = fat_creat,
+    .mkdir     = fat_mkdir,
 };

@@ -495,7 +495,6 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
             asm volatile ("sti");
             return_value = sys_ioctl(arg1, arg2, (void *)arg3);
             break;
-        case SYSCALL_MKDIR:
         default:
             return_value = -ENOSYS;
             break;

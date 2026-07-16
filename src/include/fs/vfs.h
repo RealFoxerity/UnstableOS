@@ -20,6 +20,7 @@ so
 #define PATH_METADIR "//"
 
 #include <dirent.h>
+#include <time.h>
 struct vfs_ops {
     int (*fs_init)   (superblock_t * sb); // called on mount, 0 = success
     int (*fs_deinit) (superblock_t * sb); // called on umount, 0 = success, TODO: error handling in umount
@@ -48,8 +49,10 @@ struct vfs_ops {
     int (*unlink)    (inode_t * file);
     int (*trunc)     (inode_t * file, off_t length);
 
-    inode_t *(*creat)(inode_t * parent, const char * pathname, mode_t mode);
-    inode_t *(*mkdir)(inode_t * parent, const char * pathname, mode_t mode);
+    int (*creat)     (inode_t * parent, const char * pathname, mode_t mode, inode_t ** inode_out);
+    int (*mkdir)     (inode_t * parent, const char * pathname, mode_t mode, inode_t ** inode_out);
+
+    int (*utimes)    (inode_t * file, const struct timespec times[2]);
 
     // note: fd offset 0 is considered the "." folder to simplify userspace rewinddir()
     // the function implementation is required to set fd->off to new offset

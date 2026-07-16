@@ -82,4 +82,6 @@ int stat(const char * __restrict path, struct stat * __restrict buf);
 int fstat(int fd, struct stat * buf);
 int fstatat(int fd, const char * __restrict path, struct stat * __restrict buf, int flags);
 mode_t umask(mode_t mask);
+
+int mkdir(const char *path, mode_t mode);
 #endif
