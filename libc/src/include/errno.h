@@ -44,4 +44,5 @@ int ___get_errno();
 #define EILSEQ    38
 #define ENOSPC    39
 #define ENOTEMPTY 40
+#define EXDEV     41
 #endif

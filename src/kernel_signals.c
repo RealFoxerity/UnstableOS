@@ -35,7 +35,7 @@ static void signal_queue_up(process_t * signaled, const siginfo_t * info) {
             //kprintf("Signal number %d was already pending, dropping old request\n", info->si_signo);
         }
         signaled->sa_pending |= GET_SIG_MASK(info->si_signo);
-        signaled->sa_pending_info[info->si_signo] = *info;
+        signaled->sa_pending_info[info->si_signo - 1] = *info;
     }
 }
 

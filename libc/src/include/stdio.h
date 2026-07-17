@@ -138,4 +138,6 @@ int __attribute__((format(scanf, 2, 3))) sscanf(const char * s, const char * for
 int vsscanf(const char * s, const char * format, va_list args);
 
 void perror(const char * s);
+
+int rename(const char *old, const char *new);
 #endif

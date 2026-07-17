@@ -4,6 +4,6 @@
 #include "fs/vfs.h"
 #include "fs/fs.h"
 
-extern struct vfs_ops fat_ops;
+extern const struct vfs_ops fat_op;
 
 #endif

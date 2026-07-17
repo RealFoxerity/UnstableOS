@@ -2,7 +2,7 @@
 #define VFS_H
 #include <stddef.h>
 #include "fs.h"
-#include "../../../libc/src/include/sys/stat.h"
+#include <sys/stat.h>
 
 #define VFS_LOOKUP_ESCAPE 1
 
@@ -53,6 +53,10 @@ struct vfs_ops {
     int (*mkdir)     (inode_t * parent, const char * pathname, mode_t mode, inode_t ** inode_out);
 
     int (*utimes)    (inode_t * file, const struct timespec times[2]);
+
+    // if name == NULL, then new is the target, otherwise new is the parent directory
+    // implementations should double-check that no race leading to name existing happened
+    int (*rename)    (inode_t * old, inode_t * new, const char * name);
 
     // note: fd offset 0 is considered the "." folder to simplify userspace rewinddir()
     // the function implementation is required to set fd->off to new offset

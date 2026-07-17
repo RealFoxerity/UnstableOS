@@ -364,6 +364,9 @@ void tty_alloc_kernel_console() { // for the kernel task, don't call for user pr
 }
 
 int tty_queue_getch(struct tty_queue * tq, struct timespec timeout) { // if 256, got SIGALRM
+    if (current_thread->sa_to_be_handled)
+        return 256;
+    
     kassert(tq->head < MAX_CANON && tq->tail < MAX_CANON);
 
     again:
@@ -396,6 +399,9 @@ int tty_queue_getch(struct tty_queue * tq, struct timespec timeout) { // if 256,
 }
 
 int tty_queue_putch(struct tty_queue * tq, char c, char onlret) {
+    if (current_thread->sa_to_be_handled)
+        return 256;
+
     kassert(tq->head < MAX_CANON && tq->tail < MAX_CANON);
     spinlock_acquire_interruptible(&tq->queue_lock);
     while (FULL(tq)) { // buffer full

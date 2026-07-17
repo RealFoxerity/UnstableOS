@@ -58,6 +58,7 @@ void panic(char * reason) {
 
     kprintf("Trying to sync drive caches...\n");
     enable_interrupts();
+    pic_send_eoi_all(); // in case we were mid interrupt
     extern void hd_cache_flush();
     hd_cache_flush();
     kprintf("Synced; safe to reboot\n");
@@ -429,7 +430,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     mount_root(GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0), FS_TARFS, MOUNT_RDONLY);
 
     inode_t * dev_inode = NULL;
-    if (openat_inode(current_process->root, "/dev", O_DIRECTORY | O_RDONLY, 0, &dev_inode) < 0) {
+    if (openat_inode(current_process->root, "/dev", O_DIRECTORY | O_RDONLY, 0, &dev_inode, 0) < 0) {
         kprintf("No /dev directory in initial memdisk, /dev won't be mounted\n");
     } else {
         if (mount_dev(dev_get_ephemeral(), dev_inode, FS_DEVFS, MOUNT_RDONLY) != 0) {

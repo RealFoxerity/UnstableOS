@@ -214,7 +214,7 @@ pid_t sys_fork(mcontext_t * ctx) {
 
     for (int i = 0; i < SEM_NSEMS_MAX; i++) {
         if (current_process->semaphores[i])
-            kassert(__atomic_add_fetch(&current_process->semaphores[i]->used, 1, __ATOMIC_RELEASE) != UINT32_MAX);
+            kassert(__atomic_add_fetch(&new_proc->semaphores[i]->used, 1, __ATOMIC_RELEASE) != UINT32_MAX);
     }
 
     thread_t * new_thread = kalloc(sizeof(thread_t));

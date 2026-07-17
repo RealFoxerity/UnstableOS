@@ -1,7 +1,7 @@
-#include "include/stdio.h"
-#include "include/stdlib.h"
-#include "include/unistd.h"
-#include "include/string.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
 
 #include "errno_msgs.h"
 
@@ -35,4 +35,20 @@ int strerror_r(int errnum, char *strerrbuf, size_t buflen) {
 
     strcpy(strerrbuf, __errno_msgs[errnum]);
     return 0;
+}
+
+#include <UnstableOS/syscalls.h>
+#include <fcntl.h>
+
+int rename(const char *old, const char *new) {
+    if (!old || !new) {
+        ___set_errno(EFAULT);
+        return -1;
+    }
+    int ret = syscall(SYSCALL_RENAMEAT, AT_FDCWD, old, AT_FDCWD, new);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return ret;
 }

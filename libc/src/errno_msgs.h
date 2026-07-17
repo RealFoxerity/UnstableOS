@@ -42,4 +42,5 @@ static const char * __errno_msgs[] = {
     [EILSEQ]    = "Illegal byte sequence",
     [ENOSPC]    = "No space left on device",
     [ENOTEMPTY] = "Directory not empty",
+    [EXDEV]     = "Improper hard link",
 };
