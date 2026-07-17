@@ -41,6 +41,7 @@ file_descriptor_t * get_free_fd() {
 
 int get_fd_from_inode(inode_t * inode, unsigned short flags) {
     if (inode == NULL) return -EINVAL;
+    spinlock_acquire(&current_process->lock);
     spinlock_acquire(&kernel_fd_lock);
 
     int fd = -1;
@@ -52,12 +53,14 @@ int get_fd_from_inode(inode_t * inode, unsigned short flags) {
     }
 
     if (fd == -1) {
+        spinlock_release(&current_process->lock);
         spinlock_release(&kernel_fd_lock);
         return -EMFILE;
     }
 
     file_descriptor_t * file = get_free_fd();
     if (!file) {
+        spinlock_release(&current_process->lock);
         spinlock_release(&kernel_fd_lock);
         return -ENFILE;
     }
@@ -69,6 +72,7 @@ int get_fd_from_inode(inode_t * inode, unsigned short flags) {
     file->flags = flags;
     current_process->fd_flags[fd] = fd_flags;
     current_process->fds[fd] = file;
+    spinlock_release(&current_process->lock);
     spinlock_release(&kernel_fd_lock);
     return fd;
 }
@@ -86,10 +90,16 @@ static int check_file(const file_descriptor_t * file) {
 int sys_close(int fd) {
     if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
 
+    spinlock_acquire(&current_process->lock);
     file_descriptor_t * file = current_process->fds[fd];
-    if (file == NULL) return -EBADF;
-
     current_process->fds[fd] = NULL;
+    if (file != NULL)
+        rw_spinlock_acquire_read(&file->access_lock); // to prevent races on sys_close
+    spinlock_release(&current_process->lock);
+    if (file == NULL) {
+        return -EBADF;
+    }
+
     return close_file(file);
 }
 
@@ -124,7 +134,7 @@ int close_file(file_descriptor_t * file) {
     spinlock_acquire(&kernel_fd_lock);
     close_file_forced(file);
     // call inode_cleanup() maybe
-    rw_spinlock_release_read(&file->access_lock); // has to be before kernel_fd_lock, otherwise UAF
+    file->access_lock = (rw_spinlock_t){0};
     spinlock_release(&kernel_fd_lock);
     return 0;
 }
@@ -306,46 +316,92 @@ off_t seek_file(file_descriptor_t * file, off_t off, int whence) {
 ssize_t sys_read(int fd, void * buf, size_t count) {
     if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
 
-    file_descriptor_t * file = current_process->fds[fd];
 
-    return read_file(file, buf, count);
+    spinlock_acquire(&current_process->lock);
+    file_descriptor_t * file = current_process->fds[fd];
+    if (file != NULL) {
+        __atomic_add_fetch(&file->instances, 1, __ATOMIC_ACQUIRE);
+    } // == null handled by check file in read_file
+    spinlock_release(&current_process->lock);
+
+    ssize_t ret = read_file(file, buf, count);
+    if (file != NULL)
+        close_file(file);
+    return ret;
 }
 
 ssize_t sys_write(int fd, const void * buf, size_t count) {
     if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
 
-    file_descriptor_t * file = current_process->fds[fd];
 
-    return write_file(file, buf, count);
+    spinlock_acquire(&current_process->lock);
+    file_descriptor_t * file = current_process->fds[fd];
+    if (file != NULL) {
+        __atomic_add_fetch(&file->instances, 1, __ATOMIC_ACQUIRE);
+    } // == null handled by check file in write_file
+    spinlock_release(&current_process->lock);
+
+    ssize_t ret = write_file(file, buf, count);
+    if (file != NULL)
+        close_file(file);
+    return ret;
 }
 
 ssize_t sys_pread(int fd, void * buf, size_t count, off_t offset) {
     if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
 
-    file_descriptor_t * file = current_process->fds[fd];
 
-    return pread_file(file, buf, count, offset);
+    spinlock_acquire(&current_process->lock);
+    file_descriptor_t * file = current_process->fds[fd];
+    if (file != NULL) {
+        __atomic_add_fetch(&file->instances, 1, __ATOMIC_ACQUIRE);
+    } // == null handled by check file in pread_file
+    spinlock_release(&current_process->lock);
+
+    ssize_t ret = pread_file(file, buf, count, offset);
+    if (file != NULL)
+        close_file(file);
+    return ret;
 }
 
 ssize_t sys_pwrite(int fd, const void * buf, size_t count, off_t offset) {
     if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
 
-    file_descriptor_t * file = current_process->fds[fd];
 
-    return pwrite_file(file, buf, count, offset);
+    spinlock_acquire(&current_process->lock);
+    file_descriptor_t * file = current_process->fds[fd];
+    if (file != NULL) {
+        __atomic_add_fetch(&file->instances, 1, __ATOMIC_ACQUIRE);
+    } // == null handled by check file in pwrite_file
+    spinlock_release(&current_process->lock);
+
+    ssize_t ret = pwrite_file(file, buf, count, offset);
+    if (file != NULL)
+        close_file(file);
+    return ret;
 }
 
 off_t sys_seek(int fd, off_t off, int whence) {
     if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
 
-    file_descriptor_t * file = current_process->fds[fd];
 
-    return seek_file(file, off, whence);
+    spinlock_acquire(&current_process->lock);
+    file_descriptor_t * file = current_process->fds[fd];
+    if (file != NULL) {
+        __atomic_add_fetch(&file->instances, 1, __ATOMIC_ACQUIRE);
+    } // == null handled by check file in seek_file
+    spinlock_release(&current_process->lock);
+
+    off_t ret = seek_file(file, off, whence);
+    if (file != NULL)
+        close_file(file);
+    return ret;
 }
 
 long dup_file(file_descriptor_t * old_file, int startfd, int flags) {
     if (startfd < 0 || startfd >= FD_LIMIT_PROCESS) return -EINVAL;
 
+    spinlock_acquire(&current_process->lock);
     spinlock_acquire(&kernel_fd_lock);
     if (old_file == NULL) {
         spinlock_release(&kernel_fd_lock);
@@ -361,6 +417,7 @@ long dup_file(file_descriptor_t * old_file, int startfd, int flags) {
     }
 
     if (fd == -1) {
+        spinlock_release(&current_process->lock);
         spinlock_release(&kernel_fd_lock);
         return -EMFILE;
     }
@@ -370,6 +427,7 @@ long dup_file(file_descriptor_t * old_file, int startfd, int flags) {
     current_process->fd_flags[fd] = 0;
     current_process->fds[fd] = old_file;
 
+    spinlock_release(&current_process->lock);
     spinlock_release(&kernel_fd_lock);
 
     return fd;
@@ -377,9 +435,18 @@ long dup_file(file_descriptor_t * old_file, int startfd, int flags) {
 int sys_dup(int oldfd) {
     if (oldfd < 0 || oldfd >= FD_LIMIT_PROCESS) return -EBADF;
 
-    file_descriptor_t * old_file = current_process->fds[oldfd];
 
-    return dup_file(old_file, 0, 0);
+    spinlock_acquire(&current_process->lock);
+    file_descriptor_t * file = current_process->fds[oldfd];
+    if (file != NULL) {
+        __atomic_add_fetch(&file->instances, 1, __ATOMIC_ACQUIRE);
+    } // == null handled by check file in dup_file
+    spinlock_release(&current_process->lock);
+
+    int ret = dup_file(file, 0, 0);
+    if (file != NULL)
+        close_file(file);
+    return ret;
 }
 
 int sys_dup3(int oldfd, int newfd, int flags) {
@@ -389,8 +456,10 @@ int sys_dup3(int oldfd, int newfd, int flags) {
     if (oldfd == newfd && flags != -1) return -EINVAL; // dup3
     if (oldfd == newfd) return oldfd;
 
+    spinlock_acquire(&current_process->lock);
     spinlock_acquire(&kernel_fd_lock);
     if (current_process->fds[oldfd] == NULL) {
+        spinlock_release(&current_process->lock);
         spinlock_release(&kernel_fd_lock);
         return -EBADF;
     }
@@ -411,6 +480,7 @@ int sys_dup3(int oldfd, int newfd, int flags) {
     current_process->fd_flags[newfd] = flags >> 12; // 0x1000 -> 1
     current_process->fds[newfd] = current_process->fds[oldfd];
 
+    spinlock_release(&current_process->lock);
     spinlock_release(&kernel_fd_lock);
 
     return newfd;
@@ -422,10 +492,16 @@ int sys_unlinkat(int fd, const char *path, int flags) {
 
     inode_t * ino = NULL;
     if (fd != AT_FDCWD) {
+        spinlock_acquire(&current_process->lock);
         file_descriptor_t * file = current_process->fds[fd];
-        if (file == NULL) return -EBADF;
+        if (file == NULL) {
+            spinlock_release(&current_process->lock);
+            return -EBADF;
+        }
         kassert(file->instances > 0);
         ino = file->inode;
+        __atomic_add_fetch(&ino->instances, 1, __ATOMIC_ACQUIRE);
+        spinlock_release(&current_process->lock);
     } else
         ino = (inode_t*)AT_FDCWD;
 
@@ -433,8 +509,14 @@ int sys_unlinkat(int fd, const char *path, int flags) {
     kassert(ino->instances > (ino->is_mountpoint ? 1 : 0));
 
     inode_t * unlinked = NULL;
-    int ret = openat_inode(ino, path, O_WRONLY , 0, &unlinked);
-    if (ret < 0) return ret;
+    int ret = openat_inode(ino, path, O_WRONLY, 0, &unlinked, 0);
+    if (ino != (inode_t *)AT_FDCWD)
+        close_inode(ino);
+    if (ret < 0 || unlinked == NULL) return ret;
+    if (unlinked->backing_superblock->mount_options & MOUNT_RDONLY) {
+        close_inode(unlinked);
+        return -EROFS;
+    }
 
     if (flags & AT_REMOVEDIR && !S_ISDIR(unlinked->mode)) {
         close_inode(unlinked);
@@ -460,14 +542,29 @@ int sys_unlinkat(int fd, const char *path, int flags) {
 ssize_t sys_readdir(int fd, struct dirent * dent, size_t dent_size) {
     if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
 
+    spinlock_acquire(&current_process->lock);
     file_descriptor_t * file = current_process->fds[fd];
     int test = check_file(file);
+    if (test == 0 && file != NULL) {
+        __atomic_add_fetch(&file->instances, 1, __ATOMIC_ACQUIRE);
+    }
+    spinlock_release(&current_process->lock);
+
     if (test != 0) return test;
 
-    if (!S_ISDIR(file->inode->mode)) return -ENOTDIR;
-    if (file->flags & O_PATH) return -EINVAL;
+    if (!S_ISDIR(file->inode->mode)) {
+        close_file(file);
+        return -ENOTDIR;
+    }
+    if (file->flags & O_PATH) {
+        close_file(file);
+        return -EINVAL;
+    }
 
-    if (!file->inode->backing_superblock->funcs->readdir) return -EINVAL;
+    if (!file->inode->backing_superblock->funcs->readdir) {
+        close_file(file);
+        return -EINVAL;
+    }
 
     // can't lock because i486 doesn't have 64 bit atomics,
     // requiring us to lock writable inside readdir for setting offset
@@ -475,6 +572,7 @@ ssize_t sys_readdir(int fd, struct dirent * dent, size_t dent_size) {
     ssize_t ret = file->inode->backing_superblock->funcs->readdir(file, dent, dent_size, file->off);
     //rw_spinlock_release_read(&file->access_lock);
 
+    close_file(file);
     return ret;
 }
 
@@ -491,11 +589,21 @@ int stat_inode(inode_t * inode, struct stat * buf) {
 
 int sys_fstat(int fd, struct stat * buf) {
     if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
+
+    spinlock_acquire(&current_process->lock);
     file_descriptor_t * file = current_process->fds[fd];
     int test = check_file(file);
+    inode_t * ino = NULL;
+    if (test == 0) {
+        ino = file->inode;
+        __atomic_add_fetch(&ino->instances, 1, __ATOMIC_ACQUIRE);
+    }
+    spinlock_release(&current_process->lock);
     if (test != 0) return test;
 
-    return stat_inode(file->inode, buf);
+    int ret = stat_inode(ino, buf);
+    close_inode(ino);
+    return ret;
 }
 
 int sys_fstatat(int fd, const char * __restrict path, struct stat * __restrict buf, int flags) {
@@ -506,12 +614,20 @@ int sys_fstatat(int fd, const char * __restrict path, struct stat * __restrict b
         base = (inode_t*)AT_FDCWD;
     else {
         if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
+        spinlock_acquire(&current_process->lock);
         int test = check_file(current_process->fds[fd]);
+        file_descriptor_t * file = current_process->fds[fd];
+        if (test == 0) {
+            base = file->inode;
+            __atomic_add_fetch(&base->instances, 1, __ATOMIC_ACQUIRE);
+        }
+        spinlock_release(&current_process->lock);
         if (test < 0) return test;
-        base = current_process->fds[fd]->inode;
     }
 
-    int ret = openat_inode(base, path, O_SEARCH, 0, &new);
+    int ret = openat_inode(base, path, O_SEARCH, 0, &new, 0);
+    if (base != (inode_t*)AT_FDCWD)
+        close_inode(base);
     if (ret < 0) return ret;
     ret = stat_inode(new, buf);
     close_inode(new);
@@ -532,9 +648,18 @@ long ioctl_file(file_descriptor_t * file, unsigned long command, void * arg) {
 long sys_ioctl(int fd, unsigned long request, void * arg) {
     if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
 
-    file_descriptor_t * file = current_process->fds[fd];
 
-    return ioctl_file(file, request, arg);
+    spinlock_acquire(&current_process->lock);
+    file_descriptor_t * file = current_process->fds[fd];
+    if (file != NULL) {
+        __atomic_add_fetch(&file->instances, 1, __ATOMIC_ACQUIRE);
+    } // == null handled by check file in ioctl_file
+    spinlock_release(&current_process->lock);
+
+    long ret = ioctl_file(file, request, arg);
+    if (file != NULL)
+        close_file(file);
+    return ret;
 }
 
 long fcntl_file(file_descriptor_t * file, int cmd, long arg) {
@@ -557,9 +682,10 @@ long fcntl_file(file_descriptor_t * file, int cmd, long arg) {
             ret = dup_file(file, arg, O_CLOFORK);
             break;
         case F_GETFL:
-            ret = file->flags & (O_SYNC | O_APPEND);
+            ret = file->flags & (O_SYNC | O_APPEND | O_PATH);
             break;
         case F_SETFL:
+            file->flags &= ~(O_SYNC | O_APPEND);
             file->flags |= arg & (O_SYNC | O_APPEND);
             break;
         default: ret = -EINVAL;
@@ -573,18 +699,32 @@ long fcntl_file(file_descriptor_t * file, int cmd, long arg) {
 long sys_fcntl(int fd, int cmd, long arg) {
     if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
 
+
+    spinlock_acquire(&current_process->lock);
     file_descriptor_t * file = current_process->fds[fd];
     int test = check_file(file);
+    if (test == 0) {
+        __atomic_add_fetch(&file->instances, 1, __ATOMIC_ACQUIRE);
+    } // == null handled by check file in ioctl_file
+    spinlock_release(&current_process->lock);
+
     if (test != 0) return test;
+
     switch (cmd) {
         case F_GETFD:
+            close_file(file);
             return current_process->fd_flags[fd] << 12;
         case F_SETFD:
+            spinlock_acquire(&current_process->lock);
             arg &= O_CLOEXEC | O_CLOFORK;
             current_process->fd_flags[fd] = arg >> 12;
+            spinlock_release(&current_process->lock);
+            close_file(file);
             return 0;
         default:
-            return fcntl_file(file, cmd, arg);
+            long ret = fcntl_file(file, cmd, arg);
+            close_file(file);
+            return ret;
     }
 }
 

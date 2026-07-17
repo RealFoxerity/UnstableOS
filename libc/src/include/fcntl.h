@@ -26,10 +26,11 @@
 #define O_CLOEXEC   0x1000
 #define O_CLOFORK   0x2000
 
-// strictly use just as a reference point,
-// when passed to openat_inode, won't resolve the final mountpoint
+// strictly use just as a reference point
 #define O_PATH      0x4000
 
+// when passed to openat_inode, won't resolve the final mountpoint
+#define O_NOXDEV    0x8000
 
 #define AT_FDCWD (-1)
 #define AT_REMOVEDIR 1
@@ -64,5 +65,6 @@ int mkdirat(int fd, const char *path, mode_t mode);
 
 int fcntl(int fildes, int cmd, ...);
 int unlinkat(int fd, const char *path, int flag);
+int renameat(int oldfd, const char *old, int newfd, const char *new);
 
 #endif

@@ -76,6 +76,8 @@ enum pstatus_t {
 struct sem_t;
 #include "v8086.h"
 #define sa_to_be_handled sa_info_to_be_handled.si_signo
+#define PAUSE_SIGNALS() ({sigset_t _ = current_thread->sa_mask; current_thread->sa_mask = (sigset_t)-1; _; })
+#define RESTORE_SIGNALS(prevmask) {current_thread->sa_mask = (prevmask); signal_retry_process(current_process);}
 struct thread_t {
     size_t instances; // so that queues don't do UAF when a thread terminates
     pid_t tid;

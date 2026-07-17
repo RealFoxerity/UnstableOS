@@ -124,7 +124,7 @@ long sys_mount(const char * dev_path, const char * mount_path, unsigned char typ
     if (type >= SUPPORTED_FS_COUNT) return -ENODEV;
 
     inode_t * mount_inode = NULL, * dev_inode = NULL;
-    int ret = openat_inode((inode_t*)AT_FDCWD, mount_path, O_RDONLY | O_DIRECTORY | O_PATH, 0, &mount_inode);
+    int ret = openat_inode((inode_t*)AT_FDCWD, mount_path, O_RDONLY | O_DIRECTORY | O_NOXDEV, 0, &mount_inode, 0);
     if (ret < 0 || mount_inode == NULL) return ret;
 
     if (!S_ISDIR(mount_inode->mode)) {
@@ -136,29 +136,39 @@ long sys_mount(const char * dev_path, const char * mount_path, unsigned char typ
         return -EBUSY;
     }
 
+    sigset_t mask = PAUSE_SIGNALS();
+    if (current_thread->sa_to_be_handled) {
+        RESTORE_SIGNALS(mask);
+        return -EINTR;
+    }
+
     switch (type) {
         case FS_DEVFS: // devfs doesn't require a device
             ret = mount_dev(dev_get_ephemeral(), mount_inode, type, options);
             close_inode(mount_inode);
+            RESTORE_SIGNALS(mask);
             return ret;
         default:
             ret = openat_inode((inode_t*)AT_FDCWD,
-                dev_path,
-                O_RDONLY | ((options & MOUNT_RDONLY) ? 0 : O_WRONLY),
-                0,
-                &dev_inode);
+                               dev_path,
+                               O_RDONLY | ((options & MOUNT_RDONLY) ? 0 : O_WRONLY),
+                               0,
+                               &dev_inode, 0);
             if (ret < 0 || dev_inode == NULL) {
                 if (dev_inode != NULL ) close_inode(dev_inode);
+                RESTORE_SIGNALS(mask);
                 return ret;
             }
             if (!(S_ISBLK(dev_inode->mode) || S_ISCHR(dev_inode->mode))) {
                 close_inode(mount_inode);
                 close_inode(dev_inode);
+                RESTORE_SIGNALS(mask);
                 return -ENODEV;
             }
             ret = mount_dev(dev_inode->device, mount_inode, type, options);
             close_inode(dev_inode);
             close_inode(mount_inode);
+            RESTORE_SIGNALS(mask);
             return ret;
     }
 }
@@ -167,7 +177,7 @@ long sys_umount(const char * mount_path) {
     if (mount_path == NULL) return -EFAULT;
     inode_t * mount_inode = NULL;
     // this could be done without O_PATH (sb->mountpoint), but I think that it's cleaner like this
-    int ret = openat_inode((inode_t*)AT_FDCWD, mount_path, O_RDONLY | O_DIRECTORY | O_PATH, 0, &mount_inode);
+    int ret = openat_inode((inode_t*)AT_FDCWD, mount_path, O_RDONLY | O_DIRECTORY | O_NOXDEV, 0, &mount_inode, 0);
     if (ret < 0 || mount_inode == NULL) return ret;
 
     if (!mount_inode->is_mountpoint) {
@@ -188,12 +198,19 @@ long sys_umount(const char * mount_path) {
     __atomic_sub_fetch(&mount_inode->instances, 1, __ATOMIC_RELEASE);
     close_inode(mount_inode);
 
+    sigset_t mask = PAUSE_SIGNALS();
+    int old_sig = current_thread->sa_to_be_handled;
+    current_thread->sa_to_be_handled = 0;
+
     if (target->funcs->fs_deinit)
         target->funcs->fs_deinit(target);
     if (target->fd)
         close_file(target->fd);
 
     target->is_mounted = 0;
+
+    current_thread->sa_to_be_handled = old_sig;
+    RESTORE_SIGNALS(mask);
 
     spinlock_release(&mount_tree_lock);
     return 0;

@@ -213,17 +213,29 @@ int fat_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t
         return 0;
     }
 
-    if (strcmp(pathname, "..") == 0) {
-        if (!last || last->id == 0)
-            return VFS_LOOKUP_ESCAPE;
 
-        if (!S_ISDIR(last->mode))
+    sigset_t mask = PAUSE_SIGNALS();
+    if (current_thread->sa_to_be_handled) {
+        RESTORE_SIGNALS(mask);
+        return -EINTR;
+    }
+    if (strcmp(pathname, "..") == 0) {
+        if (!last || last->id == 0) {
+            RESTORE_SIGNALS(mask);
+            return VFS_LOOKUP_ESCAPE;
+        }
+
+        if (!S_ISDIR(last->mode)) {
+            RESTORE_SIGNALS(mask);
             return -ENOTDIR;
+        }
 
         // we need to properly resolve .. to not have double ids
         rw_spinlock_acquire_read(&fat_info->fs_lock);
         ret = fat_get_parent(last->id, sb, &dentry_buf);
         rw_spinlock_release_read(&fat_info->fs_lock);
+        RESTORE_SIGNALS(mask);
+
         if (ret < 0)
             return (int)ret;
         if (ret == 0)
@@ -244,6 +256,8 @@ int fat_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t
         off_t dir_off = fat12_lookup(name, sb, &dentry_buf);
         rw_spinlock_release_read(&fat_info->fs_lock);
 
+        RESTORE_SIGNALS(mask);
+
         if (dir_off < 0)
             return (int)dir_off;
 
@@ -261,6 +275,8 @@ int fat_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t
     else {
         if (pread_file(sb->fd, &dentry_buf, sizeof(dentry_buf), last_entry) != sizeof(dentry_buf)) {
             rw_spinlock_release_read(&fat_info->fs_lock);
+            RESTORE_SIGNALS(mask);
+
             return -EIO;
         }
         last_entry = dentry_buf.start_cluster;
@@ -271,6 +287,7 @@ int fat_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t
     ret = fat_lookup_cluster_generic(name, last_entry, sb, &dentry_buf);
 
     rw_spinlock_release_read(&fat_info->fs_lock);
+    RESTORE_SIGNALS(mask);
     create_file:
     if (ret < 0)
         return (int)ret;

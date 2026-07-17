@@ -165,6 +165,12 @@ int fat_stat(inode_t * file, struct stat * buf) {
     kassert(file->backing_superblock->data);
     struct fat_info * fat_info = file->backing_superblock->data;
 
+    sigset_t mask = PAUSE_SIGNALS();
+    if (current_thread->sa_to_be_handled) {
+        RESTORE_SIGNALS(mask);
+        return -EINTR;
+    }
+
     *buf = (struct stat) {
         .st_dev = file->backing_superblock->device,
         .st_ino = file->id,
@@ -178,8 +184,10 @@ int fat_stat(inode_t * file, struct stat * buf) {
         if (pread_file(file->backing_superblock->fd,
             &dentry_buf, sizeof(dentry_buf),
             file->id) != sizeof(dentry_buf)
-        )
+        ) {
+            RESTORE_SIGNALS(mask);
             return -EIO;
+        }
         buf->st_size = dentry_buf.size;
 
         buf->st_ctime = fat_time_to_epoch(dentry_buf.ctime, dentry_buf.cdate);
@@ -189,6 +197,7 @@ int fat_stat(inode_t * file, struct stat * buf) {
 
         buf->st_atime = fat_time_to_epoch((struct fat_time){0}, dentry_buf.adate);
     }
+    RESTORE_SIGNALS(mask);
     return 0;
 }
 
@@ -210,7 +219,11 @@ ssize_t fat_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_si
     superblock_t * sb = fd->inode->backing_superblock;
 
     struct fat_dir_entry dentry_buf = {0};
-
+    sigset_t mask = PAUSE_SIGNALS();
+    if (current_thread->sa_to_be_handled) {
+        RESTORE_SIGNALS(mask);
+        return -EINTR;
+    }
     switch (offset) {
         case 0: // .
             *dent = (struct dirent) {
@@ -241,8 +254,10 @@ ssize_t fat_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_si
         default:
             // have to walk each entry in cases of free \xE5 entries or early end
             if (!fd->inode->id && fi->type != FAT32) {
-                if (offset >= fi->fat12.root_dir_entries)
+                if (offset >= fi->fat12.root_dir_entries) {
+                    RESTORE_SIGNALS(mask);
                     return 0;
+                }
                 off_t current_offset = 2; // root doesn't have "." and ".."
                 rw_spinlock_acquire_read(&fi->fs_lock);
                 for (int i = 0; i < fi->fat12.root_dir_entries; i++) {
@@ -253,6 +268,7 @@ ssize_t fat_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_si
                         ) != sizeof(dentry_buf)
                     ) {
                         rw_spinlock_release_read(&fi->fs_lock);
+                        RESTORE_SIGNALS(mask);
                         return -EIO;
                     }
                     if ((unsigned char)dentry_buf.name[0] == FAT_DIR_FREE) continue;
@@ -282,6 +298,7 @@ ssize_t fat_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_si
                             &dentry_buf, sizeof(dentry_buf),
                             fd->inode->id) != sizeof(dentry_buf)
                     ) {
+                        RESTORE_SIGNALS(mask);
                         return -EIO;
                     }
                     dir_cluster = dentry_buf.start_cluster;
@@ -289,8 +306,10 @@ ssize_t fat_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_si
                         dir_cluster |= dentry_buf.fat32_cluster_hi << 16;
                 }
 
-                if (dir_cluster < 2)
+                if (dir_cluster < 2) {
+                    RESTORE_SIGNALS(mask);
                     return -EIO;
+                }
 
                 size_t cluster_limit = fi->type == FAT12 ?
                     FAT_CLUSTER_END_FAT12 :
@@ -312,6 +331,7 @@ ssize_t fat_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_si
                             ) != sizeof(dentry_buf)
                         ) {
                             rw_spinlock_release_read(&fi->fs_lock);
+                            RESTORE_SIGNALS(mask);
                             return -EIO;
                         }
                         if ((unsigned char)dentry_buf.name[0] == FAT_DIR_FREE) continue;
@@ -335,6 +355,7 @@ ssize_t fat_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_si
                     dir_cluster = fat_next_in_chain(dir_cluster, sb);
                     if (dir_cluster < 2 || dir_cluster == -1) {
                         rw_spinlock_release_read(&fi->fs_lock);
+                        RESTORE_SIGNALS(mask);
                         return -EIO;
                     }
                     visited_clusters ++;
@@ -342,10 +363,12 @@ ssize_t fat_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_si
             }
             notfound:
             rw_spinlock_release_read(&fi->fs_lock);
+            RESTORE_SIGNALS(mask);
             return 0;
     }
 
     end:
+    RESTORE_SIGNALS(mask);
     offset++;
     rw_spinlock_acquire_write(&fd->access_lock);
     fd->off = offset;
@@ -359,12 +382,19 @@ off_t fat_seek(file_descriptor_t * fd, off_t off, int whence) {
     kassert(fd->inode->backing_superblock);
 
     struct fat_dir_entry dentry_buf = {0};
+    sigset_t mask = PAUSE_SIGNALS();
+    if (current_thread->sa_to_be_handled) {
+        RESTORE_SIGNALS(mask);
+        return -EINTR;
+    }
     if (pread_file(fd->inode->backing_superblock->fd,
         &dentry_buf, sizeof(dentry_buf),
         fd->inode->id) != sizeof(dentry_buf)
-    )
+    ) {
+        RESTORE_SIGNALS(mask);
         return -EIO;
-
+    }
+    RESTORE_SIGNALS(mask);
     return generic_seek(fd, off, whence, dentry_buf.size);
 }
 
@@ -391,6 +421,12 @@ ssize_t fat_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) {
     if (offset >= (off_t)1<<32)
         return EOVERFLOW;
 
+    sigset_t mask = PAUSE_SIGNALS();
+    if (current_thread->sa_to_be_handled) {
+        RESTORE_SIGNALS(mask);
+        return -EINTR;
+    }
+
     struct fat_info * fi = sb->data;
     ssize_t read_bytes = 0;
 
@@ -403,6 +439,8 @@ ssize_t fat_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) {
         fd->inode->id) != sizeof(dentry_buf)
     ) {
         rw_spinlock_release_read(&fi->fs_lock);
+        RESTORE_SIGNALS(mask);
+
         return -EIO;
     }
 
@@ -414,6 +452,8 @@ ssize_t fat_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) {
 
     if (offset >= dentry_buf.size) {
         rw_spinlock_release_read(&fi->fs_lock);
+        RESTORE_SIGNALS(mask);
+
         return 0;
     }
 
@@ -430,6 +470,8 @@ ssize_t fat_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) {
 
     if (start_cl < 2 || start_cl >= cluster_limit) {
         rw_spinlock_release_read(&fi->fs_lock);
+        RESTORE_SIGNALS(mask);
+
         return -EIO;
     }
 
@@ -437,9 +479,12 @@ ssize_t fat_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) {
         start_cl = fat_next_in_chain(start_cl, sb);
         if (start_cl == -1 || start_cl < 2 || start_cl >= cluster_limit) {
             rw_spinlock_release_read(&fi->fs_lock);
+            RESTORE_SIGNALS(mask);
+
             return -EIO;
         }
     }
+    RESTORE_SIGNALS(mask);
 
     // start partial read
     size_t to_read = n;
@@ -453,6 +498,8 @@ ssize_t fat_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) {
         goto end;
     n -= to_read;
     if (n == 0)
+        goto end;
+    if (current_thread->sa_to_be_handled)
         goto end;
 
     while (n > 0) {
@@ -482,6 +529,8 @@ ssize_t fat_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) {
             goto end;
 
         n -= to_read;
+        if (current_thread->sa_to_be_handled)
+            goto end;
     }
 
     end:
@@ -518,6 +567,12 @@ ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t off
     struct fat_info * fi = sb->data;
     ssize_t written = 0;
 
+    sigset_t mask = PAUSE_SIGNALS();
+    if (current_thread->sa_to_be_handled) {
+        RESTORE_SIGNALS(mask);
+        return -EINTR;
+    }
+
     // write as we're going to be editing the FAT
     rw_spinlock_acquire_write(&fi->fs_lock);
 
@@ -528,6 +583,7 @@ ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t off
         fd->inode->id) != sizeof(dentry_buf)
     ) {
         rw_spinlock_release_write(&fi->fs_lock);
+        RESTORE_SIGNALS(mask);
         return -EIO;
     }
 
@@ -553,16 +609,22 @@ ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t off
             size_t new_cl = fat_get_free_cluster(sb);
             if (new_cl == -1) {
                 rw_spinlock_release_write(&fi->fs_lock);
+                RESTORE_SIGNALS(mask);
+
                 return -EIO;
             }
             if (new_cl == 0) {
                 rw_spinlock_release_write(&fi->fs_lock);
+                RESTORE_SIGNALS(mask);
+
                 return -ENOSPC;
             }
 
             // should be caught by hd cache, gets the fs consistent quicker
             if (fat_set_chain(new_cl, 0xFFFFFFFF, sb) != 0) {
                 rw_spinlock_release_write(&fi->fs_lock);
+                RESTORE_SIGNALS(mask);
+
                 return -EIO;
             }
             dentry_buf.start_cluster = new_cl & 0xFFFF;
@@ -590,6 +652,8 @@ ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t off
                         zoff) != 512
                     ) {
                         rw_spinlock_release_write(&fi->fs_lock);
+                        RESTORE_SIGNALS(mask);
+
                         return -EIO;
                     }
                     zoff += 512;
@@ -600,6 +664,8 @@ ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t off
                     zoff) != towrite
                 ) {
                     rw_spinlock_release_write(&fi->fs_lock);
+                    RESTORE_SIGNALS(mask);
+
                     return -EIO;
                 }
             }
@@ -608,21 +674,29 @@ ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t off
             size_t new_cl = fat_next_in_chain(curr_cl, sb);
             if (new_cl == -1 || new_cl < 2) {
                 rw_spinlock_release_write(&fi->fs_lock);
+                RESTORE_SIGNALS(mask);
+
                 return -EIO;
             }
             if (new_cl >= cluster_limit) {
                 new_cl = fat_get_free_cluster(sb);
                 if (new_cl == -1) {
                     rw_spinlock_release_write(&fi->fs_lock);
+                    RESTORE_SIGNALS(mask);
+
                     return -EIO;
                 }
                 if (new_cl == 0) {
                     rw_spinlock_release_write(&fi->fs_lock);
+                    RESTORE_SIGNALS(mask);
+
                     return -ENOSPC;
                 }
 
                 if (new_cl == -1 || fat_set_chain(curr_cl, new_cl, sb) != 0) {
                     rw_spinlock_release_write(&fi->fs_lock);
+                    RESTORE_SIGNALS(mask);
+
                     return -EIO;
                 }
                 // should be caught by hd cache, gets the fs consistent quicker
@@ -631,6 +705,8 @@ ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t off
                     dkprintf("Error: I/O error on writing cluster chain terminator, locking fs as read-only!\n"
                                     "\tRun fsck/chkdsk as soon as possible and do not mount as read-write!\n");
                     sb->mount_options |= MOUNT_RDONLY;
+                    RESTORE_SIGNALS(mask);
+
                     return -EIO;
                 }
             }
@@ -653,33 +729,44 @@ ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t off
         rw_spinlock_acquire_read(&fi->fs_lock);
         if (start_cl < 2 || start_cl >= cluster_limit) {
             rw_spinlock_release_read(&fi->fs_lock);
+            RESTORE_SIGNALS(mask);
+
             return -EIO;
         }
         for (int i = 0; i < skipped_clusters; i++) {
             start_cl = fat_next_in_chain(start_cl, sb);
             if (start_cl == -1 || start_cl < 2 || start_cl >= cluster_limit) {
                 rw_spinlock_release_read(&fi->fs_lock);
+                RESTORE_SIGNALS(mask);
+
                 return -EIO;
             }
         }
     }
 
+    RESTORE_SIGNALS(mask);
+
+    written = -EINTR;
+    if (current_thread->sa_to_be_handled)
+        goto end;
+
     offset %= bytes_per_cluster;
 
     // start partial write
-    size_t to_read = n;
+    size_t to_write = n;
     if (offset + n >= bytes_per_cluster)
-        to_read = bytes_per_cluster - offset;
+        to_write = bytes_per_cluster - offset;
 
     written = pwrite_file(sb->fd,
-        buf, to_read,
+        buf, to_write,
         (fi->data_sector_start + (start_cl - 2) * fi->sectors_per_cluster) * fi->bytes_per_sector + offset);
     if (written != bytes_per_cluster - offset)
         goto end;
-    n -= to_read;
+    n -= to_write;
     if (n == 0)
         goto end;
-
+    if (current_thread->sa_to_be_handled)
+        goto end;
     while (n > 0) {
         start_cl = fat_next_in_chain(start_cl, sb);
         if (start_cl == -1 || start_cl < 2) {
@@ -689,12 +776,12 @@ ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t off
         if (start_cl >= cluster_limit) // shouldn't happen considering we enlarged the file, but just in case
             goto end;
 
-        to_read = n;
+        to_write = n;
         if (n > bytes_per_cluster)
-            to_read = bytes_per_cluster;
+            to_write = bytes_per_cluster;
 
         ssize_t ret = pwrite_file(sb->fd,
-            buf + written, to_read,
+            buf + written, to_write,
             (fi->data_sector_start + (start_cl - 2) * fi->sectors_per_cluster) * fi->bytes_per_sector);
 
         if (ret < 0) {
@@ -702,10 +789,13 @@ ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t off
             return ret;
         }
         written += ret;
-        if (ret != to_read) // shouldn't happen
+        if (ret != to_write) // shouldn't happen
             goto end;
 
-        n -= to_read;
+        n -= to_write;
+
+        if (current_thread->sa_to_be_handled)
+            goto end;
     }
 
     end:
@@ -751,25 +841,10 @@ static int fat_is_dir_empty(size_t dir_cluster, superblock_t * sb) {
     return 0;
 }
 
-int fat_unlink(inode_t * file) {
-    kassert(file);
-    kassert(file->backing_superblock);
+static int __fat_unlink(inode_t * file) {
     superblock_t * sb = file->backing_superblock;
     struct fat_info * fi = sb->data;
-    kassert(sb->data);
-
-    if (sb->mount_options & MOUNT_RDONLY)
-        return -EROFS;
-
-    if (file->id == 0)
-        return -EBUSY;
-
-    if (file->instances > 1)
-        return -EBUSY;
-
-    rw_spinlock_acquire_write(&fi->fs_lock);
-    if (file->instances > 1) { // raced on lookup
-        rw_spinlock_release_write(&fi->fs_lock);
+    if (file->instances > 1) {
         return -EBUSY;
     }
 
@@ -779,7 +854,6 @@ int fat_unlink(inode_t * file) {
         &dentry_buf, sizeof(dentry_buf),
         file->id) != sizeof(dentry_buf)
     ) {
-        rw_spinlock_release_write(&fi->fs_lock);
         return -EIO;
     }
 
@@ -797,21 +871,18 @@ int fat_unlink(inode_t * file) {
         goto rm_entry;
 
     if (cluster_start > cluster_limit) {
-        rw_spinlock_release_write(&fi->fs_lock);
         return -EIO;
     }
 
     if (S_ISDIR(file->mode)) {
         int ret = fat_is_dir_empty(cluster_start, sb);
         if (ret) {
-            rw_spinlock_release_write(&fi->fs_lock);
             return ret;
         }
     }
 
     int ret = fat_free_chain(cluster_start, sb);
     if (ret) {
-        rw_spinlock_release_write(&fi->fs_lock);
         return ret;
     }
 
@@ -822,12 +893,38 @@ int fat_unlink(inode_t * file) {
         &dentry_buf, sizeof(dentry_buf),
         file->id) != sizeof(dentry_buf)
     ) {
-        rw_spinlock_release_write(&fi->fs_lock);
         dkprintf("Warning: I/O error on writing free dentry at %llu after freeing chain!\n", file->id);
         return -EIO;
     }
-    rw_spinlock_release_write(&fi->fs_lock);
     return 0;
+}
+
+int fat_unlink(inode_t * file) {
+    kassert(file);
+    kassert(file->backing_superblock);
+    superblock_t * sb = file->backing_superblock;
+    struct fat_info * fi = sb->data;
+    kassert(sb->data);
+
+    if (sb->mount_options & MOUNT_RDONLY)
+        return -EROFS;
+
+    if (file->id == 0)
+        return -EBUSY;
+
+    if (file->instances > 1)
+        return -EBUSY;
+
+    sigset_t mask = PAUSE_SIGNALS();
+    if (current_thread->sa_to_be_handled) {
+        RESTORE_SIGNALS(mask);
+        return -EINTR;
+    }
+    rw_spinlock_acquire_write(&fi->fs_lock);
+    int ret = __fat_unlink(file);
+    rw_spinlock_release_write(&fi->fs_lock);
+    RESTORE_SIGNALS(mask);
+    return ret;
 }
 
 static off_t fat_get_free_dentry(size_t start_cl, superblock_t * sb, char shortname[11]) {
@@ -1097,13 +1194,124 @@ static int __fat_creat(inode_t * parent, const char * pathname, mode_t mode, ino
 
 
 int fat_creat(inode_t * parent, const char * pathname, mode_t mode, inode_t ** inode_out) {
-    return __fat_creat(parent, pathname, mode, inode_out, 0);
+    sigset_t mask = PAUSE_SIGNALS();
+    if (current_thread->sa_to_be_handled) {
+        RESTORE_SIGNALS(mask);
+        return -EINTR;
+    }
+    int ret = __fat_creat(parent, pathname, mode, inode_out, 0);
+    RESTORE_SIGNALS(mask);
+    return ret;
 }
 
 int fat_mkdir(inode_t * parent, const char * pathname, mode_t mode, inode_t ** inode_out) {
-    return __fat_creat(parent, pathname, mode, inode_out, 1);
+    sigset_t mask = PAUSE_SIGNALS();
+    if (current_thread->sa_to_be_handled) {
+        RESTORE_SIGNALS(mask);
+        return -EINTR;
+    }
+    int ret = __fat_creat(parent, pathname, mode, inode_out, 1);
+    RESTORE_SIGNALS(mask);
+    return ret;
 }
-struct vfs_ops fat_ops = {
+
+int fat_rename(inode_t * old, inode_t * new, const char * name) {
+    kassert(old);
+    kassert(new);
+
+    superblock_t * sb = old->backing_superblock;
+    struct fat_info * fi = sb->data;
+
+    sigset_t mask = PAUSE_SIGNALS();
+    if (current_thread->sa_to_be_handled) {
+        RESTORE_SIGNALS(mask);
+        return -EINTR;
+    }
+
+    int ret = 0;
+    struct fat_dir_entry old_file = {0};
+    struct fat_dir_entry new_file = {0};
+    rw_spinlock_acquire_write(&fi->fs_lock);
+
+    if (pread_file(sb->fd,
+        &old_file, sizeof(old_file),
+        old->id) != sizeof(old_file)
+    ) {
+        ret = -EIO;
+        goto err;
+    }
+    if (new->id) {
+        if (pread_file(sb->fd,
+            &new_file, sizeof(new_file),
+            new->id) != sizeof(new_file)
+        ) {
+            ret = -EIO;
+            goto err;
+        }
+    } else
+        kassert(name);
+
+    // we already have the target
+    if (!name) {
+        ret = __fat_unlink(new);
+        if (ret < 0)
+            goto err;
+
+        memcpy(old_file.name, new_file.name, 11);
+
+        if (pwrite_file(sb->fd,
+            &old_file, sizeof(old_file),
+            new->id) != sizeof(old_file)
+        ) {
+            ret = -EIO;
+            goto err;
+        }
+    } else {
+        char shortname[11];
+        ret = fat_name_to_short(name, shortname);
+        if (ret != 0)
+            goto err;
+        memcpy(old_file.name, shortname, 11);
+
+        size_t cl = 0;
+        if (new->id != 0) {
+            cl = new_file.start_cluster;
+            if (fi->type == FAT32)
+                cl |= new_file.fat32_cluster_hi << 16;
+        }
+
+        off_t free_dentry = fat_get_free_dentry(cl, sb, shortname);
+        if (free_dentry < 0) {
+            ret = (int)free_dentry;
+            goto err;
+        }
+        if (pwrite_file(sb->fd,
+            &old_file, sizeof(old_file),
+            free_dentry) != sizeof(old_file)
+        ) {
+            ret = -EIO;
+            goto err;
+        }
+    }
+
+    old_file.name[0] = FAT_DIR_FREE;
+    if (pwrite_file(sb->fd,
+        &old_file, sizeof(old_file),
+        old->id) != sizeof(old_file)
+    ) {
+        ret = -EIO;
+        goto err;
+    }
+    ret = 0;
+
+    err:
+    rw_spinlock_release_write(&fi->fs_lock);
+    RESTORE_SIGNALS(mask)
+    return ret;
+}
+
+
+const struct vfs_ops fat_op = {
     .fs_init   = fat_init,
     .fs_deinit = fat_deinit,
     .lookup    = fat_lookup,
@@ -1115,4 +1323,5 @@ struct vfs_ops fat_ops = {
     .unlink    = fat_unlink,
     .creat     = fat_creat,
     .mkdir     = fat_mkdir,
+    .rename    = fat_rename,
 };

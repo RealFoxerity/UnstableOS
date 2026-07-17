@@ -83,7 +83,7 @@ static char check_page(const char * addr) {
     return 1;
 }
 
-static inline char * secure_strdup(const char * path, size_t max_len, size_t *len_out) {
+static char * secure_strdup(const char * path, size_t max_len, size_t *len_out) {
     if (path == NULL) return NULL;
 
     size_t path_len;
@@ -122,7 +122,7 @@ int sys_openat(int fd, const char * path, unsigned short flags, mode_t mode) {
     kassert(ino->instances > (ino->is_mountpoint ? 1 : 0));
 
     inode_t * new = NULL;
-    int ret = openat_inode(ino, path, flags, mode, &new);
+    int ret = openat_inode(ino, path, flags, mode, &new, 0);
     if (ret < 0) return ret;
     ret = get_fd_from_inode(new, flags);
     if (ret < 0)
@@ -130,7 +130,32 @@ int sys_openat(int fd, const char * path, unsigned short flags, mode_t mode) {
     return ret;
 }
 
-int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t mode, inode_t ** out) {
+static size_t cleanup_path(char * dup_path, size_t pathlen) {
+    // path cleanup
+    char seen_slash = 0;
+    for (size_t i = 0; i < pathlen; i++) {
+        if (dup_path[i] == '/') {
+            if (seen_slash) {
+                // move everything left by one to remove second slash
+                memmove(dup_path + i, dup_path + i + 1, pathlen - i - 1);
+                pathlen --;
+                i--; // to counteract the i++
+                dup_path[pathlen] = '\0';
+            } else seen_slash = 1;
+        } else seen_slash = 0;
+    }
+    // cleanup of trailing slashes
+    for (size_t i = pathlen - 1; i >= 1; i--) { // >= 1 to not remove the first /
+        if (dup_path[i] == '/' && dup_path[i-1] == '/') {
+            dup_path[i] = '\0';
+            pathlen--;
+        } else break;
+    }
+
+    return pathlen;
+}
+
+int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t mode, inode_t ** out, char trusted_path) {
     if (base == NULL) {
         kprintf("\e[0m\e[41mWarning: called openat with NULL base inode!\e[0m\n");
         return -EINVAL;
@@ -169,8 +194,14 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
     int ret = 0;
 
     size_t pathlen;
-    char * dup_path = secure_strdup(path, PATH_MAX, &pathlen);
-    if (dup_path == NULL) {
+    char * dup_path;
+    if (trusted_path) { // to avoid pid >0 in paths in the kernel from failing secure_strdup
+        pathlen = strlen(path);
+        dup_path = strdup(path);
+    } else
+        dup_path = secure_strdup(path, PATH_MAX, &pathlen);
+    if (dup_path == NULL || pathlen == 0) {
+        kfree(dup_path);
         if (preincremented)
             close_inode(base);
         return -EFAULT;
@@ -185,27 +216,10 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
         return -EINVAL;
     }
 
-    // path cleanup
-    char seen_slash = 0;
-    for (size_t i = 0; i < pathlen; i++) {
-        if (dup_path[i] == '/') {
-            if (seen_slash) {
-                // move everything left by one to remove second slash
-                memmove(dup_path + i, dup_path + i + 1, pathlen - i - 1);
-                pathlen --;
-                i--; // to counteract the i++
-                dup_path[pathlen] = '\0';
-            } else seen_slash = 1;
-        } else seen_slash = 0;
-    }
-    // cleanup of trailing slashes
-    for (size_t i = pathlen - 1; i >= 1; i--) { // >= 1 to not remove the first /
-        if (dup_path[i] == '/') {
-            dup_path[i] = '\0';
-            pathlen--;
-        } else break;
-    }
 
+    pathlen = cleanup_path(dup_path, pathlen);
+
+    char need_dir = dup_path[pathlen - 1] == '/';
 
     // resolving the mount point
     spinlock_acquire(&mount_tree_lock);
@@ -263,7 +277,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
     char last_fragment = 0;
     while (!last_fragment) {
         char * next_slash = strchrnul(final_path, '/');
-        if (*next_slash == '\0') last_fragment = 1;
+        if (*next_slash == '\0' || *(next_slash + 1) == '\0') last_fragment = 1;
         *next_slash = '\0';
 
         lookup_escape_again:
@@ -315,6 +329,12 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
             ret = status;
             goto err;
         }
+        if (new && last_fragment && need_dir && !S_ISDIR(new->mode)) {
+            close_inode(prev);
+            close_inode(new);
+            ret = -ENOTDIR;
+            goto err;
+        }
         // has to be below because we prefer returning ENOENT
         // devices are not governed by the mountpoint options
         if (new && last_fragment && (S_ISREG(new->mode) || S_ISDIR(new->mode))) {
@@ -352,7 +372,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
             ret = -EEXIST;
             goto err;
         }
-        if (last_fragment && flags & O_PATH) {
+        if (last_fragment && flags & O_NOXDEV) {
             close_inode(prev);
             break;
         }
@@ -411,7 +431,7 @@ int sys_chdir(const char * path) {
     __atomic_add_fetch(&curr_pwd->instances, 1, __ATOMIC_ACQUIRE);
     spinlock_release(&current_process->lock);
 
-    int ret = openat_inode(curr_pwd, path, O_DIRECTORY | O_RDONLY, 0, &new);
+    int ret = openat_inode(curr_pwd, path, O_DIRECTORY | O_RDONLY, 0, &new, 0);
     close_inode(curr_pwd);
 
     if (ret < 0) return ret;
@@ -433,7 +453,7 @@ int sys_chroot(const char * path) {
     __atomic_add_fetch(&curr_pwd->instances, 1, __ATOMIC_ACQUIRE);
     spinlock_release(&current_process->lock);
 
-    int ret = openat_inode(curr_pwd, path, O_DIRECTORY | O_RDONLY, 0, &new);
+    int ret = openat_inode(curr_pwd, path, O_DIRECTORY | O_RDONLY, 0, &new, 0);
     close_inode(curr_pwd);
     if (ret < 0) return ret;
     if (new == NULL) return -EINVAL;
@@ -444,4 +464,229 @@ int sys_chroot(const char * path) {
     spinlock_release(&current_process->lock);
     close_inode(old_root);
     return 0;
+}
+
+static char is_valid_rename(const char * pathname) {
+    const char * last_slash = strrchr(pathname, '/');
+    if (last_slash == NULL) {
+        if (strcmp(".", pathname) == 0 || strcmp("..", pathname) == 0) {
+            return -EINVAL;
+        }
+    } else {
+        if (*(last_slash + 1) == '\0') { // /a/
+            const char * next = strrchr(last_slash - 1, '/');
+            if (next == NULL)
+                next = pathname;
+
+            if (strcmp("./", next) == 0 || strcmp("../", next) == 0) {
+                return -EINVAL;
+            }
+        } else {
+            if (strcmp(".", last_slash + 1) == 0 || strcmp("..", last_slash + 1) == 0) {
+                return -EINVAL;
+            }
+        }
+    }
+    return 0;
+}
+int sys_renameat(int oldfd, const char * old, int newfd, const char * new) {
+    inode_t * old_parent = NULL;
+    inode_t * new_parent = NULL;
+
+    if ((oldfd < 0 || oldfd >= FD_LIMIT_PROCESS) && oldfd != AT_FDCWD) return -EBADF;
+    if ((newfd < 0 || newfd >= FD_LIMIT_PROCESS) && newfd != AT_FDCWD) return -EBADF;
+
+    size_t old_len = 0;
+    char * old_dup = secure_strdup(old, PATH_MAX, &old_len);
+    if (old_dup == NULL || old_len == 0) {
+        kfree(old_dup);
+        return -EFAULT;
+    }
+
+    if (memcmp("//", old_dup, 2) == 0) {
+        kprintf("Stub: we don't yet support the // meta directory!\n");
+        kfree(old_dup);
+        return -EINVAL;
+    }
+
+    if (strcmp("/", old_dup) == 0) {
+        kfree(old_dup);
+        return -EBUSY;
+    }
+
+    if (is_valid_rename(old_dup)) {
+        kfree(old_dup);
+        return -EINVAL;
+    }
+
+    // check for endings in . or ..
+    // in brackets to not polute the namespace
+
+
+    size_t new_len = 0;
+    char * new_dup = secure_strdup(new, PATH_MAX, &new_len);
+    if (new_dup == NULL || new_len == 0) {
+        kfree(old_dup);
+        kfree(new_dup);
+        return -EBUSY;
+    }
+
+    if (memcmp("//", new_dup, 2) == 0) {
+        kprintf("Stub: we don't yet support the // meta directory!\n");
+        kfree(old_dup);
+        kfree(new_dup);
+        return -EINVAL;
+    }
+
+    if (strcmp("/", new_dup) == 0) {
+        kfree(old_dup);
+        kfree(new_dup);
+        return -EBUSY;
+    }
+
+    if (is_valid_rename(new_dup)) {
+        kfree(old_dup);
+        kfree(new_dup);
+        return -EINVAL;
+    }
+
+    old_len = cleanup_path(old_dup, old_len);
+    new_len = cleanup_path(new_dup, new_len);
+
+    spinlock_acquire(&current_process->lock);
+    if (oldfd != AT_FDCWD) {
+        file_descriptor_t * file = current_process->fds[oldfd];
+        if (file == NULL) {
+            spinlock_release(&current_process->lock);
+            kfree(old_dup);
+            kfree(new_dup);
+            return -EBADF;
+        }
+        kassert(file->instances > 0);
+        old_parent = file->inode;
+    } else {
+        old_parent = current_process->pwd;
+    }
+    __atomic_add_fetch(&old_parent->instances, 1, __ATOMIC_ACQUIRE);
+
+    if (newfd != AT_FDCWD) {
+        file_descriptor_t * file = current_process->fds[newfd];
+        if (file == NULL) {
+            close_inode(old_parent);
+            spinlock_release(&current_process->lock);
+            kfree(old_dup);
+            kfree(new_dup);
+            return -EBADF;
+        }
+        kassert(file->instances > 0);
+        new_parent = file->inode;
+    } else {
+        new_parent = current_process->pwd;
+    }
+    __atomic_add_fetch(&new_parent->instances, 1, __ATOMIC_ACQUIRE);
+    spinlock_release(&current_process->lock);
+
+    int ret = 0;
+
+    inode_t * src;
+    ret = openat_inode(old_parent, old_dup, O_WRONLY | O_NOXDEV, 0, &src, 1);
+    close_inode(old_parent);
+    if (ret != 0 || src == NULL)
+        goto err;
+
+    if (new_parent == src && new_dup[0] != '/') {
+        close_inode(src);
+        ret = -EINVAL;
+        goto err;
+    }
+
+    if (new_dup[new_len - 1] == '/' && !S_ISDIR(src->mode)) {
+        close_inode(src);
+        ret = -EISDIR;
+        goto err;
+    }
+
+    if (src->backing_superblock->mount_options & MOUNT_RDONLY) {
+        close_inode(src);
+        ret = -EROFS;
+        goto err;
+    }
+    if (src->backing_superblock->funcs->rename == NULL) {
+        close_inode(src);
+        ret = -EINVAL;
+        goto err;
+    }
+
+    // now for the harder part
+    // have to manually iterate to check if new is an ancestor of old
+    inode_t * curr;
+    inode_t * prev = new_parent;
+
+    __atomic_add_fetch(&new_parent->instances, 1, __ATOMIC_ACQUIRE);
+
+    char last_fragment = 0;
+    char wrdir = 0;
+    char * path = new_dup;
+
+    char have_target = 0;
+    while (!last_fragment) {
+        // ternary only true on first iteration being root relative
+        char * next_slash = strchrnul(path + (path[0] == '/' ? 1 : 0), '/');
+
+        if (*next_slash == '\0' || *(next_slash + 1) == '\0')
+            last_fragment = 1;
+        else {
+            *next_slash = '\0';
+            char * temp = strchrnul(next_slash + 1, '/');
+            if (*temp == '\0' || *(temp + 1) == '\0')
+                wrdir = 1;
+        }
+
+        ret = openat_inode(prev, path, (wrdir ? O_SEARCH : O_WRONLY) | (last_fragment ? 0 : O_DIRECTORY), 0, &curr, 1);
+        if (ret == -ENOENT && last_fragment) {
+            break;
+        }
+        close_inode(prev);
+        if (curr == src) {
+            close_inode(curr);
+            ret = -EINVAL;
+        }
+        if (ret < 0 || curr == NULL) {
+            close_inode(src);
+            goto err;
+        }
+        if (last_fragment)
+            have_target = 1;
+        prev = curr;
+        path = next_slash + 1;
+    }
+
+    if (prev->backing_superblock != src->backing_superblock) {
+        close_inode(src);
+        close_inode(prev);
+        ret = -EXDEV;
+        goto err;
+    }
+    if (have_target && (prev->mode & S_IFMT) != (src->mode & S_IFMT))
+    {
+        if (S_ISDIR(prev->mode))
+            ret = -EISDIR;
+        else
+            ret = -ENOTDIR;
+        close_inode(src);
+        close_inode(prev);
+        goto err;
+    }
+
+    *strchrnul(path, '/') = '\0'; // clean up trailing slash
+    ret = src->backing_superblock->funcs->rename(src, prev, have_target ? NULL : path);
+
+    close_inode(src);
+    close_inode(prev);
+
+    err:
+    close_inode(new_parent);
+    kfree(old_dup);
+    kfree(new_dup);
+    return ret;
 }

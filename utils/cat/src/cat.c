@@ -16,7 +16,7 @@ int main(int argc, char ** argv) {
     }
 
     if (fd < 0) {
-        printf("cat: cannot access %s: %s\n", argv[1], strerror(errno));
+        fprintf(stderr, "cat: cannot access %s: %s\n", argv[1], strerror(errno));
         return 1;
     }
 
@@ -36,7 +36,7 @@ int main(int argc, char ** argv) {
 
     if (read_bytes < 0) {
         if (argc >= 2)
-            printf("cat: error while reading %s: %s\n", argv[1], strerror(errno));
+            fprintf(stderr, "cat: error while reading %s: %s\n", argv[1], strerror(errno));
         else
             perror("cat: standard input");
         return 1;

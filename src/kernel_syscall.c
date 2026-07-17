@@ -204,6 +204,10 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
             asm volatile ("sti;");
             return_value = sys_dup3(arg1, arg2, arg3);
             break;
+        case SYSCALL_RENAMEAT:
+            asm volatile ("sti;");
+            return_value = sys_renameat(arg1, (const char *)arg2, arg3, (const char *)arg4);
+            break;
         case SYSCALL_UNLINKAT:
             asm volatile ("sti;");
             return_value = sys_unlinkat(arg1, (const char *)arg2, arg3);

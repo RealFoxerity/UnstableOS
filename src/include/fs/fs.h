@@ -134,7 +134,7 @@ int get_fd_from_inode(inode_t * inode, unsigned short flags);
 
 int sys_openat(int fd, const char * path, unsigned short flags, mode_t mode);
 // the kernel function itself
-int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t mode, inode_t ** out);
+int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t mode, inode_t ** out, char trusted_path);
 
 int sys_chdir(const char * path);
 int sys_chroot(const char * path);
@@ -186,6 +186,7 @@ long dup_file(file_descriptor_t * old_file, int startfd, int flags); // primaril
 int sys_dup(int oldfd);
 int sys_dup3(int oldfd, int newfd, int flags);
 int sys_unlinkat(int fd, const char *path, int flags);
+int sys_renameat(int oldfd, const char * old, int newfd, const char * new);
 
 #include <UnstableOS/mount.h>
 long mount_dev(dev_t dev, inode_t * mount_point, unsigned char type, unsigned short options);

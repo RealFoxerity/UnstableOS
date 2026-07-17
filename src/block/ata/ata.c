@@ -25,9 +25,15 @@ void ata_bus_soft_reset(unsigned char bus_id) {
     outb(ata_buses[bus_id].control_base + ATA_CREGS_DEVICE_CONTROL, dcr.device_control_register);
 
     time_t old_clicks = uptime_clicks;
+
+    unsigned long eflags;
+    // in cas we're the only thread running to give room for the rtc interrupt to fire
+    asm volatile ("pushf; pop %0; sti;" : "=R"(eflags));
     while (uptime_clicks < old_clicks + 5) {
         reschedule(); // 5 msec wait, 5 USEC should be enough however
     }
+    asm volatile ("pushl %0; popf;" :: "R"(eflags));
+
     dcr.software_reset = 0;
 
     outb(ata_buses[bus_id].control_base + ATA_CREGS_DEVICE_CONTROL, dcr.device_control_register);
