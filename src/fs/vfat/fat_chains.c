@@ -123,10 +123,19 @@ int fat_set_chain(size_t last_cluster, size_t next, const superblock_t * sb) {
                     old |= next & 0x0FFF;
                 }
                 next = old;
-                goto fat16;
+                if (pwrite_file(
+                    sb->fd, &(uint16_t){next},
+                    sizeof(uint16_t),
+                    (fi->fat_start_sector + i*fi->sectors_per_fat)*fi->bytes_per_sector + fat_offset
+                    ) != sizeof(uint16_t)
+                ) {
+                    current_thread->sa_to_be_handled = old_sig;
+                    RESTORE_SIGNALS(mask);
+                    return -EIO;
+                }
+                break;
             case FAT16:
                 kassert(last_cluster < FAT_CLUSTER_END_FAT16);
-                fat16:
                 if (pwrite_file(
                     sb->fd, &(uint16_t){next},
                     sizeof(uint16_t),
