@@ -11,6 +11,11 @@
 
 // TODO: support LFN (vfat)
 
+// up until linux 7.2-rc2, the linux FAT driver didn't handle end-of-directory markers
+// so for most compatibility, we zero out the entire cluster when dealing with new directory clusters
+
+static const char zero_sector[512] = {0};
+
 int fat_init(superblock_t * sb) {
     struct fat_block block;
     if (pread_file(sb->fd, &block, sizeof(block), 0) < sizeof(block) || block.magic != FAT_MAGIC) {
@@ -635,7 +640,6 @@ ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t off
         }
 
 
-        static const char zero_sector[512] = {0};
         for (size_t i = 0; i < total_clusters; i++) {
             // zero out unwritten space
             if (i >= dentry_buf.size / bytes_per_cluster && i < skipped_clusters) {
@@ -927,6 +931,24 @@ int fat_unlink(inode_t * file) {
     return ret;
 }
 
+static int fat_zero_cluster(size_t cluster, superblock_t * sb) {
+    struct fat_info * fi = sb->data;
+    size_t towrite = fi->bytes_per_sector * fi->sectors_per_cluster;
+    off_t zoff = (fi->data_sector_start + (cluster - 2) * fi->sectors_per_cluster) * fi->bytes_per_sector;
+    kassert(fi->bytes_per_sector % 512 == 0);
+    while (towrite > 0) {
+        if (pwrite_file(sb->fd,
+            zero_sector, 512,
+            zoff) != 512
+        ) {
+            return -EIO;
+        }
+        zoff += 512;
+        towrite -= 512;
+    }
+    return 0;
+}
+
 static off_t fat_get_free_dentry(size_t start_cl, superblock_t * sb, char shortname[11]) {
     struct fat_dir_entry dentry_buf = {0};
     struct fat_info * fi = sb->data;
@@ -974,7 +996,9 @@ static off_t fat_get_free_dentry(size_t start_cl, superblock_t * sb, char shortn
         return -EEXIST;
 
     size_t visited_clusters = 0;
+    size_t prev_cl;
     while (start_cl < cluster_limit && visited_clusters < fi->max_chain_len) {
+        prev_cl = start_cl;
         for (size_t i = 0; i < fi->bytes_per_sector * fi->sectors_per_cluster / sizeof(struct fat_dir_entry); i++) {
             off_t dir_off = fi->data_sector_start + (start_cl - 2) * fi->sectors_per_cluster;
             dir_off *= fi->bytes_per_sector;
@@ -1011,10 +1035,14 @@ static off_t fat_get_free_dentry(size_t start_cl, superblock_t * sb, char shortn
     if (new_cl == 0)
         return -ENOSPC;
 
+    int ret = fat_zero_cluster(new_cl, sb);
+    if (ret < 0)
+        return ret;
+
     if (fat_set_chain(new_cl, 0xFFFFFFFF, sb) != 0)
         return -EIO;
 
-    if (fat_set_chain(start_cl, new_cl, sb) != 0)
+    if (fat_set_chain(prev_cl, new_cl, sb) != 0)
         return -EIO;
 
     off_t dir_off = fi->data_sector_start + (new_cl - 2) * fi->sectors_per_cluster;
@@ -1123,6 +1151,10 @@ static int __fat_creat(inode_t * parent, const char * pathname, mode_t mode, ino
             return -ENOSPC;
         }
 
+        ret = fat_zero_cluster(new_dir_cl, sb);
+        if (ret < 0)
+            return ret;
+
         if (fat_set_chain(new_dir_cl, 0xFFFFFFFF, sb) != 0) {
             rw_spinlock_release_write(&fi->fs_lock);
             return -EIO;
@@ -1147,7 +1179,10 @@ static int __fat_creat(inode_t * parent, const char * pathname, mode_t mode, ino
             return -EIO;
         }
 
-        dot_dir = parent_buf;
+        if (parent_buf.name[0])
+            dot_dir = parent_buf;
+        if (!parent->id)
+            dot_dir.start_cluster = dot_dir.fat32_cluster_hi = 0;
 
         memcpy(dot_dir.name, "..         ", 11);
 

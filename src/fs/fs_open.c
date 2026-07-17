@@ -31,7 +31,6 @@ static int __open_raw_device(dev_t device, unsigned short flags, file_descriptor
     return 0;
 }
 int open_raw_device(dev_t device, unsigned short flags, file_descriptor_t ** file_out) {
-    if (flags == 0 || flags > O_RDWR) return -EINVAL;
     int ret = 0;
     spinlock_acquire(&kernel_fd_lock);
 
@@ -41,8 +40,6 @@ int open_raw_device(dev_t device, unsigned short flags, file_descriptor_t ** fil
     return ret;
 }
 int open_raw_device_fd(dev_t device, unsigned short flags) {
-    if (flags == 0 || flags > O_RDWR) return -EINVAL;
-
     spinlock_acquire(&kernel_fd_lock);
 
     int fd = -1;
@@ -362,9 +359,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
         }
         if (last_fragment &&
             flags & O_CREAT && (
-                flags & O_EXCL ||
-                (flags & O_DIRECTORY && !S_ISDIR(new->mode)) ||
-                (!(flags & O_DIRECTORY) && S_ISDIR(new->mode))
+                flags & O_EXCL || flags & O_DIRECTORY
             )
         ) {
             close_inode(prev);

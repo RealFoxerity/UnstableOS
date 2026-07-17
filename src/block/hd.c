@@ -128,9 +128,12 @@ static void hd_cache_set(dev_t dev, uint64_t lba, void * data, char dirty) {
 
         kfree(hd_sector_cache[hd_get_key(dev, lba)].data);
 
+        struct hd_sector_cache * next = hd_sector_cache[hd_get_key(dev, lba)].next;
+
         memcpy(&hd_sector_cache[hd_get_key(dev, lba)],
             hd_sector_cache[hd_get_key(dev, lba)].next,
             sizeof(struct hd_sector_cache));
+        kfree(next);
     }
     rw_spinlock_release_write(&hd_cache_lock);
 }
@@ -143,9 +146,12 @@ static struct hd_sector_cache * hd_cache_get(dev_t dev, uint64_t lba) {
             hash_entry != NULL;
             hash_entry = hash_entry->next
         ) {
-        if (hash_entry->dev == dev && hash_entry->lba == lba)
+        if (hash_entry->dev == dev && hash_entry->lba == lba) {
             //rw_spinlock_release_read(&hd_cache_lock);
+            if (!hash_entry->data)
+                return NULL;
             return hash_entry;
+        }
     }
     //rw_spinlock_release_read(&hd_cache_lock);
     return NULL;
@@ -191,7 +197,7 @@ ssize_t hd_read_ata(file_descriptor_t *file, void *buf, size_t count, off_t offs
 
     for (uint64_t lba = offset / drive->sector_size;
         lba < (offset + count + drive->sector_size - 1) / drive->sector_size &&
-            lba <= drive->sector_count;
+            lba < drive->sector_count;
         lba++
     ) {
         lookup_again:
@@ -260,7 +266,7 @@ ssize_t hd_write_ata(file_descriptor_t *file, const void *buf, size_t count, off
 
     for (uint64_t lba = offset / drive->sector_size;
         lba < (offset + count + drive->sector_size - 1) / drive->sector_size &&
-            lba <= drive->sector_count;
+            lba < drive->sector_count;
         lba++
     ) {
         lookup_again:
@@ -336,13 +342,13 @@ ssize_t hd_write_ata(file_descriptor_t *file, const void *buf, size_t count, off
 
         char ret = 1;
 
-        if (file->flags & O_SYNC) {
+
+        rw_spinlock_acquire_read(&cached->dirty_lock);
+        __atomic_store_n(&cached->is_dirty, 1, __ATOMIC_RELEASE);
+        rw_spinlock_release_read(&cached->dirty_lock);
+
+        if (file->flags & O_SYNC)
             ret = hd_cache_flush_entry(cached);
-        } else {
-            rw_spinlock_acquire_read(&cached->dirty_lock);
-            __atomic_store_n(&cached->is_dirty, 1, __ATOMIC_RELEASE);
-            rw_spinlock_release_read(&cached->dirty_lock);
-        }
 
         rw_spinlock_release_read(&hd_cache_lock);
 
