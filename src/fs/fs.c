@@ -608,11 +608,26 @@ int stat_inode(inode_t * inode, struct stat * buf) {
     kassert(buf);
     kassert(inode);
     kassert(inode->backing_superblock);
-    kassert(inode->backing_superblock->funcs);
-    if(inode->backing_superblock->funcs->stat == NULL)
-        return -EINVAL;
 
-    return inode->backing_superblock->funcs->stat(inode, buf);
+    *buf = (struct stat) {
+        .st_dev = inode->backing_superblock->device,
+        .st_ino = inode->id,
+        .st_mode = inode->mode,
+        .st_nlink = inode->nlink,
+        .st_uid = inode->uid,
+        .st_gid = inode->gid,
+        .st_rdev = (S_ISBLK(inode->mode) || S_ISCHR(inode->mode)) ? inode->device : 0,
+        .st_size = inode->size,
+        .st_atime = inode->atime,
+        .st_mtime = inode->mtime,
+        .st_ctime = inode->ctime,
+        .st_blksize = inode->io_block_size,
+    };
+    if (inode->io_block_size != 0)
+        buf->st_blocks = (inode->size + inode->io_block_size - 1) / inode->io_block_size;
+
+    return 0;
+
 }
 
 int sys_fstat(int fd, struct stat * buf) {

@@ -119,7 +119,15 @@ long register_inode(const inode_t * inode, inode_t ** inode_out) {
     // can't do a memcpy in case we found the old one, and it's mounted, or has a different instance count...
     new_inode->id = inode->id;
     new_inode->mode = inode->mode;
+    new_inode->nlink = inode->nlink;
+    new_inode->uid  = inode->uid;
+    new_inode->gid  = inode->gid;
+    new_inode->ctime = inode->ctime;
+    new_inode->mtime = inode->mtime;
+    new_inode->atime = inode->atime;
     new_inode->size = inode->size;
+    new_inode->io_block_size = inode->io_block_size;
+
     new_inode->backing_superblock = inode->backing_superblock;
     if (S_ISCHR(inode->mode) || S_ISBLK(inode->mode))
         new_inode->device = inode->device;

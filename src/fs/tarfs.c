@@ -25,7 +25,6 @@ const struct vfs_ops tar_op = {
     .seek = tarfs_seek,
     .pread = tarfs_pread,
     .readdir = tarfs_readdir,
-    .stat = tarfs_stat
 };
 
 static inline unsigned long long oct2int(const char * oct_data, size_t n) {
@@ -339,6 +338,13 @@ int tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode
 
     inode_t new_inode = {
         .id = (off_t)(uintptr_t)result,
+        .uid = result->uid,
+        .gid = result->gid,
+        .nlink = S_ISDIR(result->mode) ? 2 : 1,
+        .ctime = result->mtime,
+        .mtime = result->mtime,
+        .atime = result->mtime,
+        .io_block_size = sizeof(ustar_hdr),
         .backing_superblock = sb,
         .mode = result->mode,
         .size = result->size,
@@ -350,9 +356,7 @@ int tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode
         new_inode.pipe = ????
     }*/
 
-    long status = register_inode(&new_inode, inode_out);
-
-    return status;
+    return register_inode(&new_inode, inode_out);
 }
 
 ssize_t tarfs_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) {
@@ -398,10 +402,8 @@ ssize_t tarfs_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) 
 off_t tarfs_seek(file_descriptor_t * fd, off_t off, int whence) {
     kassert(fd);
     kassert(fd->inode);
-    kassert(fd->inode->id);
 
-    struct tar_node * node = (void*)(uintptr_t)fd->inode->id;
-    return generic_seek(fd, off, whence, node->size);
+    return generic_seek(fd, off, whence, fd->inode->size);
 }
 
 ssize_t tarfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_size, off_t offset) {
@@ -468,35 +470,4 @@ ssize_t tarfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_
     fd->off = offset;
     rw_spinlock_release_write(&fd->access_lock);
     return dent->d_reclen;
-}
-
-
-int tarfs_stat(inode_t * file, struct stat * buf) {
-    kassert(file->id);
-    kassert(file->backing_superblock);
-    kassert(file->backing_superblock->data);
-
-    superblock_t * sb = file->backing_superblock;
-
-    struct tar_node * root = sb->data;
-    struct tar_node * this = (void*)(uintptr_t)file->id;
-
-    if (!is_valid_node(root, this)) panic("Invalid this/root TARFS node combo!");
-
-    if (this->record_offset > INT32_MAX || this->size > INT32_MAX) return -EOVERFLOW;
-
-    *buf = (struct stat) {
-        .st_dev = sb->device,
-        .st_ino = this->record_offset,
-        .st_mode = this->mode,
-        .st_size = this->size,
-        .st_uid = this->uid,
-        .st_gid = this->gid,
-        .st_rdev = this->device,
-        .st_mtime = this->mtime,
-        .st_nlink = 1, // not correct, but whatevs
-        .st_blksize = sizeof(ustar_hdr),
-        .st_blocks = (this->size + sizeof(ustar_hdr) - 1) / sizeof(ustar_hdr),
-    };
-    return 0;
 }

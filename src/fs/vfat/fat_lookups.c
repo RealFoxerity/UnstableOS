@@ -200,6 +200,11 @@ int fat_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t
             root_dir = (inode_t){
                 .backing_superblock = sb,
                 .id = 0,
+                .io_block_size = fat_info->sectors_per_cluster * fat_info->bytes_per_sector,
+                .nlink = 1,
+                .ctime = 0,
+                .mtime = 0,
+                .atime = 0,
                 .mode = 0777 | S_IFDIR,
             };
             return register_inode(&root_dir, inode_out);
@@ -260,14 +265,8 @@ int fat_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t
 
         if (dir_off < 0)
             return (int)dir_off;
-
-        inode_t file = {
-            .backing_superblock = sb,
-            .id   = dir_off,
-            .size = dentry_buf.size,
-            .mode = 0777 | (dentry_buf.attr & FAT_DENTRY_ATTR_SUBDIR ? S_IFDIR : S_IFREG)
-        };
-        return register_inode(&file, inode_out);
+        ret = 0;
+        goto create_file;
     }
 
     if (!last_entry && fat_info->type == FAT32)
@@ -295,6 +294,11 @@ int fat_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t
         .backing_superblock = sb,
         .id   = ret,
         .size = dentry_buf.size,
+        .io_block_size = fat_info->sectors_per_cluster * fat_info->bytes_per_sector,
+        .nlink = dentry_buf.attr & FAT_DENTRY_ATTR_SUBDIR ? 3 : 1,
+        .ctime = fat_time_to_epoch(dentry_buf.ctime, dentry_buf.cdate),
+        .mtime = fat_time_to_epoch(dentry_buf.mtime, dentry_buf.mdate),
+        .atime = fat_time_to_epoch((struct fat_time){0}, dentry_buf.adate),
         .mode = 0777 | (dentry_buf.attr & FAT_DENTRY_ATTR_SUBDIR ? S_IFDIR : S_IFREG)
     };
     return register_inode(&file, inode_out);
