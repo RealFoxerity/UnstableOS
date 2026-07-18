@@ -134,6 +134,16 @@ int dup3(int oldfd, int newfd, int flag) {
     return ret;
 }
 
+
+int unlinkat(int fd, const char *path, int flag) {
+    int ret = syscall(SYSCALL_UNLINKAT, fd, path, flag);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return ret;
+}
+
 int unlink(const char *path) {
     return unlinkat(AT_FDCWD, path, 0);
 }
@@ -311,6 +321,27 @@ int ioctl(int fildes, unsigned long request, ...) {
 
 int ftruncate(int fildes, off_t length) {
     int ret = syscall(SYSCALL_TRUNC, fildes, length);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return ret;
+}
+
+int utimensat(int fd, const char *path, const struct timespec times[2], int flag) {
+    if (path == NULL) {
+        ___set_errno(EFAULT);
+        return -1;
+    }
+    int ret = syscall(SYSCALL_UNLINKAT, fd, path, times, flag);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return ret;
+}
+int futimens(int fd, const struct timespec times[2]) {
+    int ret = syscall(SYSCALL_UNLINKAT, fd, NULL, times, 0);
     if (ret < 0) {
         ___set_errno(-ret);
         return -1;

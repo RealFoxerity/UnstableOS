@@ -84,4 +84,9 @@ int fstatat(int fd, const char * __restrict path, struct stat * __restrict buf, 
 mode_t umask(mode_t mask);
 
 int mkdir(const char *path, mode_t mode);
+
+#define UTIME_NOW  (-1)
+#define UTIME_OMIT (-2)
+int futimens(int fd, const struct timespec times[2]);
+int utimensat(int fd, const char *path, const struct timespec times[2], int flag);
 #endif

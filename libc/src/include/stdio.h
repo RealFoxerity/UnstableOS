@@ -140,4 +140,6 @@ int vsscanf(const char * s, const char * format, va_list args);
 void perror(const char * s);
 
 int rename(const char *old, const char *new);
+int renameat(int oldfd, const char *old, int newfd, const char *new);
+
 #endif

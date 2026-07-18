@@ -122,7 +122,7 @@ long register_inode(const inode_t * inode, inode_t ** inode_out) {
     new_inode->nlink = inode->nlink;
     new_inode->uid  = inode->uid;
     new_inode->gid  = inode->gid;
-    new_inode->ctime = inode->ctime;
+    new_inode->btime = inode->btime;
     new_inode->mtime = inode->mtime;
     new_inode->atime = inode->atime;
     new_inode->size = inode->size;

@@ -9,6 +9,8 @@
 #include "block/memdisk.h"
 
 #include <stddef.h>
+
+#include "sys/times.h"
 spinlock_t kernel_fd_lock = {0};
 
 file_descriptor_t ** kernel_fds;
@@ -173,6 +175,14 @@ ssize_t pread_file(file_descriptor_t *file, void *buf, size_t count, off_t offse
     } else {
         ret = pread_dev(file, buf, count, offset);
     }
+
+    if (ret == 0) {
+        utimes_inode(file->inode,
+            (struct timespec){.tv_nsec = UTIME_NOW},
+            (struct timespec){.tv_nsec = UTIME_OMIT},
+            (struct timespec){.tv_nsec = UTIME_OMIT});
+    }
+
     rw_spinlock_release_read(&file->access_lock);
     return ret;
 }
@@ -251,6 +261,13 @@ ssize_t pwrite_file(file_descriptor_t *file, const void *buf, size_t count, off_
         }
     } else {
         ret = pwrite_dev(file, buf, count, offset);
+    }
+
+    if (ret == 0) {
+        utimes_inode(file->inode,
+            (struct timespec){.tv_nsec = UTIME_OMIT},
+            (struct timespec){.tv_nsec = UTIME_NOW},
+            (struct timespec){.tv_nsec = UTIME_NOW});
     }
 
     rw_spinlock_release_read(&file->access_lock);
@@ -391,7 +408,7 @@ int sys_trunc(int fd, off_t length) {
     if (ret == 0) {
         if (!S_ISREG(file->inode->mode))
             ret = -EINVAL;
-        else if (!(file->flags & O_WRONLY))
+        else if (!(file->flags & O_WRONLY) || !file->inode->backing_superblock || !file->inode->backing_superblock->funcs)
             ret = -EBADF;
         else if (file->inode->backing_superblock->mount_options & MOUNT_RDONLY)
             ret = -EROFS;
@@ -405,6 +422,12 @@ int sys_trunc(int fd, off_t length) {
         return ret;
 
     ret = file->inode->backing_superblock->funcs->trunc(file->inode, length);
+    if (ret == 0) {
+        utimes_inode(file->inode,
+            (struct timespec){.tv_nsec = UTIME_OMIT},
+            (struct timespec){.tv_nsec = UTIME_NOW},
+            (struct timespec){.tv_nsec = UTIME_NOW});
+    }
     close_file(file);
     return ret;
 }
@@ -514,6 +537,7 @@ int sys_dup3(int oldfd, int newfd, int flags) {
     return newfd;
 }
 
+// TODO: add mtime and ctime editing of parent
 int sys_unlinkat(int fd, const char *path, int flags) {
     // partially copied over sys_openat
     if ((fd < 0 || fd >= FD_LIMIT_PROCESS) && fd != AT_FDCWD) return -EBADF;
@@ -560,6 +584,12 @@ int sys_unlinkat(int fd, const char *path, int flags) {
         unlinked->backing_superblock->funcs->unlink)
     {
         ret = unlinked->backing_superblock->funcs->unlink(unlinked);
+        if (ret == 0) {
+            utimes_inode(unlinked,
+                (struct timespec){.tv_nsec = UTIME_OMIT},
+                (struct timespec){.tv_nsec = UTIME_OMIT},
+                (struct timespec){.tv_nsec = UTIME_NOW});
+        }
         close_inode(unlinked);
         return ret;
     }
@@ -579,7 +609,10 @@ ssize_t sys_readdir(int fd, struct dirent * dent, size_t dent_size) {
     spinlock_release(&current_process->lock);
 
     if (test != 0) return test;
-
+    if (!file->inode->backing_superblock || !file->inode->backing_superblock->funcs) {
+        close_file(file);
+        return -EBADF;
+    }
     if (!S_ISDIR(file->inode->mode)) {
         close_file(file);
         return -ENOTDIR;
@@ -598,6 +631,13 @@ ssize_t sys_readdir(int fd, struct dirent * dent, size_t dent_size) {
     // requiring us to lock writable inside readdir for setting offset
     //rw_spinlock_acquire_read(&file->access_lock);
     ssize_t ret = file->inode->backing_superblock->funcs->readdir(file, dent, dent_size, file->off);
+
+    if (ret == 0) {
+        utimes_inode(file->inode,
+            (struct timespec){.tv_nsec = UTIME_NOW},
+            (struct timespec){.tv_nsec = UTIME_OMIT},
+            (struct timespec){.tv_nsec = UTIME_OMIT});
+    }
     //rw_spinlock_release_read(&file->access_lock);
 
     close_file(file);
@@ -607,10 +647,9 @@ ssize_t sys_readdir(int fd, struct dirent * dent, size_t dent_size) {
 int stat_inode(inode_t * inode, struct stat * buf) {
     kassert(buf);
     kassert(inode);
-    kassert(inode->backing_superblock);
 
     *buf = (struct stat) {
-        .st_dev = inode->backing_superblock->device,
+        .st_dev = inode->backing_superblock ? inode->backing_superblock->device : 0,
         .st_ino = inode->id,
         .st_mode = inode->mode,
         .st_nlink = inode->nlink,
@@ -793,4 +832,105 @@ off_t generic_seek(file_descriptor_t *file, off_t off, int whence, off_t max_off
         default:
             return -EINVAL;
     }
+}
+
+// TODO: higher precision
+int utimes_inode(inode_t * inode, const struct timespec atime, const struct timespec mtime, const struct timespec ctime) {
+    // to prevent races of the max/min allowed limits on the fs and userspace
+    kassert(inode);
+    if (!inode->backing_superblock ||
+        !inode->backing_superblock->funcs)
+        return -EBADF;
+    if (inode->backing_superblock->mount_options & O_RDONLY)
+        return -EROFS;
+    if (!inode->backing_superblock->funcs->utimes_supported)
+        return -EINVAL;
+
+    if (atime.tv_nsec == UTIME_OMIT && mtime.tv_nsec == UTIME_OMIT)
+        return 0;
+
+    if (atime.tv_nsec != UTIME_NOW && atime.tv_nsec != UTIME_OMIT && (atime.tv_nsec < 0 || atime.tv_nsec > 1000000000))
+        return -EINVAL;
+    if (mtime.tv_nsec != UTIME_NOW && mtime.tv_nsec != UTIME_OMIT && (mtime.tv_nsec < 0 || mtime.tv_nsec > 1000000000))
+        return -EINVAL;
+    if (ctime.tv_nsec != UTIME_NOW && ctime.tv_nsec != UTIME_OMIT && (ctime.tv_nsec < 0 || ctime.tv_nsec > 1000000000))
+        return -EINVAL;
+    time_t target_asec = 0;
+    time_t target_msec = 0;
+    time_t target_csec = 0;
+    if (atime.tv_nsec != UTIME_OMIT) {
+        if (atime.tv_nsec == UTIME_NOW)
+            target_asec = system_time_sec;
+        else
+            target_asec = atime.tv_sec;
+
+        if (target_asec > inode->backing_superblock->funcs->max_atime ||
+            target_asec < inode->backing_superblock->funcs->min_atime)
+            return -EINVAL;
+    }
+    if (mtime.tv_nsec != UTIME_OMIT) {
+        if (mtime.tv_nsec == UTIME_NOW)
+            target_msec = system_time_sec;
+        else
+            target_msec = mtime.tv_sec;
+        if (target_msec > inode->backing_superblock->funcs->max_mtime ||
+            target_msec < inode->backing_superblock->funcs->min_mtime)
+            return -EINVAL;
+    }
+    if (ctime.tv_nsec != UTIME_OMIT) {
+        if (ctime.tv_nsec == UTIME_NOW)
+            target_csec = system_time_sec;
+        else
+            target_csec = ctime.tv_sec;
+        if (target_csec > inode->backing_superblock->funcs->max_ctime ||
+            target_csec < inode->backing_superblock->funcs->min_ctime)
+            return -EINVAL;
+    }
+
+
+    spinlock_acquire(&inode->lock);
+    if (atime.tv_nsec != UTIME_OMIT)
+        inode->atime = target_asec;
+    if (mtime.tv_nsec != UTIME_OMIT)
+        inode->mtime = target_msec;
+    if (ctime.tv_nsec != UTIME_OMIT)
+        inode->ctime = target_csec;
+    spinlock_release(&inode->lock);
+    return 0;
+}
+
+int sys_utimensat(int fd, const char *path, const struct timespec times[2], int flag) {
+    inode_t * base = NULL;
+    inode_t * new = NULL;
+
+    if (path == NULL && fd == AT_FDCWD)
+        return -EBADF;
+
+    if (fd == AT_FDCWD)
+        base = (inode_t*)AT_FDCWD;
+    else {
+        if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
+        spinlock_acquire(&current_process->lock);
+        int test = check_file(current_process->fds[fd]);
+        file_descriptor_t * file = current_process->fds[fd];
+        if (test == 0) {
+            base = file->inode;
+            __atomic_add_fetch(&base->instances, 1, __ATOMIC_ACQUIRE);
+        }
+        spinlock_release(&current_process->lock);
+        if (test < 0) return test;
+    }
+
+    int ret;
+    if (path) {
+        ret = openat_inode(base, path, O_SEARCH, 0, &new, 0);
+        if (base != (inode_t*)AT_FDCWD)
+            close_inode(base);
+        if (ret < 0) return ret;
+    } else
+        new = base;
+
+    ret = utimes_inode(new, times[0], times[1], (struct timespec){.tv_nsec = UTIME_OMIT});
+    close_inode(new);
+    return ret;
 }

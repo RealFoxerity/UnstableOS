@@ -43,6 +43,7 @@ int dup(int fd);
 int dup2(int oldfd, int newfd);
 int dup3(int oldfd, int newfd, int flag);
 
+int unlinkat(int fd, const char *path, int flag);
 int unlink(const char *path);
 int rmdir(const char *path);
 

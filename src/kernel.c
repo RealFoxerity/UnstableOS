@@ -69,7 +69,7 @@ void panic(char * reason) {
     asm volatile ("sti");
 
     for (int i = 0; i < INODE_LIMIT_KERNEL; i++) {
-        if (kernel_inodes[i]->instances) {
+        if (kernel_inodes[i] && kernel_inodes[i]->instances) {
             if (kernel_inodes[i]->backing_superblock &&
                 kernel_inodes[i]->backing_superblock->funcs &&
                 kernel_inodes[i]->backing_superblock->funcs->release)

@@ -23,7 +23,7 @@ so
 #include <time.h>
 struct vfs_ops {
     // implementations need to set the new file->size on change
-    // implementations need to set the new ctime on creat()
+    // implementations need to set the new btime on creat()
     // mtime and atime are handled by the vfs layer
 
     int (*fs_init)   (superblock_t * sb); // called on mount, 0 = success

@@ -16,6 +16,7 @@ enum syscalls {
 
     //SYSCALL_MKDIR, handled by open with O_CREAT | O_DIRECTORY
     //SYSCALL_CREATE, handled by open with O_CREAT
+    SYSCALL_UTIMESAT, // NULL path means act on fd
     SYSCALL_RENAMEAT,
     SYSCALL_UNLINKAT,
     SYSCALL_UMASK,
