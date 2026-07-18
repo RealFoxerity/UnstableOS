@@ -22,6 +22,10 @@ so
 #include <dirent.h>
 #include <time.h>
 struct vfs_ops {
+    // implementations need to set the new file->size on change
+    // implementations need to set the new ctime on creat()
+    // mtime and atime are handled by the vfs layer
+
     int (*fs_init)   (superblock_t * sb); // called on mount, 0 = success
     int (*fs_deinit) (superblock_t * sb); // called on umount, 0 = success, TODO: error handling in umount
 
@@ -33,10 +37,12 @@ struct vfs_ops {
     // in the case last/. returns the last pointer without altering anything
     // if last == NULL, last is assumed to be mounted /
     // implementations should accept "." to mean the current directory
+    // implementations need to fill the inode_t struct with enough info for a full stat()
     int (*lookup)   (superblock_t * sb, inode_t * last, const char * pathname, inode_t ** inode_out);
-    int (*release)   (inode_t *); // closing of the very last instance of an inode
 
-    int (*stat)      (inode_t * file, struct stat * buf);
+    // closing of the very last instance of an inode
+    // also should sync (if supported) timestamps, mode, and uid/gid
+    int (*release)   (inode_t *);
 
     ssize_t (*pread) (file_descriptor_t * fd, void * buf, size_t n, off_t offset);
     ssize_t (*pwrite)(file_descriptor_t * fd, const void * buf, size_t n, off_t offset);
@@ -52,8 +58,6 @@ struct vfs_ops {
     int (*creat)     (inode_t * parent, const char * pathname, mode_t mode, inode_t ** inode_out);
     int (*mkdir)     (inode_t * parent, const char * pathname, mode_t mode, inode_t ** inode_out);
 
-    int (*utimes)    (inode_t * file, const struct timespec times[2]);
-
     // if name == NULL, then new is the target, otherwise new is the parent directory
     // implementations should double-check that no race leading to name existing happened
     int (*rename)    (inode_t * old, inode_t * new, const char * name);
@@ -66,6 +70,19 @@ struct vfs_ops {
     //off_t(*telldir)(file_descriptor_t * fd); // handled via normal seek()
     //off_t(*seekdir)(file_descriptor_t * fd);
     //void(*rewinddir)(file_descriptor_t * fd);
+
+    // the following are just 0/1 if supported, the vfs layer sets stuff in the inode_t struct, see release()
+    char utimes_supported;
+    char chmod_supported;
+    char chown_supported;
+    char chgrp_supported;
+
+    // constants for chown/chgrp
+    uid_t uid_max;
+    gid_t gid_max;
+
+    time_t max_ctime, max_mtime, max_atime;
+    time_t min_ctime, min_mtime, min_atime;
 };
 
 #include <UnstableOS/mount.h>

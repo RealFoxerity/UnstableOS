@@ -22,6 +22,13 @@ struct inode_t {
 
     mode_t mode; // __I*
 
+    uid_t uid;
+    gid_t gid;
+
+    nlink_t nlink;
+
+    time_t ctime, mtime, atime;
+
     size_t instances; // how many descriptors (and therefore processes) use this inode, 0 is considered an unused inode
 
     off_t size;

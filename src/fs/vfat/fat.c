@@ -162,50 +162,6 @@ int fat_deinit(superblock_t *sb) {
     return 0;
 }
 
-int fat_stat(inode_t * file, struct stat * buf) {
-    kassert(file);
-    if (!buf)
-        return -EFAULT;
-
-    kassert(file->backing_superblock->data);
-    struct fat_info * fat_info = file->backing_superblock->data;
-
-    sigset_t mask = PAUSE_SIGNALS();
-    if (current_thread->sa_to_be_handled) {
-        RESTORE_SIGNALS(mask);
-        return -EINTR;
-    }
-
-    *buf = (struct stat) {
-        .st_dev = file->backing_superblock->device,
-        .st_ino = file->id,
-        .st_mode = file->mode,
-        .st_nlink =  1,
-        .st_blksize = fat_info->bytes_per_sector * fat_info->sectors_per_cluster
-    };
-    if (file->id != 0) {
-        struct fat_dir_entry dentry_buf = {0};
-        // operations like these don't require fs locking
-        if (pread_file(file->backing_superblock->fd,
-            &dentry_buf, sizeof(dentry_buf),
-            file->id) != sizeof(dentry_buf)
-        ) {
-            RESTORE_SIGNALS(mask);
-            return -EIO;
-        }
-        buf->st_size = dentry_buf.size;
-
-        buf->st_ctime = fat_time_to_epoch(dentry_buf.ctime, dentry_buf.cdate);
-        buf->st_ctime += dentry_buf.ctime_10ms/100;
-
-        buf->st_mtime = fat_time_to_epoch(dentry_buf.mtime, dentry_buf.mdate);
-
-        buf->st_atime = fat_time_to_epoch((struct fat_time){0}, dentry_buf.adate);
-    }
-    RESTORE_SIGNALS(mask);
-    return 0;
-}
-
 ssize_t fat_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_size, off_t offset) {
     kassert(fd);
     kassert(fd->inode);
@@ -384,23 +340,8 @@ ssize_t fat_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_si
 off_t fat_seek(file_descriptor_t * fd, off_t off, int whence) {
     kassert(fd);
     kassert(fd->inode);
-    kassert(fd->inode->backing_superblock);
 
-    struct fat_dir_entry dentry_buf = {0};
-    sigset_t mask = PAUSE_SIGNALS();
-    if (current_thread->sa_to_be_handled) {
-        RESTORE_SIGNALS(mask);
-        return -EINTR;
-    }
-    if (pread_file(fd->inode->backing_superblock->fd,
-        &dentry_buf, sizeof(dentry_buf),
-        fd->inode->id) != sizeof(dentry_buf)
-    ) {
-        RESTORE_SIGNALS(mask);
-        return -EIO;
-    }
-    RESTORE_SIGNALS(mask);
-    return generic_seek(fd, off, whence, dentry_buf.size);
+    return generic_seek(fd, off, whence, fd->inode->size);
 }
 
 ssize_t fat_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) {
@@ -804,6 +745,7 @@ ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t off
                 return -EIO;
             }
         }
+        fd->inode->size = offset + n;
     }
 
     RESTORE_SIGNALS(mask);
@@ -1280,6 +1222,11 @@ static int __fat_creat(inode_t * parent, const char * pathname, mode_t mode, ino
     inode_t new = {
         .id = free_dentry,
         .backing_superblock = sb,
+        .nlink = folder ? 3 : 1,
+        .ctime = system_time_sec,
+        .mtime = system_time_sec,
+        .atime = system_time_sec,
+        .io_block_size = fi->sectors_per_cluster * fi->bytes_per_sector,
         .mode = 0777 | (folder ? S_IFDIR : S_IFREG),
     };
     return register_inode(&new, inode_out);
@@ -1429,7 +1376,8 @@ int fat_trunc(inode_t * file, off_t length) {
     rw_spinlock_acquire_write(&fi->fs_lock);
 
     int ret = fat_change_file_size(file->id, (size_t)length, SIZE_MAX, sb);
-
+    if (ret == 0)
+        file->size = length;
     rw_spinlock_release_write(&fi->fs_lock);
     RESTORE_SIGNALS(mask);
     return ret;
@@ -1439,7 +1387,6 @@ const struct vfs_ops fat_op = {
     .fs_init   = fat_init,
     .fs_deinit = fat_deinit,
     .lookup    = fat_lookup,
-    .stat      = fat_stat,
     .readdir   = fat_readdir,
     .seek      = fat_seek,
     .pread     = fat_pread,

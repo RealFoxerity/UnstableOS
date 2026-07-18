@@ -148,7 +148,6 @@ static struct devfs_node devfs_files[] = {
 const struct vfs_ops devfs_op = {
     .lookup = devfs_lookup,
     .seek = devfs_seek,
-    .stat = devfs_stat,
     .readdir = devfs_readdir
 };
 
@@ -172,12 +171,13 @@ int devfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode
     if (devfs_id == 0 && !(pathlen == 1 && pathname[0] == '.')) return -ENOENT;
 
     long status = register_inode(&(inode_t) {
-           .id                 = devfs_id,
-           .backing_superblock = sb,
-           .mode               = devfs_id == 0 ?
-                                     S_IFDIR | S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH :
-                                     devfs_files[devfs_id - 2].node_info.st_mode,
-           .device = devfs_id == 0 ? 0 : devfs_files[devfs_id - 2].node_info.st_rdev
+         .id                 = devfs_id,
+         .backing_superblock = sb,
+         .mode               = devfs_id == 0
+                                ? S_IFDIR | S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH
+                                : devfs_files[devfs_id - 2].node_info.st_mode,
+         .device = devfs_id == 0 ? 0 : devfs_files[devfs_id - 2].node_info.st_rdev,
+         .nlink  = devfs_id == 0 ? 2 : 1,
        }, inode_out);
 
     return status;
@@ -234,24 +234,4 @@ ssize_t devfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_
     fd->off = offset;
     rw_spinlock_release_write(&fd->access_lock);
     return dent->d_reclen;
-}
-int devfs_stat(inode_t * file, struct stat * buf) {
-    kassert(file);
-
-    if ((size_t)file->id > sizeof(devfs_files)/sizeof(struct devfs_node) + 2) return -EINVAL;
-
-    switch ((size_t)file->id) {
-        case 0: // the dev folder
-            *buf = (struct stat) {
-                .st_mode = S_IFDIR | S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH
-            };
-            break;
-        case 1: // stat for "..", which doesn't make sense
-            return -EINVAL;
-        default:
-            *buf = devfs_files[(size_t)file->id - 2].node_info;
-    }
-    buf->st_dev = file->backing_superblock->device;
-    buf->st_blksize = file->io_block_size;
-    return 0;
 }
