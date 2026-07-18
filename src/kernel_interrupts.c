@@ -668,7 +668,10 @@ __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_pri_ata(st
 }
 
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_sec_ata(struct interr_frame * interrupt_frame) {
-    if (pic_is_spurious(PIC_INTERR_SECONDARY_ATA)) return;
+    if (pic_is_spurious(PIC_INTERR_SECONDARY_ATA)) {
+        pic_send_eoi(PIC_INTERR_CASCADE);
+        return;
+    }
 
     ata_irq_handler(PIC_INTERR_SECONDARY_ATA);
     pic_send_eoi(PIC_INTERR_SECONDARY_ATA);

@@ -56,9 +56,27 @@ void panic(char * reason) {
     kprintf("Reason: %s\n", reason); // SGR reset for serial consoles
     if (early_init) goto hlt;
 
-    kprintf("Trying to sync drive caches...\n");
-    enable_interrupts();
+    kprintf("Trying to close all files and sync drive caches...\n");
+    // in case any function does EINTR
+    current_thread->sa_to_be_handled = 0;
+
+    // enabling only the interrupts we need for syncing
+    pic_unmask_irq(PIC_INTERR_CASCADE);
+    pic_unmask_irq(PIC_INTERR_CMOS_RTC);
+    pic_unmask_irq(PIC_INTERR_PRIMARY_ATA);
+    pic_unmask_irq(PIC_INTERR_SECONDARY_ATA);
     pic_send_eoi_all(); // in case we were mid interrupt
+    asm volatile ("sti");
+
+    for (int i = 0; i < INODE_LIMIT_KERNEL; i++) {
+        if (kernel_inodes[i]->instances) {
+            if (kernel_inodes[i]->backing_superblock &&
+                kernel_inodes[i]->backing_superblock->funcs &&
+                kernel_inodes[i]->backing_superblock->funcs->release)
+                kernel_inodes[i]->backing_superblock->funcs->release(kernel_inodes[i]);
+        }
+    }
+
     extern void hd_cache_flush();
     hd_cache_flush();
     kprintf("Synced; safe to reboot\n");

@@ -397,6 +397,10 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
         }
         if (last_fragment) {
             close_inode(prev);
+            if (S_ISREG(new->mode) && flags & O_TRUNC && flags & O_WRONLY) {
+                if (new->backing_superblock->funcs->trunc)
+                    new->backing_superblock->funcs->trunc(new, 0);
+            }
             break;
         }
         close_inode(prev);

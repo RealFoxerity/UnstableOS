@@ -141,6 +141,12 @@ void rw_spinlock_release_write(rw_spinlock_t * lock) {
     spinlock_release(&lock->wlock);
 }
 
+void rw_spinlock_downgrade(rw_spinlock_t * lock) {
+    if (!lock) panic("Tried to lock a NULL rw spinlock");
+    __atomic_add_fetch(&lock->value, 1, __ATOMIC_ACQUIRE);
+    CRIT_SEC_END
+}
+
 void kernel_sem_post(process_t * calling_process, int sem_idx) {
     kassert(calling_process->semaphores[sem_idx]);
 
