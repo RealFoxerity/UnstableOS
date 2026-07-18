@@ -64,7 +64,5 @@ int mkdirat(int fd, const char *path, mode_t mode);
 #define FD_CLOFORK O_CLOFORK
 
 int fcntl(int fildes, int cmd, ...);
-int unlinkat(int fd, const char *path, int flag);
-int renameat(int oldfd, const char *old, int newfd, const char *new);
 
 #endif

@@ -27,7 +27,7 @@ struct inode_t {
 
     nlink_t nlink;
 
-    time_t ctime, mtime, atime;
+    time_t btime, ctime, mtime, atime;
 
     size_t instances; // how many descriptors (and therefore processes) use this inode, 0 is considered an unused inode
 
@@ -204,4 +204,8 @@ long sys_mount(const char * dev_path, const char * mount_path, unsigned char typ
 long sys_umount(const char * mount_path);
 
 off_t generic_seek(file_descriptor_t *file, off_t off, int whence, off_t max_off);
+
+int utimes_inode(inode_t * inode, struct timespec atime, struct timespec mtime, struct timespec ctime);
+int sys_utimensat(int fd, const char *path, const struct timespec times[2], int flag);
+
 #endif

@@ -926,6 +926,8 @@ int fat_unlink(inode_t * file) {
     }
     rw_spinlock_acquire_write(&fi->fs_lock);
     int ret = __fat_unlink(file);
+    if (ret == 0)
+        file->nlink = 0;
     rw_spinlock_release_write(&fi->fs_lock);
     RESTORE_SIGNALS(mask);
     return ret;
@@ -1222,7 +1224,8 @@ static int __fat_creat(inode_t * parent, const char * pathname, mode_t mode, ino
     inode_t new = {
         .id = free_dentry,
         .backing_superblock = sb,
-        .nlink = folder ? 3 : 1,
+        .nlink = folder ? 2 : 1,
+        .btime = system_time_sec,
         .ctime = system_time_sec,
         .mtime = system_time_sec,
         .atime = system_time_sec,
@@ -1383,6 +1386,55 @@ int fat_trunc(inode_t * file, off_t length) {
     return ret;
 }
 
+int fat_release(inode_t * file) {
+    kassert(file);
+    kassert(file->backing_superblock);
+    kassert(file->backing_superblock->data);
+    superblock_t * sb = file->backing_superblock;
+    struct fat_info * fi = sb->data;
+    if (file->id == 0) return 0;
+    if (file->nlink == 0) return 0; // nothing to sync
+
+    int ret = 0;
+
+    rw_spinlock_acquire_write(&fi->fs_lock);
+    sigset_t mask = PAUSE_SIGNALS();
+    int old_sig = current_thread->sa_to_be_handled;
+    current_thread->sa_to_be_handled = 0;
+
+    struct fat_dir_entry dentry_buf = {0};
+
+    if (pread_file(sb->fd,
+        &dentry_buf, sizeof(dentry_buf),
+        file->id) != sizeof(dentry_buf)
+    ) {
+        ret = -EIO;
+        goto err;
+    }
+
+    dentry_buf.size = (size_t)file->size;
+    struct fat_date fd;
+    struct fat_time ft;
+    fat_epoch_to_time(file->mtime, &ft, &fd);
+    dentry_buf.mtime = ft;
+    dentry_buf.mdate = fd;
+    fat_epoch_to_time(file->atime, &ft, &fd);
+    dentry_buf.adate = fd;
+
+    if (pwrite_file(sb->fd,
+        &dentry_buf, sizeof(dentry_buf),
+        file->id) != sizeof(dentry_buf)
+    ) {
+        ret = -EIO;
+    }
+
+    err:
+    current_thread->sa_to_be_handled = old_sig;
+    RESTORE_SIGNALS(mask);
+    rw_spinlock_release_write(&fi->fs_lock);
+    return ret;
+}
+
 const struct vfs_ops fat_op = {
     .fs_init   = fat_init,
     .fs_deinit = fat_deinit,
@@ -1396,4 +1448,14 @@ const struct vfs_ops fat_op = {
     .mkdir     = fat_mkdir,
     .rename    = fat_rename,
     .trunc     = fat_trunc,
+    .release   = fat_release,
+
+    .utimes_supported = 1,
+    .min_atime = 315532800, // 01/01/1980 00:00:00
+    .min_mtime = 315532800,
+    .min_ctime = 315532800,
+
+    .max_atime = 4354732800, // 31/12/2107 00:00:00
+    .max_mtime = 4354819199, // 31/12/2107 23:59:59
+    .max_ctime = 4354819199,
 };

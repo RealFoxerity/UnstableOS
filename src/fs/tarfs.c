@@ -341,6 +341,7 @@ int tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode
         .uid = result->uid,
         .gid = result->gid,
         .nlink = S_ISDIR(result->mode) ? 2 : 1,
+        .btime = result->mtime,
         .ctime = result->mtime,
         .mtime = result->mtime,
         .atime = result->mtime,

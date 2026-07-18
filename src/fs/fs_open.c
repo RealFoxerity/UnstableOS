@@ -306,6 +306,13 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
                 else
                     status = sb->funcs->creat(prev, final_path, mode, &new);
 
+                if (status == 0) {
+                    utimes_inode(prev,
+                        (struct timespec){.tv_nsec = UTIME_OMIT},
+                        (struct timespec){.tv_nsec = UTIME_NOW},
+                        (struct timespec){.tv_nsec = UTIME_NOW});
+                }
+
                 close_inode(prev);
                 if (status < 0) {
                     ret = status;
@@ -398,8 +405,21 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
         if (last_fragment) {
             close_inode(prev);
             if (S_ISREG(new->mode) && flags & O_TRUNC && flags & O_WRONLY) {
-                if (new->backing_superblock->funcs->trunc)
-                    new->backing_superblock->funcs->trunc(new, 0);
+                if (new->backing_superblock->funcs->trunc) {
+                    status = new->backing_superblock->funcs->trunc(new, 0);
+                    if (status != 0) {
+                        ret = status;
+                        close_inode(prev);
+                        close_inode(new);
+                        goto err;
+                    }
+                    if (status == 0) {
+                        utimes_inode(new,
+                            (struct timespec){.tv_nsec = UTIME_OMIT},
+                            (struct timespec){.tv_nsec = UTIME_NOW},
+                            (struct timespec){.tv_nsec = UTIME_NOW});
+                    }
+                }
             }
             break;
         }
@@ -654,6 +674,11 @@ int sys_renameat(int oldfd, const char * old, int newfd, const char * new) {
             close_inode(src);
             goto err;
         }
+        if (wrdir && !last_fragment) {
+            close_inode(new_parent);
+            __atomic_add_fetch(&curr->instances, 1, __ATOMIC_ACQUIRE);
+            new_parent = curr;
+        }
         if (last_fragment)
             have_target = 1;
         prev = curr;
@@ -679,6 +704,13 @@ int sys_renameat(int oldfd, const char * old, int newfd, const char * new) {
 
     *strchrnul(path, '/') = '\0'; // clean up trailing slash
     ret = src->backing_superblock->funcs->rename(src, prev, have_target ? NULL : path);
+
+    if (ret == 0) {
+        utimes_inode(new_parent,
+            (struct timespec){.tv_nsec = UTIME_OMIT},
+            (struct timespec){.tv_nsec = UTIME_NOW},
+            (struct timespec){.tv_nsec = UTIME_NOW});
+    }
 
     close_inode(src);
     close_inode(prev);

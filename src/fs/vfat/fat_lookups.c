@@ -202,7 +202,7 @@ int fat_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t
                 .id = 0,
                 .io_block_size = fat_info->sectors_per_cluster * fat_info->bytes_per_sector,
                 .nlink = 1,
-                .ctime = 0,
+                .btime = 0,
                 .mtime = 0,
                 .atime = 0,
                 .mode = 0777 | S_IFDIR,
@@ -296,7 +296,8 @@ int fat_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t
         .size = dentry_buf.size,
         .io_block_size = fat_info->sectors_per_cluster * fat_info->bytes_per_sector,
         .nlink = dentry_buf.attr & FAT_DENTRY_ATTR_SUBDIR ? 3 : 1,
-        .ctime = fat_time_to_epoch(dentry_buf.ctime, dentry_buf.cdate),
+        .btime = fat_time_to_epoch(dentry_buf.ctime, dentry_buf.cdate),
+        .ctime = fat_time_to_epoch(dentry_buf.mtime, dentry_buf.mdate),
         .mtime = fat_time_to_epoch(dentry_buf.mtime, dentry_buf.mdate),
         .atime = fat_time_to_epoch((struct fat_time){0}, dentry_buf.adate),
         .mode = 0777 | (dentry_buf.attr & FAT_DENTRY_ATTR_SUBDIR ? S_IFDIR : S_IFREG)

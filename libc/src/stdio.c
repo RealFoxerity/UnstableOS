@@ -52,3 +52,11 @@ int rename(const char *old, const char *new) {
     }
     return ret;
 }
+int renameat(int oldfd, const char *old, int newfd, const char *new) {
+    int ret = syscall(SYSCALL_RENAMEAT, oldfd, old, newfd, new);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return ret;
+}
