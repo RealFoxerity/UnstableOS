@@ -24,6 +24,7 @@ enum syscalls {
     SYSCALL_WRITE,
     SYSCALL_PREAD,
     SYSCALL_PWRITE,
+    SYSCALL_TRUNC, // fd, off * off; needed because 64 bit offsets
 
     SYSCALL_SEEK, // fd, const off_t * off, int whence, off_t * off_out; needed because 64 bit offsets
     SYSCALL_SYNC,

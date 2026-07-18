@@ -543,6 +543,175 @@ ssize_t fat_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) {
     return read_bytes;
 }
 
+// returns cluster needed for target_offset
+static ssize_t fat_change_file_size(off_t dentry, size_t target_size, size_t target_offset, superblock_t * sb) {
+    kassert(target_offset < target_size || target_size == 0 || target_offset == SIZE_MAX);
+    struct fat_info * fi = sb->data;
+
+    size_t cluster_limit = fi->type == FAT12 ?
+        FAT_CLUSTER_END_FAT12 :
+        fi->type == FAT16 ?
+            FAT_CLUSTER_END_FAT16 :
+            FAT_CLUSTER_END_FAT32;
+
+    struct fat_dir_entry dentry_buf = {0};
+    if (pread_file(sb->fd,
+        &dentry_buf, sizeof(dentry_buf),
+        dentry) != sizeof(dentry_buf)
+    ) {
+        return -EIO;
+    }
+
+    size_t start_cl = dentry_buf.start_cluster;
+    if (fi->type == FAT32)
+        start_cl |= dentry_buf.fat32_cluster_hi << 16;
+
+    size_t bytes_per_cluster = fi->sectors_per_cluster * fi->bytes_per_sector;
+    size_t skipped_clusters = target_offset / bytes_per_cluster;
+
+    if (target_size == 0) {
+        int ret = fat_free_chain(start_cl, sb);
+        if (ret < 0)
+            return ret;
+        dentry_buf.start_cluster = 0;
+        if (fi->type == FAT32)
+            dentry_buf.fat32_cluster_hi = 0;
+        dentry_buf.size = 0;
+
+        if (pwrite_file(sb->fd,
+            &dentry_buf, sizeof(dentry_buf),
+            dentry) != sizeof(dentry_buf)
+        ) {
+            return -EIO;
+        }
+        return 0;
+    }
+    if (target_size < dentry_buf.size) {
+        dentry_buf.size = target_size;
+        if (pwrite_file(sb->fd,
+            &dentry_buf, sizeof(dentry_buf),
+            dentry) != sizeof(dentry_buf)
+        ) {
+            return -EIO;
+        }
+
+        size_t remaining_clusters = (target_size + bytes_per_cluster - 1) / bytes_per_cluster;
+        size_t curr_cl = start_cl;
+        size_t last_cl = curr_cl;
+        for (int i = 0; i < remaining_clusters - 1; i++) {
+            if (curr_cl >= cluster_limit)
+                return -EIO;
+            if (i == skipped_clusters)
+                start_cl = curr_cl;
+            last_cl = curr_cl;
+            curr_cl = fat_next_in_chain(curr_cl, sb);
+            if (curr_cl < 2 || curr_cl == -1)
+                return -EIO;
+        }
+
+        if (curr_cl >= cluster_limit)
+            return (ssize_t)last_cl; // already correct size
+        if (fat_end_chain(curr_cl, sb))
+            return -EIO;
+
+        if (skipped_clusters == remaining_clusters - 1)
+            start_cl = curr_cl;
+
+        return (ssize_t)start_cl;
+    }
+
+    if (target_offset == SIZE_MAX) // not possible to reach, effectively zero out all
+        skipped_clusters = SIZE_MAX;
+
+    size_t total_clusters = (target_size + bytes_per_cluster - 1) / bytes_per_cluster;
+
+
+    size_t curr_cl = start_cl;
+    if (curr_cl == 0) {
+        size_t new_cl = fat_get_free_cluster(sb);
+        if (new_cl == -1)
+            return -EIO;
+        if (new_cl == 0)
+            return -ENOSPC;
+
+        // should be caught by hd cache, gets the fs consistent quicker
+        if (fat_set_chain(new_cl, 0xFFFFFFFF, sb) != 0)
+            return -EIO;
+
+        dentry_buf.start_cluster = new_cl & 0xFFFF;
+        if (fi->type == FAT32)
+            dentry_buf.fat32_cluster_hi = new_cl >> 16;
+
+        curr_cl = new_cl;
+    }
+
+    for (size_t i = 0; i < total_clusters; i++) {
+        // zero out unwritten space
+        if (i >= dentry_buf.size / bytes_per_cluster && i < skipped_clusters) {
+            off_t zoff = (curr_cl - 2) * bytes_per_cluster + fi->data_sector_start * fi->bytes_per_sector;
+            size_t towrite = bytes_per_cluster;
+            if (i == dentry_buf.size / bytes_per_cluster) {
+                // have to zero out from size to end
+                zoff = dentry_buf.size % bytes_per_cluster;
+                towrite = bytes_per_cluster - zoff;
+            }
+            while (towrite > 512) {
+                if (pwrite_file(sb->fd,
+                    zero_sector, 512,
+                    zoff) != 512
+                ) {
+                    return -EIO;
+                }
+                zoff += 512;
+                towrite -= 512;
+            }
+            if (pwrite_file(sb->fd,
+                zero_sector, towrite,
+                zoff) != towrite
+            ) {
+                return -EIO;
+            }
+        }
+        if (i == skipped_clusters)
+            start_cl = curr_cl;
+        size_t new_cl = fat_next_in_chain(curr_cl, sb);
+        if (new_cl == -1 || new_cl < 2) {
+            return -EIO;
+        }
+        if (new_cl >= cluster_limit) {
+            new_cl = fat_get_free_cluster(sb);
+            if (new_cl == -1) {
+                return -EIO;
+            }
+            if (new_cl == 0) {
+                return -ENOSPC;
+            }
+
+            if (fat_set_chain(curr_cl, new_cl, sb) != 0) {
+                return -EIO;
+            }
+            // should be caught by hd cache, gets the fs consistent quicker
+            if (fat_set_chain(new_cl, 0xFFFFFFFF, sb) != 0) {
+                rw_spinlock_release_write(&fi->fs_lock);
+                dkprintf("Error: I/O error on writing cluster chain terminator, locking fs as read-only!\n"
+                                "\tRun fsck/chkdsk as soon as possible and do not mount as read-write!\n");
+                sb->mount_options |= MOUNT_RDONLY;
+                return -EIO;
+            }
+        }
+        curr_cl = new_cl;
+    }
+    dentry_buf.size = target_size;
+
+    if (pwrite_file(sb->fd,
+        &dentry_buf, sizeof(dentry_buf),
+        dentry) != sizeof(dentry_buf)
+    ) {
+        return -EIO;
+    }
+    return (ssize_t)start_cl;
+}
+
 ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t offset) {
     kassert(fd);
     kassert(fd->inode);
@@ -607,130 +776,19 @@ ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t off
 
     if (offset + n > dentry_buf.size) {
         // have to allocate new space, fat doesn't support sparse files
-        size_t total_clusters = (offset + n + bytes_per_cluster - 1) / bytes_per_cluster;
 
-        size_t curr_cl = start_cl;
-        if (curr_cl == 0) {
-            size_t new_cl = fat_get_free_cluster(sb);
-            if (new_cl == -1) {
-                rw_spinlock_release_write(&fi->fs_lock);
-                RESTORE_SIGNALS(mask);
-
-                return -EIO;
-            }
-            if (new_cl == 0) {
-                rw_spinlock_release_write(&fi->fs_lock);
-                RESTORE_SIGNALS(mask);
-
-                return -ENOSPC;
-            }
-
-            // should be caught by hd cache, gets the fs consistent quicker
-            if (fat_set_chain(new_cl, 0xFFFFFFFF, sb) != 0) {
-                rw_spinlock_release_write(&fi->fs_lock);
-                RESTORE_SIGNALS(mask);
-
-                return -EIO;
-            }
-            dentry_buf.start_cluster = new_cl & 0xFFFF;
-            if (fi->type == FAT32)
-                dentry_buf.fat32_cluster_hi = new_cl >> 16;
-
-            curr_cl = new_cl;
+        ssize_t ret = fat_change_file_size(fd->inode->id, offset + n, offset, sb);
+        if (ret < 0) {
+            RESTORE_SIGNALS(mask);
+            rw_spinlock_release_write(&fi->fs_lock);
+            return ret;
         }
-
-
-        for (size_t i = 0; i < total_clusters; i++) {
-            // zero out unwritten space
-            if (i >= dentry_buf.size / bytes_per_cluster && i < skipped_clusters) {
-                off_t zoff = (curr_cl - 2) * bytes_per_cluster + fi->data_sector_start * fi->bytes_per_sector;
-                size_t towrite = bytes_per_cluster;
-                if (i == dentry_buf.size / bytes_per_cluster) {
-                    // have to zero out from size to end
-                    zoff = dentry_buf.size % bytes_per_cluster;
-                    towrite = bytes_per_cluster - zoff;
-                }
-                while (towrite > 512) {
-                    if (pwrite_file(sb->fd,
-                        zero_sector, 512,
-                        zoff) != 512
-                    ) {
-                        rw_spinlock_release_write(&fi->fs_lock);
-                        RESTORE_SIGNALS(mask);
-
-                        return -EIO;
-                    }
-                    zoff += 512;
-                    towrite -= 512;
-                }
-                if (pwrite_file(sb->fd,
-                    zero_sector, towrite,
-                    zoff) != towrite
-                ) {
-                    rw_spinlock_release_write(&fi->fs_lock);
-                    RESTORE_SIGNALS(mask);
-
-                    return -EIO;
-                }
-            }
-            if (i == skipped_clusters)
-                start_cl = curr_cl;
-            size_t new_cl = fat_next_in_chain(curr_cl, sb);
-            if (new_cl == -1 || new_cl < 2) {
-                rw_spinlock_release_write(&fi->fs_lock);
-                RESTORE_SIGNALS(mask);
-
-                return -EIO;
-            }
-            if (new_cl >= cluster_limit) {
-                new_cl = fat_get_free_cluster(sb);
-                if (new_cl == -1) {
-                    rw_spinlock_release_write(&fi->fs_lock);
-                    RESTORE_SIGNALS(mask);
-
-                    return -EIO;
-                }
-                if (new_cl == 0) {
-                    rw_spinlock_release_write(&fi->fs_lock);
-                    RESTORE_SIGNALS(mask);
-
-                    return -ENOSPC;
-                }
-
-                if (new_cl == -1 || fat_set_chain(curr_cl, new_cl, sb) != 0) {
-                    rw_spinlock_release_write(&fi->fs_lock);
-                    RESTORE_SIGNALS(mask);
-
-                    return -EIO;
-                }
-                // should be caught by hd cache, gets the fs consistent quicker
-                if (fat_set_chain(new_cl, 0xFFFFFFFF, sb) != 0) {
-                    rw_spinlock_release_write(&fi->fs_lock);
-                    dkprintf("Error: I/O error on writing cluster chain terminator, locking fs as read-only!\n"
-                                    "\tRun fsck/chkdsk as soon as possible and do not mount as read-write!\n");
-                    sb->mount_options |= MOUNT_RDONLY;
-                    RESTORE_SIGNALS(mask);
-
-                    return -EIO;
-                }
-            }
-            curr_cl = new_cl;
-        }
-        dentry_buf.size = offset + n;
-
-        if (pwrite_file(fd->inode->backing_superblock->fd,
-            &dentry_buf, sizeof(dentry_buf),
-            fd->inode->id) != sizeof(dentry_buf)
-        ) {
-                rw_spinlock_release_write(&fi->fs_lock);
-                return -EIO;
-        }
+        start_cl = (size_t)ret;
         // we can downgrade the lock to read now that we're done with the FAT
-        rw_spinlock_release_write(&fi->fs_lock);
-        rw_spinlock_acquire_read(&fi->fs_lock);
+        rw_spinlock_downgrade(&fi->fs_lock);
     } else {
-        rw_spinlock_release_write(&fi->fs_lock);
-        rw_spinlock_acquire_read(&fi->fs_lock);
+        rw_spinlock_downgrade(&fi->fs_lock);
+
         if (start_cl < 2 || start_cl >= cluster_limit) {
             rw_spinlock_release_read(&fi->fs_lock);
             RESTORE_SIGNALS(mask);
@@ -1345,6 +1403,37 @@ int fat_rename(inode_t * old, inode_t * new, const char * name) {
     return ret;
 }
 
+int fat_trunc(inode_t * file, off_t length) {
+    if (length < 0)
+        return -EINVAL;
+    if (length >= (unsigned long long)1<<32)
+        return -EFBIG;
+    kassert(file);
+    kassert(file->backing_superblock);
+    kassert(file->backing_superblock->data);
+
+    if (file->id == 0)
+        return -EINVAL;
+    if (S_ISDIR(file->mode))
+        return -EINVAL;
+
+    superblock_t * sb = file->backing_superblock;
+    struct fat_info * fi = sb->data;
+
+    sigset_t mask = PAUSE_SIGNALS();
+    if (current_thread->sa_to_be_handled) {
+        RESTORE_SIGNALS(mask);
+        return -EINTR;
+    }
+
+    rw_spinlock_acquire_write(&fi->fs_lock);
+
+    int ret = fat_change_file_size(file->id, (size_t)length, SIZE_MAX, sb);
+
+    rw_spinlock_release_write(&fi->fs_lock);
+    RESTORE_SIGNALS(mask);
+    return ret;
+}
 
 const struct vfs_ops fat_op = {
     .fs_init   = fat_init,
@@ -1359,4 +1448,5 @@ const struct vfs_ops fat_op = {
     .creat     = fat_creat,
     .mkdir     = fat_mkdir,
     .rename    = fat_rename,
+    .trunc     = fat_trunc,
 };

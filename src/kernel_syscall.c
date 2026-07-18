@@ -148,36 +148,44 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
             break;
 
         case SYSCALL_READ:
-            if (!paging_check_address_range((void*)arg2, arg3, 1, in_kernel)) {
+            if (!paging_check_address_range((void*)arg2, (size_t)arg3, 1, in_kernel)) {
                 return_value = -EFAULT;
                 break;
             }
             asm volatile ("sti;");
-            return_value = sys_read(arg1, (void*)arg2, arg3);
+            return_value = sys_read(arg1, (void*)arg2, (size_t)arg3);
             break;
         case SYSCALL_WRITE:
-            if (!paging_check_address_range((const void*)arg2, arg3, 0, in_kernel)) {
+            if (!paging_check_address_range((const void*)arg2, (size_t)arg3, 0, in_kernel)) {
                 return_value = -EFAULT;
                 break;
             }
             asm volatile ("sti;");
-            return_value =  sys_write(arg1, (const void*)arg2, arg3);
+            return_value =  sys_write(arg1, (const void*)arg2, (size_t)arg3);
             break;
         case SYSCALL_PREAD:
-            if (!paging_check_address_range((void*)arg2, arg3, 1, in_kernel)) {
+            if (!paging_check_address_range((void*)arg2, (size_t)arg3, 1, in_kernel)) {
                 return_value = -EFAULT;
                 break;
             }
             asm volatile ("sti;");
-            return_value = sys_pread(arg1, (void*)arg2, arg3, arg4);
+            return_value = sys_pread(arg1, (void*)arg2, (size_t)arg3, arg4);
             break;
         case SYSCALL_PWRITE:
-            if (!paging_check_address_range((const void*)arg2, arg3, 0, in_kernel)) {
+            if (!paging_check_address_range((const void*)arg2, (size_t)arg3, 0, in_kernel)) {
                 return_value = -EFAULT;
                 break;
             }
             asm volatile ("sti;");
-            return_value =  sys_pwrite(arg1, (const void*)arg2, arg3, arg4);
+            return_value = sys_pwrite(arg1, (const void*)arg2, arg3, arg4);
+            break;
+        case SYSCALL_TRUNC:
+            if (!paging_check_address_range((const void*)arg2, sizeof(off_t), 0, in_kernel)) {
+                return_value = -EFAULT;
+                break;
+            }
+            asm volatile("sti;");
+            return_value = sys_trunc(arg1, *(off_t*)arg2);
             break;
         case SYSCALL_FCNTL:
             asm volatile("sti;");

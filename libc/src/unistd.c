@@ -308,3 +308,12 @@ int ioctl(int fildes, unsigned long request, ...) {
     }
     return ret;
 }
+
+int ftruncate(int fildes, off_t length) {
+    int ret = syscall(SYSCALL_TRUNC, fildes, length);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return ret;
+}

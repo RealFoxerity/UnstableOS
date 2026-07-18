@@ -149,6 +149,8 @@ ssize_t sys_pread(int fd, void * buf, size_t count, off_t offset);
 ssize_t sys_pwrite(int fd, const void * buf, size_t count, off_t offset);
 off_t sys_seek(int fd, off_t off, int whence);
 
+int sys_trunc(int fd, off_t length);
+
 long sys_ioctl(int fd, unsigned long request, void * arg);
 
 long sys_fcntl(int fd, int cmd, long arg);

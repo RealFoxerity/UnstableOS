@@ -66,8 +66,8 @@ see [caveats.md](./caveats.md) for info
 ---
 - [ ] `mmap()`, `munmap()`, `msync()` (only with `MAP_FIXED`)
 - [x] `stat()`
-- [ ] `mkdir()`, `rmdir()`
-- [ ] `unlink()`
+- [x] `mkdir()`, `rmdir()`
+- [x] `unlink()`
 - [x] monotonic clock `sleep()`/`nanosleep()` using the RTC clock
 - [ ] the rest of clock types and waiting functions
 - [ ] some missing `time.h` functions

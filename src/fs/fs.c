@@ -381,6 +381,34 @@ ssize_t sys_pwrite(int fd, const void * buf, size_t count, off_t offset) {
     return ret;
 }
 
+int sys_trunc(int fd, off_t length) {
+    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
+
+
+    spinlock_acquire(&current_process->lock);
+    file_descriptor_t * file = current_process->fds[fd];
+    int ret = check_file(file);
+    if (ret == 0) {
+        if (!S_ISREG(file->inode->mode))
+            ret = -EINVAL;
+        else if (!(file->flags & O_WRONLY))
+            ret = -EBADF;
+        else if (file->inode->backing_superblock->mount_options & MOUNT_RDONLY)
+            ret = -EROFS;
+        else if (file->inode->backing_superblock->funcs->trunc != NULL)
+            __atomic_add_fetch(&file->instances, 1, __ATOMIC_ACQUIRE);
+        else
+            ret = -EINVAL;
+    }
+    spinlock_release(&current_process->lock);
+    if (ret)
+        return ret;
+
+    ret = file->inode->backing_superblock->funcs->trunc(file->inode, length);
+    close_file(file);
+    return ret;
+}
+
 off_t sys_seek(int fd, off_t off, int whence) {
     if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
 

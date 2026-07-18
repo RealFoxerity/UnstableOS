@@ -25,4 +25,7 @@ void rw_spinlock_acquire_read (rw_spinlock_t * lock);
 void rw_spinlock_release_read (rw_spinlock_t * lock);
 void rw_spinlock_acquire_write(rw_spinlock_t * lock);
 void rw_spinlock_release_write(rw_spinlock_t * lock);
+
+// atomically downgrades from write to read lock, use release read after
+void rw_spinlock_downgrade(rw_spinlock_t * lock);
 #endif
