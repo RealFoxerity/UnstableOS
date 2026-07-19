@@ -436,6 +436,19 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
 
     *out = new;
 
+    if (S_ISCHR(new->mode) && MAJOR(new->device) == DEV_MAJ_TTY &&
+        !(flags & (O_SEARCH | O_PATH))
+    ) {
+        if (flags & O_TTY_INIT)
+            tty_init(new);
+        if (!(flags & O_NOCTTY)) {
+            spinlock_acquire(&current_process->lock);
+            if (current_process->pid == current_process->session)
+                tty_assign_session(new, current_process->session);
+            spinlock_release(&current_process->lock);
+        }
+    }
+
     err:
     close_inode(current_root);
     spinlock_release(&mount_tree_lock);

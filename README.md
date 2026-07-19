@@ -76,7 +76,7 @@ see [caveats.md](./caveats.md) for info
 - [x] ATA PIO with read cache
 - [ ] ATA DMA
 - [ ] AHCI
-- [X] VFAT, not yet complete and without LFNs so far
+- [X] VFAT, without LFNs so far
 - [ ] ATAPI
 - [ ] ISO9660
 - [x] pipes
@@ -90,7 +90,7 @@ see [caveats.md](./caveats.md) for info
 - [x] `alarm()`
 - [x] finish implementing sessions and foreground groups for TTY
 - [x] implement `setsid()`
-- [ ] implement controlling terminal allocation
+- [x] implement controlling terminal allocation
 - [x] errno in userspace instead of returning negative numbers
 - [ ] scheduler priorities?
 - [x] any form of fpu - currently supported: x87, MMX, SSE, SSE2

@@ -25,6 +25,23 @@ void show_help() {
 extern char ** environ;
 
 int main(int argc, char ** argv) {
+    signal(SIGINT,  SIG_IGN);
+    signal(SIGTSTP, SIG_IGN);
+    signal(SIGTTOU, SIG_IGN);
+    signal(SIGTTIN, SIG_IGN);
+
+    if (getpid() == 1) {
+        // stuff like setsid() in combination with our wait() in ysh means that if we're the init
+        // we'll be waiting on everything setsided
+        switch (fork()) {
+            case -1:
+            case  0:
+                break;
+            default:
+                while (!(wait(&(int){0}) == -1 && errno == ECHILD)) {}
+                exit(0);
+        }
+    }
     printf("\n\nArguments:\n");
     for (int i = 0; i < argc; i++) {
         printf("%s ", argv[i]);
@@ -37,11 +54,6 @@ int main(int argc, char ** argv) {
     printf("\n\n");
     char input_buf[MAX_INPUT_BUFFER];
     ssize_t read_bytes = 0;
-
-    signal(SIGINT, SIG_IGN);
-    signal(SIGTSTP, SIG_IGN);
-    signal(SIGTTOU, SIG_IGN);
-    signal(SIGTTIN, SIG_IGN);
 
     while(1) {
         memset(input_buf, 0, MAX_INPUT_BUFFER);

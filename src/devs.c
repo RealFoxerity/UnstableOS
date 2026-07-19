@@ -214,9 +214,7 @@ long open_dev(inode_t * inode) {
 
     if (inode->dev_opened) return 0;
 
-    //return dev_ops.open(inode);
-    dev_ops.open(inode);
-    return 0;
+    return dev_ops.open(inode);
 }
 
 long close_dev(inode_t * inode) {
