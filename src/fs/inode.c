@@ -140,7 +140,7 @@ long register_inode(const inode_t * inode, inode_t ** inode_out) {
             new_inode = NULL;
         }
 
-    if (new_inode->backing_superblock)
+    if (new_inode && new_inode->backing_superblock)
         __atomic_add_fetch(&new_inode->backing_superblock->instances, 1, __ATOMIC_ACQUIRE);
     ret:
     *inode_out = new_inode;

@@ -67,7 +67,7 @@ struct tty_t {
     struct tty_queue iqueue, oqueue; // input, output
 
     pid_t foreground_pgrp;
-    pid_t session;
+    pid_t session; // 0 assumes not taken
 
     size_t (*write)(struct tty_t *);
 
@@ -81,13 +81,19 @@ extern tty_t * terminals[TTY_LIMIT_KERNEL];
 
 tty_t * tty_init_tty(tcflag_t imodes, tcflag_t lmodes, tcflag_t omodes, const unsigned char * control_chars,
                     size_t height, size_t width,
-                    size_t (*write)(struct tty_t *), char com_port,
+                    size_t (*write)(tty_t *), char com_port,
                     pid_t controlling_session, pid_t foreground_pgrp);
 void tty_register(tty_t * tty, dev_t minor);
 
+// resets to defaults
+long tty_init(inode_t * tty);
 void tty_alloc_kernel_console();
 
 tty_t * tty_get_controlling_terminal(pid_t session);
+
+// sets the controlling session and pgrp to session and returns 0 on success (-1 on failure)
+// primarily for opening in a new session without O_NOCTTY in openat_inode()
+char tty_assign_session(inode_t * tty, pid_t session);
 
 // specify 0 for no timeout -> wait forever
 // specify -1 in timespec->tv_nsec to return on empty buffer

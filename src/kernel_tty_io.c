@@ -15,10 +15,14 @@
 spinlock_t tty_lock = {0};
 tty_t * terminals[TTY_LIMIT_KERNEL] = {0};
 
+long tty_open(inode_t * tty);
+long tty_close(inode_t * tty);
 static struct dev_operations tty_ops = {
     .pread = tty_pread,
     .pwrite = tty_pwrite,
     .ioctl = tty_ioctl,
+    .open  = tty_open,
+    .close = tty_close
 };
 
 
@@ -31,16 +35,43 @@ static char is_valid_tty(dev_t dev) { // checks if the device is a valid raw tty
     return 1;
 }
 
-tty_t * tty_get_controlling_terminal(pid_t session) {
-    spinlock_acquire_interruptible(&tty_lock);
+static tty_t * __tty_get_controlling_terminal(pid_t session) {
     for (int i = 0; i < TTY_LIMIT_KERNEL; i++) {
         if (terminals[i]->session == session) {
-            spinlock_release(&tty_lock);
             return terminals[i];
         }
     }
-    spinlock_release(&tty_lock);
     return NULL;
+}
+
+tty_t * tty_get_controlling_terminal(pid_t session) {
+    spinlock_acquire_interruptible(&tty_lock);
+    tty_t * tty = __tty_get_controlling_terminal(session);
+    spinlock_release(&tty_lock);
+    return tty;
+}
+
+char tty_assign_session(inode_t * tty, pid_t session) {
+    kassert(tty);
+    if (!S_ISCHR(tty->mode))
+        return -1;
+    dev_t dev = tty->device;
+    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE))
+        dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_0);
+    if (!is_valid_tty(dev))
+        return -1;
+    tty_t * term = terminals[MINOR(dev)];
+    spinlock_acquire_interruptible(&term->tty_lock);
+    if (terminals[MINOR(dev)]->session != 0 || tty_get_controlling_terminal(session)) {
+        spinlock_release(&term->tty_lock);
+        return -1;
+    }
+
+    term->session = session;
+    term->foreground_pgrp = session;
+
+    spinlock_release(&term->tty_lock);
+    return 0;
 }
 
 void tty_flush_input(tty_t * tty);
@@ -321,6 +352,7 @@ tty_t * tty_init_tty(tcflag_t imodes, tcflag_t lmodes, tcflag_t omodes, const un
 
     *new_tty = (tty_t) {
         .used = 1,
+        .com_port = com_port,
         .foreground_pgrp = foreground_pgrp,
         .height = height,
         .width = width,
@@ -345,6 +377,79 @@ void tty_register(tty_t * tty, dev_t minor) {
     spinlock_release(&tty_lock);
 }
 
+static void tty_set_defaults(tty_t * tty) {
+    tty->params.c_iflag = TTYDEF_IFLAG;
+    tty->params.c_lflag = TTYDEF_LFLAG;
+    tty->params.c_oflag = TTYDEF_OFLAG;
+    tty->session = tty->foreground_pgrp = 0;
+    memcpy(tty->params.c_cc, default_control_chars, sizeof(tty->params.c_cc));
+}
+
+long tty_init(inode_t * tty) {
+    kassert(tty);
+    if (!S_ISCHR(tty->mode))
+        return -1;
+    dev_t dev = tty->device;
+    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE))
+        dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_0);
+    if (!is_valid_tty(dev))
+        return -1;
+    tty_t * term = terminals[MINOR(dev)];
+    spinlock_acquire(&term->tty_lock);
+    tty_set_defaults(term);
+    spinlock_release(&term->tty_lock);
+    return 0;
+}
+
+long tty_open(inode_t * tty) {
+    kassert(tty);
+    if (!S_ISCHR(tty->mode))
+        return -1;
+    dev_t dev = tty->device;
+    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE))
+        dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_0);
+    // only place needed to be checked for as this guarantees no inode with this minor will exist
+    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CURRENT)) {
+        dev = 0;
+        spinlock_acquire(&tty_lock);
+        for (unsigned int i = 0; i < TTY_LIMIT_KERNEL; i++) {
+            if (terminals[i] != NULL && terminals[i]->used && terminals[i]->session == current_process->session) {
+                dev = GET_DEV(DEV_MAJ_TTY, i);
+                break;
+            }
+        }
+        spinlock_release(&tty_lock);
+        if (dev == 0) return -ENXIO;
+        tty->device = dev;
+        // have to decouple the superblock so this doesn't get flushed and/or found with register_inode
+        tty->backing_superblock = NULL;
+    } else if (!is_valid_tty(dev))
+        return -1;
+
+    tty_t * term = terminals[MINOR(dev)];
+    spinlock_acquire(&term->tty_lock);
+    tty_set_defaults(term);
+    spinlock_release(&term->tty_lock);
+    tty->dev_opened = 1;
+    return 0;
+}
+
+long tty_close(inode_t * tty) {
+    kassert(tty);
+    if (!S_ISCHR(tty->mode))
+        return -1;
+    dev_t dev = tty->device;
+    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE))
+        dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_0);
+    if (!is_valid_tty(dev))
+        return -1;
+    tty_t * term = terminals[MINOR(dev)];
+    spinlock_acquire(&term->tty_lock);
+    term->session = term->foreground_pgrp = 0;
+    spinlock_release(&term->tty_lock);
+    return 0;
+}
+
 void tty_alloc_kernel_console() { // for the kernel task, don't call for user processes
     if (kernel_task == NULL) panic("Tried to allocate console before initializing kernel task!");
 
@@ -358,6 +463,16 @@ void tty_alloc_kernel_console() { // for the kernel task, don't call for user pr
         0, 0);
     tty_register(kernel_console, DEV_TTY_0);
     tty_register(kernel_console, DEV_TTY_S0);
+
+    tty_t * ttys1 = tty_init_tty(
+        TTYDEF_IFLAG,
+        TTYDEF_LFLAG,
+        TTYDEF_OFLAG,
+        default_control_chars,
+        display_height, display_width,
+        tty_com_write, 1,
+        0, 0);
+    tty_register(ttys1, DEV_TTY_S0 + 1);
 
     dev_register_ops(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), &tty_ops);
     dev_register_ops(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CURRENT), &tty_ops);
@@ -701,19 +816,8 @@ ssize_t tty_pread(file_descriptor_t * file, void * s, size_t n, off_t offset) {
 
     // assuming now file is a valid pointer
     dev_t dev = file->inode->device;
-    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE)) dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_S0); // kernel console can only read (which shouldn't happen anyway) from first serial
-    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CURRENT)) {
-        dev = 0;
-        spinlock_acquire(&tty_lock);
-        for (unsigned int i = 0; i < TTY_LIMIT_KERNEL; i++) {
-            if (terminals[i] != NULL && terminals[i]->used && terminals[i]->session == current_process->session) {
-                dev = GET_DEV(DEV_MAJ_TTY, i);
-                break;
-            }
-        }
-        spinlock_release(&tty_lock);
-        if (dev == 0) return -EINVAL;
-    }
+    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE))
+        dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_0);
     if (!is_valid_tty(dev)) return -EINVAL;
 
     if (n == 0) return 0;
@@ -797,18 +901,8 @@ ssize_t tty_pwrite(file_descriptor_t * file, const void * s, size_t n, off_t off
     // likewise assuming now file is a valid pointer
     dev_t dev = file->inode->device;
     if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE)) dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_0);
-    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CURRENT)) {
-        dev = 0;
-        spinlock_acquire(&tty_lock);
-        for (unsigned int i = 0; i < TTY_LIMIT_KERNEL; i++) {
-            if (terminals[i] != NULL && terminals[i]->used && terminals[i]->session == current_process->session) {
-                dev = GET_DEV(DEV_MAJ_TTY, i);
-                break;
-            }
-        }
-        spinlock_release(&tty_lock);
-        if (dev == 0) return -EINVAL;
-    }
+    if (!is_valid_tty(dev)) return -EINVAL;
+
     if (n == 0) return 0;
 
     kassert(current_process);

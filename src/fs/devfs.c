@@ -100,6 +100,13 @@ static struct devfs_node devfs_files[] = {
         }
     },
     {
+        .name = "ttyS1",
+        {
+            .st_rdev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_S0 + 1),
+            .st_mode = S_IFCHR | S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP,
+        }
+    },
+    {
         .name = "kconsole",
         {
             .st_rdev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE),

@@ -63,8 +63,7 @@ build/memdisk.tar: utils
 	cp -r libc/src/include/* build/initmd/usr/include/
 	cp utils/*/build/* build/initmd/bin/
 	cp build/initmd/bin/ysh build/initmd/init
-	cp -r utils build/initmd
-	tar -C build/initmd -cf build/memdisk.tar init utils bin dev usr
+	tar -C build/initmd -cf build/memdisk.tar init bin dev usr
 
 PHONY: build/hda.dd
 build/hda.dd:

@@ -23,6 +23,8 @@ Plan: all base spec, no TCT, TSH, TPS, TSA, TSS, TPP, RPP
 - [ ] pthread_once()
 - [ ] pthread_cleanup_push()
 - [ ] pthread_cleanup_pop()
+- [x] pthread_kill()
+- [x] pthread_sigmask()
 ## conditions
 - [ ] pthread_cond_init()
 - [ ] pthread_cond_destroy()

@@ -235,8 +235,9 @@ static void scheduler_remove_process(process_t * process) {
 static process_t * to_reap = NULL;
 static __attribute__((noreturn)) void scheduler_process_reaper(void * arg) {
     while (1) {
-        if (to_reap == NULL) {
+        if (__atomic_load_n(&to_reap, __ATOMIC_RELAXED) == NULL) {
             process_reaper->status = SCHED_UNINTERR_SLEEP;
+            reschedule();
             continue;
         }
         scheduler_remove_process(to_reap);

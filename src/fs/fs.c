@@ -125,6 +125,8 @@ int close_file_forced(file_descriptor_t * file) {
         }
 
         close_inode(inode);
+        file->access_lock = (rw_spinlock_t) {0};
+        return 1;
     }
     return 0;
 }
@@ -134,9 +136,9 @@ int close_file(file_descriptor_t * file) {
     // e.g. pipe that's already reading on one thread would cause deadlock
     rw_spinlock_acquire_read(&file->access_lock);
     spinlock_acquire(&kernel_fd_lock);
-    close_file_forced(file);
+    if (!close_file_forced(file))
+        rw_spinlock_release_read(&file->access_lock);
     // call inode_cleanup() maybe
-    file->access_lock = (rw_spinlock_t){0};
     spinlock_release(&kernel_fd_lock);
     return 0;
 }

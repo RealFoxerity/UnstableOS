@@ -10,13 +10,20 @@
 #define O_ACCMODE 0x7     // bitmask for the access modes
 
 // file creation flags
-#define O_CREAT     0x8   // not yet implemented
-#define O_TRUNC     0x10  // not yet implemented
+#define O_CREAT     0x8
+#define O_TRUNC     0x10
 #define O_DIRECTORY 0x20
-#define O_EXCL      0x40  // not yet implemented
-#define O_NOCTTY    0x80  // not yet implemented
+#define O_EXCL      0x40
+#define O_NOCTTY    0x80
 #define O_NOFOLLOW  0x100 // not yet implemented
-#define O_TTY_INIT  0x200 // not yet implemented
+
+// sets tty defaults:
+// eof = ^D; eol = ^@; erase = ^?; intr = ^C; kill = ^U; min = 1; quit = ^\; start = ^Q; stop = ^S; susp = ^Z; time = 0;
+// -brkint icrnl -ignbrk -igncr -ignpar -inlcr -inpck istrip ixany -ixoff ixon
+// opost onlcr -ocrnl -onocr -onlret
+// echo echoe echok -echonl icanon isig -noflsh -tostop echoctl
+// modeline 582:3:137:0:4:0:7F:3:15:1:1C:11:13:1A:0
+#define O_TTY_INIT  0x200
 
 // file status flags; get with F_GETFL, set with F_SETFL
 #define O_SYNC      0x400

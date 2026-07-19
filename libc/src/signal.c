@@ -1,8 +1,10 @@
-#include "include/signal.h"
-#include "include/unistd.h"
-#include "../../src/include/errno.h"
-#include "../../src/include/kernel.h"
+#include <signal.h>
+#include <unistd.h>
+#include <errno.h>
+#include <UnstableOS/syscalls.h>
 
+#define __STR_INNER(x) #x
+#define STR(x) __STR_INNER(x)
 
 int kill(pid_t pid, int sig) {
     int ret = syscall(SYSCALL_KILL, pid, sig);
@@ -185,12 +187,7 @@ int raise(int sig) {
     pid = getpid();
     tid = gettid();
 
-    int ret = tgkill(pid, tid, sig);
-    if (ret < 0) {
-        ___set_errno(-ret);
-        return -1;
-    }
-    return 0;
+    return tgkill(pid, tid, sig);
 }
 
 int sigqueue(pid_t pid, int signo, union sigval value) {
@@ -228,4 +225,15 @@ char *strsignal(int signum) {
         return "Unknown signal";
     }
     return (char*)__signal_msgs[signum];
+}
+
+#include <pthread.h>
+#include <UnstableOS/tls.h>
+int pthread_kill(pthread_t thread, int sig) {
+    if (thread == NULL) {
+        ___set_errno(EFAULT);
+        return -1;
+    }
+    struct process_control_block * pcb = thread->__pcb;
+    return tgkill(pcb->pid, thread->__tid, sig);
 }

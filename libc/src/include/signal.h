@@ -5,7 +5,7 @@
 #include "sys/types.h"
 #include <stdint.h>
 
-#define GET_SIG_MASK(signal) (1<<(signal-1))
+#define GET_SIG_MASK(signal) (1<<((signal)-1))
 
 typedef uint64_t sigset_t;
 #define NSIG_MAX 64 // signals that can be saved in the sigset_t
@@ -114,13 +114,13 @@ struct sigaction {
 #define SIGABRT   6
 #define SIGIOT    SIGABRT
 #define SIGBUS    7
-#define SIGFPE    8 // not called by the kernel - FPU not implemented
+#define SIGFPE    8
 #define SIGKILL   9
 #define SIGUSR1   10
 #define SIGSEGV   11
 #define SIGUSR2   12
-#define SIGPIPE   13 // not called by the kernel - pipes not implemented
-#define SIGALRM   14 // not called by the kernel - alarms not implemented
+#define SIGPIPE   13
+#define SIGALRM   14
 #define SIGTERM   15
 #define SIGSTKFLT 16 // stack fault on a coprocessor
 #define SIGCHLD   17
@@ -156,7 +156,7 @@ struct sigaction {
 */
 
 // for SIGFPE
-/* we don't yet support any of these - no FPU is implemented
+/* we don't yet support any of these - detection not implemented
 #define FPE_INTDIV 1
 #define FPE_INTOVF 2
 #define FPE_FLTDIV 3
@@ -226,10 +226,11 @@ int sigrelse(int sig);
 void (*sigset(int sig, void (*disp)(int)))(int); // internally calls signal
 int sigqueue(pid_t pid, int signo, union sigval value);
 
+int pthread_kill(pthread_t thread, int sig);
+int raise(int sig);
+
 /*
 missing functions:
-void   psiginfo(const siginfo_t *, const char *);
-int    pthread_kill(pthread_t, int); though implemented through tgkill
 int    sigaltstack(const stack_t *restrict, stack_t *restrict);
 
 int siginterrupt(int sig, int flag); because we don't support SA_RESTART
