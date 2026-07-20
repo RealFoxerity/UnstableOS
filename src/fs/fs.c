@@ -101,8 +101,11 @@ int sys_close(int fd) {
     if (file == NULL) {
         return -EBADF;
     }
-
-    return close_file(file);
+    spinlock_acquire(&kernel_fd_lock);
+    if (!close_file_forced(file))
+        rw_spinlock_release_read(&file->access_lock);
+    spinlock_release(&kernel_fd_lock);
+    return 0;
 }
 
 // when we know for 100% that the file isn't used anywhere in the running process
@@ -144,12 +147,11 @@ int close_file(file_descriptor_t * file) {
 }
 
 ssize_t pread_file(file_descriptor_t *file, void *buf, size_t count, off_t offset) {
-    if (file->flags & O_PATH) return -EINVAL;
     if (offset < 0) return -EINVAL;
 
     int test = check_file(file);
     if (test != 0) return test;
-    if (file->flags & O_SEARCH) return -EBADF;
+    if (file->flags & (O_SEARCH | O_PATH)) return -EBADF;
 
     if (S_ISDIR(file->inode->mode)) return -EISDIR;
     if (!(file->flags & O_RDONLY)) return -EINVAL;
@@ -215,12 +217,11 @@ ssize_t read_file(file_descriptor_t *file, void *buf, size_t count) {
 }
 
 ssize_t pwrite_file(file_descriptor_t *file, const void *buf, size_t count, off_t offset) {
-    if (file->flags & O_PATH) return -EINVAL;
     if (offset < 0) return -EINVAL;
 
     int test = check_file(file);
     if (test != 0) return test;
-    if (file->flags & O_SEARCH) return -EBADF;
+    if (file->flags & (O_SEARCH | O_PATH)) return -EBADF;
 
     if (S_ISDIR(file->inode->mode)) return -EISDIR;
     if (!(file->flags & O_WRONLY))
@@ -255,9 +256,8 @@ ssize_t pwrite_file(file_descriptor_t *file, const void *buf, size_t count, off_
             // O_APPEND doesn't make sense in any other case, so that's why here
             // offset = ...seek just in case we race to the seek
             // the file->off isn't important anyway
-            if (file->flags & O_APPEND &&
-                file->inode->backing_superblock->funcs->seek != NULL)
-                    offset = file->inode->backing_superblock->funcs->seek(file, 0, SEEK_END);
+            if (file->flags & O_APPEND)
+                    offset = file->inode->size;
 
             ret = file->inode->backing_superblock->funcs->pwrite(file, buf, count, offset);
         }
@@ -299,6 +299,7 @@ ssize_t write_file(file_descriptor_t *file, const void *buf, size_t count) {
 off_t seek_file(file_descriptor_t * file, off_t off, int whence) {
     int test = check_file(file);
     if (test != 0) return test;
+    if (file->flags & (O_PATH | O_SEARCH)) return -EBADF;
 
     switch (whence) {
         case SEEK_SET:
@@ -311,7 +312,6 @@ off_t seek_file(file_descriptor_t * file, off_t off, int whence) {
         default:
             return -EINVAL;
     }
-    if (file->flags & O_PATH) return -EINVAL;
 
     off_t ret = 0;
     if (S_ISFIFO(file->inode->mode)) { return -ESPIPE; }
@@ -408,10 +408,11 @@ int sys_trunc(int fd, off_t length) {
     file_descriptor_t * file = current_process->fds[fd];
     int ret = check_file(file);
     if (ret == 0) {
-        if (!S_ISREG(file->inode->mode))
-            ret = -EINVAL;
-        else if (!(file->flags & O_WRONLY) || !file->inode->backing_superblock || !file->inode->backing_superblock->funcs)
+        if (!(file->flags & O_WRONLY) || file->flags & (O_SEARCH | O_PATH) ||
+            !file->inode->backing_superblock || !file->inode->backing_superblock->funcs)
             ret = -EBADF;
+        else if (!S_ISREG(file->inode->mode))
+            ret = -EINVAL;
         else if (file->inode->backing_superblock->mount_options & MOUNT_RDONLY)
             ret = -EROFS;
         else if (file->inode->backing_superblock->funcs->trunc != NULL)
@@ -605,7 +606,7 @@ ssize_t sys_readdir(int fd, struct dirent * dent, size_t dent_size) {
     spinlock_acquire(&current_process->lock);
     file_descriptor_t * file = current_process->fds[fd];
     int test = check_file(file);
-    if (test == 0 && file != NULL) {
+    if (test == 0 && file != NULL && !(file->flags & O_PATH)) {
         __atomic_add_fetch(&file->instances, 1, __ATOMIC_ACQUIRE);
     }
     spinlock_release(&current_process->lock);
@@ -709,7 +710,7 @@ int sys_fstatat(int fd, const char * __restrict path, struct stat * __restrict b
         if (test < 0) return test;
     }
 
-    int ret = openat_inode(base, path, O_SEARCH, 0, &new, 0);
+    int ret = openat_inode(base, path, O_PATH, 0, &new, 0);
     if (base != (inode_t*)AT_FDCWD)
         close_inode(base);
     if (ret < 0) return ret;
@@ -721,8 +722,8 @@ int sys_fstatat(int fd, const char * __restrict path, struct stat * __restrict b
 long ioctl_file(file_descriptor_t * file, unsigned long command, void * arg) {
     int test = check_file(file);
     if (test != 0) return test;
-    if (file->flags & O_PATH) return -EINVAL;
-
+    if (!(file->flags & O_RDWR) || file->flags & (O_SEARCH | O_PATH))
+        return -EBADF;
     rw_spinlock_acquire_read(&file->access_lock);
     long ret = ioctl_dev(file, command, arg);
     rw_spinlock_release_read(&file->access_lock);
@@ -766,7 +767,7 @@ long fcntl_file(file_descriptor_t * file, int cmd, long arg) {
             ret = dup_file(file, arg, O_CLOFORK);
             break;
         case F_GETFL:
-            ret = file->flags & (O_SYNC | O_APPEND | O_PATH);
+            ret = file->flags & (O_SYNC | O_APPEND | O_PATH | O_ACCMODE);
             break;
         case F_SETFL:
             file->flags &= ~(O_SYNC | O_APPEND);

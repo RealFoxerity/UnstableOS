@@ -142,6 +142,8 @@ struct process_t {
         pgrp, // used for tty interrupts, duplicate (with pgrp_leader) because of orphaned groups
         session;
 
+    dev_t ctty; // for resolving current controlling terminal
+
     // these 2 can be manually checked, but are quicker to store as process metadata
     unsigned long pgrp_members; // 0 based, some functions (like setsid) throw EPERM on non-empty process groups
     char prgp_orphan; // process group loader died, some functions (like TCFLSH ioctl on ttys) throw EIO on orphans

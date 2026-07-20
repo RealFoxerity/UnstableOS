@@ -60,6 +60,8 @@ pid_t sys_setsid() {
     }
     spinlock_release(&current_process->parent->lock);
 
+    current_process->ctty = 0;
+
     spinlock_release(&current_process->lock);
 
     return current_process->pid;

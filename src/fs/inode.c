@@ -99,7 +99,7 @@ inode_t * get_inode(superblock_t * sb, off_t inode_number) {
     return inode;
 }
 
-long register_inode(const inode_t * inode, inode_t ** inode_out) {
+long register_inode(const inode_t * inode, inode_t ** inode_out, unsigned short dev_flags) {
     if (inode == NULL) return -EFAULT;
 
     long status = 0;
@@ -135,7 +135,7 @@ long register_inode(const inode_t * inode, inode_t ** inode_out) {
         new_inode->pipe   = inode->pipe;
 
     if (S_ISCHR(inode->mode) || S_ISBLK(inode->mode))
-        if ((status = open_dev(new_inode)) < 0) {
+        if ((status = open_dev(new_inode, dev_flags)) < 0) {
             new_inode->instances = 0; // "free" the inode
             new_inode = NULL;
         }
@@ -160,7 +160,7 @@ void close_inode(inode_t *inode) {
             inode->backing_superblock->funcs->release(inode);
         if (S_ISFIFO(inode->mode)) kfree(inode->pipe);
         if (S_ISCHR(inode->mode) || S_ISBLK(inode->mode))
-            close_dev(inode);
+            if (inode->dev_opened) close_dev(inode);
     }
     spinlock_release(&inode->lock);
     spinlock_release(&kernel_inode_lock);
@@ -177,8 +177,8 @@ long inode_from_device(dev_t device, inode_t ** inode_out) {
     };
 
     inode_t * ret = NULL;
-    long status = register_inode(&new, &ret);
-    *inode_out = ret;
+    long status   = register_inode(&new, &ret, 0);
+    *inode_out    = ret;
 
     return status;
 }

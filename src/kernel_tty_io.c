@@ -15,7 +15,7 @@
 spinlock_t tty_lock = {0};
 tty_t * terminals[TTY_LIMIT_KERNEL] = {0};
 
-long tty_open(inode_t * tty);
+long tty_open(inode_t * tty, unsigned short flags);
 long tty_close(inode_t * tty);
 static struct dev_operations tty_ops = {
     .pread = tty_pread,
@@ -385,50 +385,49 @@ static void tty_set_defaults(tty_t * tty) {
     memcpy(tty->params.c_cc, default_control_chars, sizeof(tty->params.c_cc));
 }
 
-long tty_init(inode_t * tty) {
+long tty_open(inode_t * tty, unsigned short flags) {
     kassert(tty);
     if (!S_ISCHR(tty->mode))
         return -1;
     dev_t dev = tty->device;
     if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE))
         dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_0);
-    if (!is_valid_tty(dev))
-        return -1;
-    tty_t * term = terminals[MINOR(dev)];
-    spinlock_acquire(&term->tty_lock);
-    tty_set_defaults(term);
-    spinlock_release(&term->tty_lock);
-    return 0;
-}
-
-long tty_open(inode_t * tty) {
-    kassert(tty);
-    if (!S_ISCHR(tty->mode))
-        return -1;
-    dev_t dev = tty->device;
-    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE))
-        dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_0);
-    // only place needed to be checked for as this guarantees no inode with this minor will exist
     if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CURRENT)) {
-        dev = 0;
-        spinlock_acquire(&tty_lock);
-        for (unsigned int i = 0; i < TTY_LIMIT_KERNEL; i++) {
-            if (terminals[i] != NULL && terminals[i]->used && terminals[i]->session == current_process->session) {
-                dev = GET_DEV(DEV_MAJ_TTY, i);
-                break;
-            }
-        }
-        spinlock_release(&tty_lock);
-        if (dev == 0) return -ENXIO;
-        tty->device = dev;
-        // have to decouple the superblock so this doesn't get flushed and/or found with register_inode
-        tty->backing_superblock = NULL;
-    } else if (!is_valid_tty(dev))
-        return -1;
+        spinlock_acquire(&current_process->lock);
+        dev = current_process->ctty;
+        spinlock_release(&current_process->lock);
+        if (dev == 0)
+            return -ENXIO;
+    }
+    if (!is_valid_tty(dev))
+        return -ENODEV;
 
     tty_t * term = terminals[MINOR(dev)];
+
     spinlock_acquire(&term->tty_lock);
-    tty_set_defaults(term);
+    if (term->session == 0 && flags & O_TTY_INIT)
+        tty_set_defaults(term);
+    if (term->session == 0 && !(flags & (O_NOCTTY | O_SEARCH | O_PATH))) {
+        spinlock_acquire(&current_process->lock);
+        if (current_process->ctty == 0 && current_process->session == current_process->pid) {
+            spinlock_acquire(&scheduler_lock);
+            term->session = current_process->pid;
+            term->foreground_pgrp = current_process->pgrp;
+
+            // also sets current process
+            for (process_t * proc = process_list; proc != NULL; proc = proc->next) {
+                if (proc->session != current_process->pid)
+                    continue;
+
+                if (proc->ctty != 0) {
+                    panic("Process in the same session with a different controlling terminal");
+                }
+                proc->ctty = dev;
+            }
+            spinlock_release(&scheduler_lock);
+        }
+        spinlock_release(&current_process->lock);
+    }
     spinlock_release(&term->tty_lock);
     tty->dev_opened = 1;
     return 0;
@@ -441,6 +440,9 @@ long tty_close(inode_t * tty) {
     dev_t dev = tty->device;
     if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE))
         dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_0);
+    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CURRENT)) {
+        return 0; // pseudo device, will never actually "get open", so nothing to close
+    }
     if (!is_valid_tty(dev))
         return -1;
     tty_t * term = terminals[MINOR(dev)];
@@ -818,6 +820,13 @@ ssize_t tty_pread(file_descriptor_t * file, void * s, size_t n, off_t offset) {
     dev_t dev = file->inode->device;
     if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE))
         dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_0);
+    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CURRENT)) {
+        spinlock_acquire(&current_process->lock);
+        dev = current_process->ctty;
+        spinlock_release(&current_process->lock);
+        if (dev == 0)
+            return -ENXIO;
+    }
     if (!is_valid_tty(dev)) return -EINVAL;
 
     if (n == 0) return 0;
@@ -900,7 +909,15 @@ ssize_t tty_pwrite(file_descriptor_t * file, const void * s, size_t n, off_t off
 
     // likewise assuming now file is a valid pointer
     dev_t dev = file->inode->device;
-    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE)) dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_0);
+    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE))
+        dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_0);
+    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CURRENT)) {
+        spinlock_acquire(&current_process->lock);
+        dev = current_process->ctty;
+        spinlock_release(&current_process->lock);
+        if (dev == 0)
+            return -ENXIO;
+    }
     if (!is_valid_tty(dev)) return -EINVAL;
 
     if (n == 0) return 0;

@@ -38,7 +38,8 @@ struct vfs_ops {
     // if last == NULL, last is assumed to be mounted /
     // implementations should accept "." to mean the current directory
     // implementations need to fill the inode_t struct with enough info for a full stat()
-    int (*lookup)   (superblock_t * sb, inode_t * last, const char * pathname, inode_t ** inode_out);
+    // flags primarily meant to pass to register inode to use for dev initialization
+    int (*lookup)   (superblock_t * sb, inode_t * last, const char * pathname, inode_t ** inode_out, unsigned short flags);
 
     // closing of the very last instance of an inode
     // also should sync (if supported) timestamps, mode, and uid/gid

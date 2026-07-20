@@ -55,7 +55,7 @@ void fat_epoch_to_time(time_t epoch, struct fat_time * ft, struct fat_date * fd)
 
 #include "fs/fs.h"
 
-int fat_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t ** inode_out);
+int fat_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t ** inode_out, unsigned short flags);
 
 // all below require external locking
 

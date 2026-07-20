@@ -295,7 +295,7 @@ static char is_valid_node(const struct tar_node * root, const struct tar_node * 
     return 1;
 }
 
-int tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t ** inode_out) {
+int tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t ** inode_out, unsigned short flags) {
     if (!pathname) return -EFAULT;
     if (!sb) return -EFAULT;
     if (!inode_out) return -EFAULT;
@@ -335,6 +335,8 @@ int tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode
         }
         if (result == NULL) return -ENOENT;
     }
+    if (!S_ISDIR(result->mode) && flags & O_DIRECTORY)
+        return -ENOTDIR;
 
     inode_t new_inode = {
         .id = (off_t)(uintptr_t)result,
@@ -357,7 +359,7 @@ int tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode
         new_inode.pipe = ????
     }*/
 
-    return register_inode(&new_inode, inode_out);
+    return register_inode(&new_inode, inode_out, 0);
 }
 
 ssize_t tarfs_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) {

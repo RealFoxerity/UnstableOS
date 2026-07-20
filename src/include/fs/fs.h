@@ -129,7 +129,7 @@ long inode_from_device(dev_t device, inode_t ** inode_out);
 // locks inode lock itself
 inode_t * get_inode(superblock_t * sb, off_t inode_number);
 // exactly the same but increases instances if found and creates if not
-long register_inode(const inode_t * inode, inode_t ** inode_out);
+long register_inode(const inode_t * inode, inode_t ** inode_out, unsigned short dev_flags);
 void close_inode(inode_t * inode);
 int open_raw_device(dev_t device, unsigned short flags, file_descriptor_t ** file_out); // locks file descriptor lock itself
 int open_raw_device_fd(dev_t device, unsigned short flags); // locks file descriptor lock itself

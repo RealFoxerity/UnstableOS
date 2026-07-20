@@ -85,8 +85,6 @@ tty_t * tty_init_tty(tcflag_t imodes, tcflag_t lmodes, tcflag_t omodes, const un
                     pid_t controlling_session, pid_t foreground_pgrp);
 void tty_register(tty_t * tty, dev_t minor);
 
-// resets to defaults
-long tty_init(inode_t * tty);
 void tty_alloc_kernel_console();
 
 tty_t * tty_get_controlling_terminal(pid_t session);
