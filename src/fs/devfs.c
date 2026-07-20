@@ -159,7 +159,7 @@ const struct vfs_ops devfs_op = {
 };
 
 // there are no subfolders, so we just iterate the list and ignore the last parameter
-int devfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t ** inode_out) {
+int devfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t ** inode_out, unsigned short flags) {
     kassert(sb);
     kassert(pathname);
 
@@ -178,14 +178,14 @@ int devfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode
     if (devfs_id == 0 && !(pathlen == 1 && pathname[0] == '.')) return -ENOENT;
 
     long status = register_inode(&(inode_t) {
-         .id                 = devfs_id,
-         .backing_superblock = sb,
-         .mode               = devfs_id == 0
-                                ? S_IFDIR | S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH
-                                : devfs_files[devfs_id - 2].node_info.st_mode,
-         .device = devfs_id == 0 ? 0 : devfs_files[devfs_id - 2].node_info.st_rdev,
-         .nlink  = devfs_id == 0 ? 2 : 1,
-       }, inode_out);
+                                     .id                 = devfs_id,
+                                     .backing_superblock = sb,
+                                     .mode               = devfs_id == 0
+                                                               ? S_IFDIR | S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH
+                                                               : devfs_files[devfs_id - 2].node_info.st_mode,
+                                     .device = devfs_id == 0 ? 0 : devfs_files[devfs_id - 2].node_info.st_rdev,
+                                     .nlink  = devfs_id == 0 ? 2 : 1,
+                                 }, inode_out, flags);
 
     return status;
 }

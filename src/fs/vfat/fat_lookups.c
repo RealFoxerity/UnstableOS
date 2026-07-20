@@ -176,7 +176,7 @@ off_t fat_get_parent(off_t dentry, superblock_t * sb, struct fat_dir_entry * out
     return -ENOENT;
 }
 
-int fat_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t ** inode_out) {
+int fat_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t ** inode_out, unsigned short flags) {
     if (!pathname) return -EFAULT;
     if (!sb) return -EFAULT;
     if (!inode_out) return -EFAULT;
@@ -207,7 +207,7 @@ int fat_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t
                 .atime = 0,
                 .mode = 0777 | S_IFDIR,
             };
-            return register_inode(&root_dir, inode_out);
+            return register_inode(&root_dir, inode_out, 0);
         }
 
         // FAT directories do have a . entry, but this is faster
@@ -258,14 +258,13 @@ int fat_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t
     rw_spinlock_acquire_read(&fat_info->fs_lock);
     // fat12/16 don't use the clustering system for the root directory
     if (!last_entry && fat_info->type != FAT32) {
-        off_t dir_off = fat12_lookup(name, sb, &dentry_buf);
+        ret = fat12_lookup(name, sb, &dentry_buf);
         rw_spinlock_release_read(&fat_info->fs_lock);
 
         RESTORE_SIGNALS(mask);
 
-        if (dir_off < 0)
-            return (int)dir_off;
-        ret = 0;
+        if (ret < 0)
+            return (int)ret;
         goto create_file;
     }
 
@@ -287,20 +286,23 @@ int fat_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t
 
     rw_spinlock_release_read(&fat_info->fs_lock);
     RESTORE_SIGNALS(mask);
-    create_file:
     if (ret < 0)
         return (int)ret;
+    create_file:
+    if (flags & O_DIRECTORY && !(dentry_buf.attr & FAT_DENTRY_ATTR_SUBDIR))
+        return -ENOTDIR;
+
     inode_t file = {
         .backing_superblock = sb,
         .id   = ret,
         .size = dentry_buf.size,
         .io_block_size = fat_info->sectors_per_cluster * fat_info->bytes_per_sector,
-        .nlink = dentry_buf.attr & FAT_DENTRY_ATTR_SUBDIR ? 3 : 1,
+        .nlink = dentry_buf.attr & FAT_DENTRY_ATTR_SUBDIR ? 2 : 1,
         .btime = fat_time_to_epoch(dentry_buf.ctime, dentry_buf.cdate),
         .ctime = fat_time_to_epoch(dentry_buf.mtime, dentry_buf.mdate),
         .mtime = fat_time_to_epoch(dentry_buf.mtime, dentry_buf.mdate),
         .atime = fat_time_to_epoch((struct fat_time){0}, dentry_buf.adate),
         .mode = 0777 | (dentry_buf.attr & FAT_DENTRY_ATTR_SUBDIR ? S_IFDIR : S_IFREG)
     };
-    return register_inode(&file, inode_out);
+    return register_inode(&file, inode_out, 0);
 }

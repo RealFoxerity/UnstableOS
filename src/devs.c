@@ -194,7 +194,7 @@ long ioctl_dev(file_descriptor_t *file, unsigned long request, void * arg) {
 // we need inode opens to succeed to do stuff like
 // stat(), chmod(), unlink()...
 // so we delay the ENXIO until read/write/seek/ioctl
-long open_dev(inode_t * inode) {
+long open_dev(inode_t * inode, unsigned short flags) {
     kassert(inode);
     kassert(S_ISCHR(inode->mode) || S_ISBLK(inode->mode));
 
@@ -214,7 +214,7 @@ long open_dev(inode_t * inode) {
 
     if (inode->dev_opened) return 0;
 
-    return dev_ops.open(inode);
+    return dev_ops.open(inode, flags);
 }
 
 long close_dev(inode_t * inode) {

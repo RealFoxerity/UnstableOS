@@ -50,7 +50,8 @@ long mount_root(dev_t dev, unsigned char type, unsigned short options) {
     kassert(root_superblock->funcs->fs_init(root_superblock) == 0);
 
     inode_t * root_inode = NULL;
-    long status = root_superblock->funcs->lookup(root_superblock, NULL, ".", &root_inode);
+    long status = root_superblock->funcs->lookup(root_superblock, NULL, ".", &root_inode,
+        (options & MOUNT_RDONLY ? O_RDONLY : O_RDWR) | O_DIRECTORY);
     kassert(root_inode);
     kassert(status >= 0);
 

@@ -182,8 +182,10 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
             close_inode(base);
         return -EFAULT;
     }
-    if (flags & O_PATH) {
-        flags &= ~O_RDWR;
+    if (flags & (O_PATH | O_SEARCH)) {
+        flags &= O_PATH | O_DIRECTORY | O_SEARCH | O_CLOEXEC | O_CLOFORK;
+        if (flags & O_SEARCH)
+            flags |= O_DIRECTORY;
     }
     mode &= ~current_process->umask;
 
@@ -264,7 +266,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
     // so that prev is never null, simplifying chroot checks
     if (prev->is_mountpoint && prev != root_mountpoint->mountpoint) {
         inode_t * prev_back = prev;
-        sb->funcs->lookup(sb, NULL, ".", &prev);
+        sb->funcs->lookup(sb, NULL, ".", &prev, O_SEARCH | O_DIRECTORY);
         if (preincremented)
             close_inode(prev_back);
     }
@@ -287,7 +289,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
                 final_path = next_slash + 1;
                 continue;
             }
-        long status = sb->funcs->lookup(sb, prev, final_path, &new);
+        long status = sb->funcs->lookup(sb, prev, final_path, &new, last_fragment ? flags : (O_SEARCH | O_DIRECTORY));
 
         if (status == -ENOENT) {
             if (last_fragment &&
@@ -390,7 +392,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
                 goto err;
             }
 
-            status = sb->funcs->lookup(sb, NULL, ".", &new);
+            status = sb->funcs->lookup(sb, NULL, ".", &new, O_SEARCH | O_DIRECTORY);
             if (status < 0) {
                 close_inode(prev);
                 ret = status;
@@ -435,19 +437,6 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
     }
 
     *out = new;
-
-    if (S_ISCHR(new->mode) && MAJOR(new->device) == DEV_MAJ_TTY &&
-        !(flags & (O_SEARCH | O_PATH))
-    ) {
-        if (flags & O_TTY_INIT)
-            tty_init(new);
-        if (!(flags & O_NOCTTY)) {
-            spinlock_acquire(&current_process->lock);
-            if (current_process->pid == current_process->session)
-                tty_assign_session(new, current_process->session);
-            spinlock_release(&current_process->lock);
-        }
-    }
 
     err:
     close_inode(current_root);

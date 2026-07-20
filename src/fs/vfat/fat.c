@@ -693,7 +693,7 @@ ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t off
 
     // this has to be locked to prevent meddling with the size field
     struct fat_dir_entry dentry_buf = {0};
-    if (pread_file(fd->inode->backing_superblock->fd,
+    if (pread_file(sb->fd,
         &dentry_buf, sizeof(dentry_buf),
         fd->inode->id) != sizeof(dentry_buf)
     ) {
@@ -727,6 +727,9 @@ ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t off
         start_cl = (size_t)ret;
         // we can downgrade the lock to read now that we're done with the FAT
         rw_spinlock_downgrade(&fi->fs_lock);
+
+        fd->inode->size = offset + n;
+
     } else {
         rw_spinlock_downgrade(&fi->fs_lock);
 
@@ -745,7 +748,6 @@ ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t off
                 return -EIO;
             }
         }
-        fd->inode->size = offset + n;
     }
 
     RESTORE_SIGNALS(mask);
@@ -1232,7 +1234,7 @@ static int __fat_creat(inode_t * parent, const char * pathname, mode_t mode, ino
         .io_block_size = fi->sectors_per_cluster * fi->bytes_per_sector,
         .mode = 0777 | (folder ? S_IFDIR : S_IFREG),
     };
-    return register_inode(&new, inode_out);
+    return register_inode(&new, inode_out, 0);
 }
 
 

@@ -5,7 +5,7 @@
 #define O_RDONLY 0x1
 #define O_WRONLY 0x2
 #define O_RDWR   0x3
-#define O_SEARCH 0x4      // not yet fully implemented
+#define O_SEARCH 0x4      // allows for readdir and functions not requiring read support
 #define O_EXEC   O_SEARCH // not yet implemented, POSIX says these 2 can have the same values
 #define O_ACCMODE 0x7     // bitmask for the access modes
 
@@ -33,7 +33,7 @@
 #define O_CLOEXEC   0x1000
 #define O_CLOFORK   0x2000
 
-// strictly use just as a reference point
+// stricter version of O_SEARCH, strictly just as a reference point for *at functions and for fstat
 #define O_PATH      0x4000
 
 // when passed to openat_inode, won't resolve the final mountpoint

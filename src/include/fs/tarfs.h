@@ -46,7 +46,7 @@ int tar_load_fs(superblock_t * sb); // prepares the superblock
 int tar_unload_fs(superblock_t * sb); // frees the internal lookup structure
 off_t tarfs_seek(file_descriptor_t * fd, off_t off, int whence);
 
-int tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t ** inode_out);
+int tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t ** inode_out, unsigned short flags);
 ssize_t tarfs_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset);
 ssize_t tarfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_size, off_t offset);
 int tarfs_stat(inode_t * file, struct stat * buf);
