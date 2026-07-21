@@ -27,7 +27,7 @@ struct program load_elf(int elf_fd) { // returns VIRTUAL address of page directo
     if (ehdr.arch_isa != ELF_ISA_X86 || ehdr.arch != ELF_ARCH_32) return (struct program){0};
 
     char found_loadable = 0;
-    size_t needed_memory = PROGRAM_STACK_SIZE + PROGRAM_KERNEL_STACK_SIZE +
+    size_t needed_memory = PROGRAM_STACK_START_SIZE + PROGRAM_KERNEL_STACK_SIZE +
                             PROGRAM_DVT_SIZE + __PROGRAM_TCB_SIZE;
     size_t static_tls_size = 0;
     size_t tls_program_headers = 0;

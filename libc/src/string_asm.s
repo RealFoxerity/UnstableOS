@@ -13,6 +13,8 @@ memset:
     movl 0xC(%ebp),  %eax /* c */
     movl 0x10(%ebp), %ecx /* n */
 
+    andl $0xFF, %eax
+
     cmp $0x8, %ecx
     jg 0f
     rep stosb

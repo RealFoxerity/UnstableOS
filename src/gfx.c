@@ -122,7 +122,8 @@ void * gfx_realloc_back_framebuffer(size_t width, size_t height) {
     kfree(back_framebuffer);
 
     if (width * height * sizeof(uint32_t) <= BACK_FRAMEBUFFER_MAX_SIZE &&
-        kalloc_get_free_memory() > width * height * sizeof(uint32_t)
+        kalloc_get_free_memory() > width * height * sizeof(uint32_t) * 2 &&
+        pf_get_free_memory() > width * height * sizeof(uint32_t) * 10
     ) {
         back_framebuffer = kalloc(width * height * sizeof(uint32_t));
         back_framebuffer_w = width;
