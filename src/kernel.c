@@ -23,6 +23,8 @@
 #include "timer.h"
 #include <unistd.h>
 #include <fcntl.h>
+
+#include "dev_ops.h"
 #include "kernel_tty_io.h"
 #include "gfx.h"
 #include "gfx/vga.h"
@@ -31,7 +33,7 @@
 #include "block/ata/ata.h"
 
 
-static char early_init = 1;
+char early_init = 1;
 // goes to 0 0 so that the scrolling of the panic message doesn't take forever
 #define KERNEL_PANIC_MSG "\e[H\e[0m\e[41m\n##############################\nKernel Panic:\n"
 void panic(char * reason) {
@@ -389,7 +391,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
             } else total_usable += mmmt->len;
         }
     }
-    if (total_usable < 1<<24) panic("At least 16MiB of usable memory is required for basic kernel functionality!\n");
+    if (total_usable < 1<<19) panic("At least 512K of usable memory is required for basic kernel functionality!\n");
     kernel_mem_top = page_frame_alloc_init(mbd, (void*)boot_mem_top);
     kprintf("Kernel: Total usable RAM: %lu bytes\n", pf_get_free_memory()); //total_usable);
 
@@ -440,13 +442,18 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     kassert(open_raw_device_fd(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), O_RDWR) >= 0);
     kassert(open_raw_device_fd(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), O_RDWR) >= 0);
 
-    dev_t initrd_memdisk = 0;
-    kassert((initrd_memdisk = memdisk_from_range(initrd_start, initrd_len) != (dev_t)-1));
+    if (initrd_start) {
+        kassert(memdisk_from_range(initrd_start, initrd_len) != (dev_t)-1);
 
-    int initrd_fd = -1;
-    kassert((initrd_fd = open_raw_device_fd(GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0), O_RDONLY)) >= 0);
-
-    mount_root(GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0), FS_TARFS, MOUNT_RDONLY);
+        kassert(open_raw_device_fd(GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0), O_RDONLY) >= 0);
+        mount_root(GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0), FS_TARFS, MOUNT_RDONLY);
+    } else {
+        if (dev_ops_lookup(GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE0 + 1)).seek != (void*)1) {
+            mount_root(GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE0 + 1), FS_FAT, MOUNT_RDONLY);
+        } else {
+            mount_root(GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE0), FS_FAT, MOUNT_RDONLY);
+        }
+    }
 
     inode_t * dev_inode = NULL;
     if (openat_inode(current_process->root, "/dev", O_DIRECTORY | O_RDONLY, 0, &dev_inode, 0) < 0) {

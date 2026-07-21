@@ -322,6 +322,12 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
     clear screen type J/0J 1J 2J 3J, K/0K 1K 2K
     scroll commands S T
     */
+
+    extern char early_init;
+    // sscanf requires us to do fmemopen, which is not available until the kernel heap is ready
+    // in addition, panic() does \[H, which without sscanf would yield the same color and thus unreadable text
+    if (early_init) return;
+
     switch (ansi_sequence[1]) { // 1 char escapes
         case 'm':
             reset_graphics:

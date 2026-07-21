@@ -479,10 +479,9 @@ __attribute__((optimize("O3"))) void vbe_swap_region(unsigned int start_x, unsig
     switch (vbe_current_mode->info.bpp) {
         case 32:
             for (unsigned int y = start_y; y <= end_y; y++) {
-                for (unsigned int x = start_x; x <= end_x; x++) {
-                    ((uint32_t *)LINEAR_FRAMEBUFFER_START)[y * vbe_current_mode->info.pitch / 4 + x] =
-                        back_framebuffer[y * back_framebuffer_w + x];
-                }
+                    memcpy(((uint32_t *)LINEAR_FRAMEBUFFER_START) + y * vbe_current_mode->info.pitch / 4 + start_x,
+                        back_framebuffer + y * back_framebuffer_w + start_x,
+                        end_x - start_x);
             }
             break;
         case 24:
@@ -750,9 +749,7 @@ void vbe_fill_buffered(unsigned int start_x, unsigned int end_x, unsigned start_
     {
         if (vbe_current_mode->info.memory_model == VBE_MEMORY_MODEL_PACKED) {
             for (unsigned int y = start_y; y <= end_y; y++) {
-                for (unsigned int x = start_x; x <= end_x; x++) {
-                    back_framebuffer[y * back_framebuffer_w + x] = packed_color;
-                }
+                memset(back_framebuffer + y * back_framebuffer_w + start_x, packed_color, end_x - start_x);
             }
         } else {
             for (unsigned int y = start_y; y <= end_y; y++) {
@@ -783,19 +780,14 @@ void vbe_fill_buffered(unsigned int start_x, unsigned int end_x, unsigned start_
 void vbe_hw_shift_scanlines(unsigned int scanlines) {
     spinlock_acquire_interruptible(&framebuffer_lock);
     if (back_framebuffer != NULL) {
-        for (unsigned int i = scanlines; i < back_framebuffer_h; i++) {
-            memcpy(back_framebuffer + (i-scanlines) * back_framebuffer_w,
-                    back_framebuffer + i * back_framebuffer_w,
-                    back_framebuffer_w * sizeof(*back_framebuffer));
-        }
+        memcpy(back_framebuffer,
+                back_framebuffer + scanlines * back_framebuffer_w,
+                (back_framebuffer_h - scanlines) * back_framebuffer_w * sizeof(*back_framebuffer));
+        vbe_swap_region(0, display_width, 0, display_height - scanlines);
     } else {
-        for (unsigned int i = scanlines; i < display_height; i++) {
-            memcpy(LINEAR_FRAMEBUFFER_START + (i-scanlines) * vbe_current_mode->info.pitch,
-                    LINEAR_FRAMEBUFFER_START + i * vbe_current_mode->info.pitch,
-                    vbe_current_mode->info.pitch);
-        }
+        memcpy(LINEAR_FRAMEBUFFER_START,
+                LINEAR_FRAMEBUFFER_START + scanlines * vbe_current_mode->info.pitch,
+                (display_height - scanlines) * vbe_current_mode->info.pitch);
     }
     spinlock_release(&framebuffer_lock);
-
-    vbe_swap_region(0, display_width, 0, display_height - scanlines);
 }

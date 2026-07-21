@@ -51,12 +51,22 @@ For making an ISO, you additionally need:
 Then either do `make kernel` to build just the kernel,\
 `make all` to create the kernel, utils and memdisk, or\
 `make iso` to create an iso from the kernel, utils and memdisk
+### Minimum requirements
+---
+CPU: 486 class with built-in x87 math coprocessor\
+RAM: at least 2.5MiB for basic kernel, 3.5MiB for stable fork()\
+HDD: either boot live or 5MiB ATA1+ to store all utilities\
+GFX: IBM Video Graphics Array and a monitor with a resolution of 640x480 [^1]\
+[^1]: or edit src/vga.c:394 to vga_set_mode_13 and a 320x200 composite monitor
+
 ### Testing in a VM
 ---
 UnstableOS.bin is an ELF image conforming to the Multiboot specification\
 So you need to load it as a Multiboot kernel\
 \
 The last multiboot module is considered as the initial filesystem\
+In case no module is found, hd0p1 and then hd0 formatted as FAT are assumed to be root\
+`/init` is assumed to be the init process and must exist on the root device\
 For qemu you can do (assuming `make iso`):\
 `qemu-system-i386 -m 100M -cdrom build/UnstableOS.iso`
 ### Known bugs/issues/quirks
