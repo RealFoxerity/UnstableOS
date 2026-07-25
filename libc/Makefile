@@ -1,18 +1,26 @@
-CC		:=i686-elf-gcc
-AS		:=i686-elf-as
-LD		:=i686-elf-ld
-CFLAGS	:=-ffreestanding -nostdlib -nodefaultlibs -Og -g -Isrc/include -march=i486
-LDFLAGS	:=-T src/linker.ld -lgcc
+ifneq ($(words $(MAKECMDGOALS)),1)
+.DEFAULT_GOAL = all
+%:
+	@$(MAKE) $@ --no-print-directory -rRf $(firstword $(MAKEFILE_LIST))
+else
 
-OBJS=$(shell find src/ -name "*.[cs]" | grep -vE "crt..s" | sed 's/[cs]$$/o/g') $(shell $(CC) --print-libgcc-file-name)
+ifndef PROGRESS_LABEL
+PROG_TOTAL != ${MAKE} ${MAKECMDGOALS} --dry-run PROGRESS_LABEL="PROG_SENTINEL" | grep -c "PROG_SENTINEL"
 
-CRT_OBJS=$(shell find src/ -name "crt*.s" | sed 's/s$$/o/g')
+ifeq ($(PROG_TOTAL),0)
+PROGRESS_LABEL = :
+else
+PROG_COUNT = $(eval PROG_N != expr ${PROG_N} + 1)${PROG_N}
+PROGRESS_LABEL = echo "[`expr ${PROG_COUNT} '*' 100 / ${PROG_TOTAL}`%]"
+endif
+endif
 
-all: $(OBJS) $(CRT_OBJS)
-	mkdir -p build
-	ar rsc build/libc.a $(OBJS)
+default: all
 
-.PHONY: clean
-clean:
-	rm -f $(shell find src/ -name "*.o")
-	rm -f build/*
+include Include.mk
+
+all: $(LIBC_LIB) $(LIBC_OBJS_CRT)
+
+.PHONY: default all
+
+endif

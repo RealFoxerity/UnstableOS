@@ -369,7 +369,7 @@ off_t hd_seek_ata(file_descriptor_t *file, off_t off, int whence) {
     return generic_seek(file, off, whence, max_off);
 }
 
-long hd_open_ata(inode_t * inode) {
+long hd_open_ata(inode_t * inode, unsigned short flags) {
     kassert(inode);
     kassert(S_ISBLK(inode->mode));
 

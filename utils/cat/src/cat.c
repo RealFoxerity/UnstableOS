@@ -15,6 +15,7 @@ int main(int argc, char ** argv) {
         fd = open(argv[1], O_RDONLY, 0);
     }
 
+
     if (fd < 0) {
         fprintf(stderr, "cat: cannot access %s: %s\n", argv[1], strerror(errno));
         return 1;
