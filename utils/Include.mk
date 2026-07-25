@@ -26,7 +26,7 @@ $(UTILS_BUILD_DIR)/$(1): $$(shell find $(UTILS_ROOT)/$(1)/src/ -type f -name "*.
 	@$$(PROGRESS_LABEL) Building $$(patsubst $$(MAKE_ROOT)/%,%,$$(abspath $$@))
 	@mkdir -p $$(dir $$@)
 	@files=$$$$(find $(UTILS_ROOT)/$(1)/src/ -type f -name "*.[cs]" 2>/dev/null); \
-	$$(CC) $(LIBC_CRT0) $(LIBC_CRTI) $(LIBC_CRTBEGIN) $$$$files $(LIBC_CRTEND) $(LIBC_CRTN) $(UTILS_CFLAGS) -I$(1)/src/include -o $$@
+	$$(CC) $(LIBC_CRT0) $(LIBC_CRTI) $(LIBC_CRTBEGIN) $$$$files $(LIBC_CRTEND) $(LIBC_CRTN) $(UTILS_CFLAGS) -I$(UTILS_ROOT)/$(1)/src/include -o $$@
 endef
 
 $(foreach util,$(UTILS),$(eval $(call DEFINE_UTIL_RULE,$(util))))

@@ -56,9 +56,6 @@ run: build/hda.dd
 .PHONY: FORCE default all build kernel iso clean run
 FORCE:
 
-# ------------------------------------------------------------
-# Anything beyond this point is NOT completely refactored!
-
 build/UnstableOS.bin: $(LIBC_LIB) $(OBJS)
 	@$(PROGRESS_LABEL) Linking $@
 	@mkdir -p build
