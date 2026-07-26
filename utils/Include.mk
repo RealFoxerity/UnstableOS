@@ -19,14 +19,22 @@ endif
 UTILS := cat clear ls mkdir mount pwd rename rm rmdir setsid sleep stty umount xxd ysh
 UTILS_BINS = $(patsubst %, $(UTILS_BUILD_DIR)/%, $(UTILS))
 
-UTILS_CFLAGS := $(CFLAGS) -ffreestanding -static -nostdlib -lgcc -nodefaultlibs -Og -g $(LIBC_INCLUDES) -Isrc/include $(LIBC_LIB) -lgcc
+UTILS_CFLAGS := $(CFLAGS) -ffreestanding -Og -g $(LIBC_INCLUDES) -MMD -MP
+UTILS_LDFLAGS := -static -nostdlib -nodefaultlibs
+UTILS_LDLIBS := $(LIBC_LIB) -lgcc
 
 define DEFINE_UTIL_RULE
-$(UTILS_BUILD_DIR)/$(1): $$(shell find $(UTILS_ROOT)/$(1)/src/ -type f -name "*.[cs]" 2>/dev/null) $(LIBC_LIB) $(LIBC_CRT0) $(LIBC_CRTI) $(LIBC_CRTN)
+UTILS_SRCS_$(1) := $$(shell find $(UTILS_ROOT)/$(1)/src/ -type f -name "*.[cs]" 2>/dev/null)
+
+$(UTILS_BUILD_DIR)/$(1): $$(UTILS_SRCS_$(1)) $(LIBC_LIB) $(LIBC_CRT0) $(LIBC_CRTI) $(LIBC_CRTN)
 	@$$(PROGRESS_LABEL) Building $$(patsubst $$(MAKE_ROOT)/%,%,$$(abspath $$@))
 	@mkdir -p $$(dir $$@)
-	@files=$$$$(find $(UTILS_ROOT)/$(1)/src/ -type f -name "*.[cs]" 2>/dev/null); \
-	$$(CC) $(LIBC_CRT0) $(LIBC_CRTI) $(LIBC_CRTBEGIN) $$$$files $(LIBC_CRTEND) $(LIBC_CRTN) $(UTILS_CFLAGS) -I$(UTILS_ROOT)/$(1)/src/include -o $$@
+	@$$(CC) $(UTILS_CFLAGS) -I$(UTILS_ROOT)/$(1)/src/include \
+		$(UTILS_LDFLAGS) \
+		$(LIBC_CRT0) $(LIBC_CRTI) $(LIBC_CRTBEGIN) \
+		$$(UTILS_SRCS_$(1)) \
+		$(UTILS_LDLIBS) $(LIBC_CRTEND) $(LIBC_CRTN) \
+		-o $$@
 endef
 
 $(foreach util,$(UTILS),$(eval $(call DEFINE_UTIL_RULE,$(util))))
@@ -37,3 +45,5 @@ clean::
 .PHONY: clean
 
 endif
+
+-include $(UTILS_BINS:=.d)
