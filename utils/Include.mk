@@ -13,7 +13,7 @@ endif
 ifeq ($(MAKE_ROOT),$(UTILS_ROOT))
 UTILS_BUILD_DIR := $(MAKE_ROOT)/build
 else
-UTILS_BUILD_DIR := $(MAKE_ROOT)/build/libc
+UTILS_BUILD_DIR := $(MAKE_ROOT)/build/utils
 endif
 
 UTILS := cat clear ls mkdir mount pwd rename rm rmdir setsid sleep stty umount xxd ysh

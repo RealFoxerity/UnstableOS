@@ -1,3 +1,5 @@
+CC := i686-elf-gcc
+
 ifneq ($(words $(MAKECMDGOALS)),1)
 .DEFAULT_GOAL = all
 %:
@@ -74,7 +76,7 @@ build/UnstableOS.iso: build/UnstableOS.bin build/memdisk.tar
 		-no-emul-boot \
 		-r -boot-info-table \
 		-o build/UnstableOS.iso build/iso \
-		-quiet 2> /dev/null
+		2> /dev/null
 
 	@limine bios-install build/UnstableOS.iso 2> /dev/null
 

@@ -8,10 +8,10 @@
 
 const static struct timespec ata_spinup_timeout = {.tv_sec = 30};
 
-// checking for ERR bit, 1msec * 30 attempts with each 10th attempt soft resetting the bus
-// for context, 5 msec per command (assuming single block transfer) is 100 KiB/s, which is abysmally slow,
+// checking for ERR bit, 10msec * 30 attempts with each 10th attempt soft resetting the bus
+// for context, 10 msec per command (assuming single block transfer) is 50 KiB/s, which is so abysmally slow,
 // that it's basically guaranteed that if the device is ok, the command will finish in time
-const static struct timespec ata_command_timeout = {.tv_nsec = 1000000};
+const static struct timespec ata_command_timeout = {.tv_nsec = 10000000};
 #define ATA_MAXIMUM_ATTEMPTS 30
 
 /* return values for ata_send_command

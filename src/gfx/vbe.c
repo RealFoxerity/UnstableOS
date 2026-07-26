@@ -481,17 +481,17 @@ __attribute__((optimize("O3"))) void vbe_swap_region(unsigned int start_x, unsig
             for (unsigned int y = start_y; y <= end_y; y++) {
                     memcpy(((uint32_t *)LINEAR_FRAMEBUFFER_START) + y * vbe_current_mode->info.pitch / 4 + start_x,
                         back_framebuffer + y * back_framebuffer_w + start_x,
-                        end_x - start_x);
+                        (end_x - start_x) * (32/8));
             }
             break;
         case 24:
             for (unsigned int y = start_y; y <= end_y; y++) {
                 for (unsigned int x = start_x; x <= end_x; x++) {
-                    ((uint8_t *)LINEAR_FRAMEBUFFER_START)[y * vbe_current_mode->info.pitch + x] =
+                    ((uint8_t *)LINEAR_FRAMEBUFFER_START)[y * vbe_current_mode->info.pitch + x + 0] =
                         back_framebuffer[y * back_framebuffer_w + x] & 0xFF;
-                    ((uint8_t *)LINEAR_FRAMEBUFFER_START)[y * vbe_current_mode->info.pitch + x] =
+                    ((uint8_t *)LINEAR_FRAMEBUFFER_START)[y * vbe_current_mode->info.pitch + x + 1] =
                         back_framebuffer[y * back_framebuffer_w + x] >> 8 & 0xFF;
-                    ((uint8_t *)LINEAR_FRAMEBUFFER_START)[y * vbe_current_mode->info.pitch + x] =
+                    ((uint8_t *)LINEAR_FRAMEBUFFER_START)[y * vbe_current_mode->info.pitch + x + 2] =
                         back_framebuffer[y * back_framebuffer_w + x] >> 16 & 0xFF;
                 }
             }
@@ -644,9 +644,9 @@ static void __vbe_write_framebuffer_unbuffered(unsigned int x, unsigned int y, u
                     *(uint16_t *)dest = raw;
                     break;
                 case 24:
-                    *(uint8_t *)dest = raw >> 16;
-                    *(uint8_t *)dest = raw >> 8;
-                    *(uint8_t *)dest = raw >> 0;
+                    *(uint8_t *)(dest + 0) = raw >> 16;
+                    *(uint8_t *)(dest + 1) = raw >> 8;
+                    *(uint8_t *)(dest + 2) = raw >> 0;
                     break;
                 case 32:
                     *(uint32_t *)dest = raw;
@@ -783,11 +783,12 @@ void vbe_hw_shift_scanlines(unsigned int scanlines) {
         memcpy(back_framebuffer,
                 back_framebuffer + scanlines * back_framebuffer_w,
                 (back_framebuffer_h - scanlines) * back_framebuffer_w * sizeof(*back_framebuffer));
+        spinlock_release(&framebuffer_lock);
         vbe_swap_region(0, display_width, 0, display_height - scanlines);
     } else {
         memcpy(LINEAR_FRAMEBUFFER_START,
                 LINEAR_FRAMEBUFFER_START + scanlines * vbe_current_mode->info.pitch,
                 (display_height - scanlines) * vbe_current_mode->info.pitch);
+        spinlock_release(&framebuffer_lock);
     }
-    spinlock_release(&framebuffer_lock);
 }
