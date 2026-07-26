@@ -116,7 +116,7 @@ void vbe_gather_info() {
         if ( vbe_mode_info->pitch * vbe_mode_info->height * vbe_mode_info->bpp / 8 > LINEAR_FRAMEBUFFER_MAX_SIZE)
             continue; // we wouldn't be able to map the framebuffer all in
 
-        /*
+
         kprintf("VBE: (%hx) %ux%ux%hhu %c, fbaddr %lx\n",
             *video_modes,
             vbe_mode_info->width, vbe_mode_info->height,
@@ -130,7 +130,7 @@ void vbe_gather_info() {
             vbe_mode_info->green_mask, vbe_mode_info->green_position,
             vbe_mode_info->blue_mask, vbe_mode_info->blue_position,
             vbe_mode_info->memory_model);
-        */
+
         switch (vbe_mode_info->memory_model) {
             case VBE_MEMORY_MODEL_PACKED:
             case VBE_MEMORY_MODEL_DIRECT:
@@ -273,12 +273,13 @@ void gather_EDID_info_and_set_mode() {
     // ebx specifies level of DDC support (and blanking during EDID transfer)
     v86_mcontext_t vbe_returns = v86_call_bios(X86_VIDEO_INT, (v86_mcontext_t){.eax = VBE_DDC, .ebx = 0, .ecx = 0});
     if (vbe_returns.eax != VBE_SUCCESS_AX) {
+        fallback:
 #ifdef VBE_EDID_ASSUME_VIRTUAL_ON_FAILURE
         kprintf("VBE: Warning: Display doesn't support DDC, probably a virtual device, setting highest\n");
         vbe_set_info(vbe_get_highest_mode());
 #else
         kprintf("VBE: Warning: Display doesn't support DDC, cannot determine correct resolution, setting safe\n");
-        vbe_set_mode(640, 480); // one of the guaranteed once to be supported by each VESA device
+        vbe_set_mode(640, 480); // one of the guaranteed ones to be supported by each VESA device
 #endif
         return;
     }
@@ -294,12 +295,12 @@ void gather_EDID_info_and_set_mode() {
         (vbe_returns.edi & 0xFFFF) != (unsigned long)vbe_edid_block)
     {
         kprintf("VBE: Warning: Failed to read EDID, cannot determine correct resolution\n");
-        return;
+        goto fallback;
     }
 
     if (!check_edid_block(vbe_edid_block)) {
         kprintf("VBE: Warning: Returned EDID failed the checksum, cannot determine correct resolution\n");
-        return;
+        goto fallback;
     }
 
     struct VBE_modes_list * best_supported = vbe_get_specified_mode(640, 480); // guaranteed to exist
@@ -487,11 +488,11 @@ __attribute__((optimize("O3"))) void vbe_swap_region(unsigned int start_x, unsig
         case 24:
             for (unsigned int y = start_y; y <= end_y; y++) {
                 for (unsigned int x = start_x; x <= end_x; x++) {
-                    ((uint8_t *)LINEAR_FRAMEBUFFER_START)[y * vbe_current_mode->info.pitch + x + 0] =
+                    ((uint8_t *)LINEAR_FRAMEBUFFER_START)[y * vbe_current_mode->info.pitch + x * 3 + 0] =
                         back_framebuffer[y * back_framebuffer_w + x] & 0xFF;
-                    ((uint8_t *)LINEAR_FRAMEBUFFER_START)[y * vbe_current_mode->info.pitch + x + 1] =
+                    ((uint8_t *)LINEAR_FRAMEBUFFER_START)[y * vbe_current_mode->info.pitch + x * 3 + 1] =
                         back_framebuffer[y * back_framebuffer_w + x] >> 8 & 0xFF;
-                    ((uint8_t *)LINEAR_FRAMEBUFFER_START)[y * vbe_current_mode->info.pitch + x + 2] =
+                    ((uint8_t *)LINEAR_FRAMEBUFFER_START)[y * vbe_current_mode->info.pitch + x * 3 + 2] =
                         back_framebuffer[y * back_framebuffer_w + x] >> 16 & 0xFF;
                 }
             }

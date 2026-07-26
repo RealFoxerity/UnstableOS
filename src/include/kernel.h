@@ -79,14 +79,17 @@ if not selected, reschedule only happens on cleanup and non-running thread state
 
 // most devices start at sc2 and need lookup tables to convert to sc1
 // some devices allow to directly set them as sc1, meaning we can skip the conversion
+// additionally, some devices might do scancode translation in the bios, especially in emulation
+// which makes the setting break keyboard input
 //#define PS2_TRY_TO_NEGOTIATE_SC1
 #define PS2_MOUSE_PACKET_SPEED 40 // per second; can be 10, 20, 40, 80, 100, 200
 //#define PS2_MOUSE_LINUX_COMPAT // makes the psaux device work as it does on linux - 3 bytes; no scroll wheel/5 buttons
 
 // assuming the monitor and gpu is from at least 1994, it should support DDC/EDID
-// in cases it doesn't, we can either give up, or assume it's a virtual monitor/gpu that doesn't implement DDC/EDID
+// in cases it doesn't, we can either give up and use 640x480,
+// or assume it's a virtual monitor/gpu that doesn't implement DDC/EDID
 // e.g. QEMU qxl vga device
-#define VBE_EDID_ASSUME_VIRTUAL_ON_FAILURE
+//#define VBE_EDID_ASSUME_VIRTUAL_ON_FAILURE
 
 // upper limit for the BGA resolution so we don't set something like 16000x12000
 #define BGA_MAX_ALLOWABLE_XRES 1920

@@ -101,7 +101,7 @@ static inline char ps2_disable_scanning(char device_num) {
     }
     return 1;
 }
-static inline char ps2_enable_scanning(char device_num) {
+static inline char ps2_enable_scanning(uint8_t device_num) {
     uint8_t res_byte;
     for (int i = 0; i <= PS2_RETRY_COUNT; i++) {
         if (i == PS2_RETRY_COUNT){
@@ -159,6 +159,30 @@ static inline char test_ps2_device(char device_num) {
     return 0;
 }
 
+static char ps2_keyboard_get_cs(uint8_t device_num) {
+    uint8_t res_byte;
+
+    for (int i = 0; i <= PS2_RETRY_COUNT; i++) {
+        if (i == PS2_RETRY_COUNT) return PS2_SCAN_CODE_SET_1;
+        if (device_num == 2) ps2_prepare_send_port_2();
+        ps2_wait_until_ready_w();
+        outb(PS2_DATA_PORT, PS2_COMMAND_SCAN_CODE);
+        ps2_wait_until_ready_w();
+        outb(PS2_DATA_PORT, PS2_SCAN_CODE_GET_CURRENT);
+        ps2_wait_until_ready_r(device_num);
+        if ((res_byte = inb(PS2_DATA_PORT)) == PS2_RESPONSE_ACK) break;
+        else if (res_byte != PS2_RESPONSE_RESEND_LAST_BYTE) {
+            //kprintf("Warning: PS/2 device %d responded with garbage to get scancode set command, attempt %d/3\n", device_num, i+1);
+        }
+    }
+    ps2_wait_until_ready_r(device_num);
+    res_byte = inb(PS2_DATA_PORT);
+    // some VMs don't support the command and return 0xFA (VirtualBox)
+    // as well as some ancient laptop keyboards (at least on the Acer TravelMate 230X)
+    if (res_byte == PS2_RESPONSE_ACK) return PS2_SCAN_CODE_SET_1;
+    return res_byte;
+}
+
 static inline char ps2_keyboard_set_cs1(uint8_t device_num) {
 #ifndef PS2_TRY_TO_NEGOTIATE_SC1
     return 0;
@@ -166,7 +190,6 @@ static inline char ps2_keyboard_set_cs1(uint8_t device_num) {
     uint8_t res_byte;
     for (int i = 0; i <= PS2_RETRY_COUNT; i++) {
         if (i == PS2_RETRY_COUNT) {
-            errored:
             kprintf("Error: Device %d failed to switch to scan code set 1\n", device_num);
             return 0;
         }
@@ -183,22 +206,8 @@ static inline char ps2_keyboard_set_cs1(uint8_t device_num) {
     }
 
 
-    for (int i = 0; i <= PS2_RETRY_COUNT; i++) {
-        if (i == PS2_RETRY_COUNT) goto errored;
-        if (device_num == 2) ps2_prepare_send_port_2();
-        ps2_wait_until_ready_w();
-        outb(PS2_DATA_PORT, PS2_COMMAND_SCAN_CODE);
-        ps2_wait_until_ready_w();
-        outb(PS2_DATA_PORT, PS2_SCAN_CODE_GET_CURRENT);
-        ps2_wait_until_ready_r(device_num);
-        if ((res_byte = inb(PS2_DATA_PORT)) == PS2_RESPONSE_ACK) break;
-        else if (res_byte != PS2_RESPONSE_RESEND_LAST_BYTE) {
-            //kprintf("Warning: PS/2 device %d responded with garbage to get scancode set command, attempt %d/3\n", device_num, i+1);
-        }
-    }
-    ps2_wait_until_ready_r(device_num);
-    res_byte = inb(PS2_DATA_PORT);
-    if (res_byte == PS2_RESPONSE_ACK) return 1; // some VMs don't support the command and return 0xFA (VirtualBox)
+    res_byte = ps2_keyboard_get_cs(device_num);
+
     if (res_byte != PS2_SCAN_CODE_SET_1) {
         kprintf("Error: PS/2 device %d refused to switch to scancode set 1 (got scs %hhx)\n", device_num, res_byte);
         return 0;
@@ -392,10 +401,14 @@ static inline void ps2_init_device(uint8_t device_num) { // todo: implement time
 
         case PS2_DEVICE_KEYBOARD:
         case PS2_DEVICE_NCD_SUN_KEYBOARD:
-            if (!ps2_keyboard_set_cs1(device_num)) {
+            ps2_present_devices[device_num - 1].scan_code_set = ps2_keyboard_get_cs(device_num);
+            if (ps2_present_devices[device_num - 1].scan_code_set != 1 &&
+                !ps2_keyboard_set_cs1(device_num)) {
                 kprintf("Falling back to scancode set 2\n");
                 ps2_present_devices[device_num-1].scan_code_set = 2;
-            } else ps2_present_devices[device_num-1].scan_code_set = 1;
+            } else {
+                ps2_present_devices[device_num-1].scan_code_set = 1;
+            }
             switch (id_minor) {
                 case PS2_DEVICE_KEYBOARD_MF2_1:
                 case PS2_DEVICE_KEYBOARD_MF2_2:
@@ -431,10 +444,14 @@ static inline void ps2_init_device(uint8_t device_num) { // todo: implement time
             break;
         default:
             kprintf("Unknown device type (%d) on device number %d, assuming keyboard\n", id_major, device_num);
-            if (!ps2_keyboard_set_cs1(device_num)) {
+            ps2_present_devices[device_num - 1].scan_code_set = ps2_keyboard_get_cs(device_num);
+            if (ps2_present_devices[device_num - 1].scan_code_set != 1 &&
+                !ps2_keyboard_set_cs1(device_num)) {
                 kprintf("Falling back to scancode set 2\n");
                 ps2_present_devices[device_num-1].scan_code_set = 2;
-            } else ps2_present_devices[device_num-1].scan_code_set = 1;
+            } else {
+                ps2_present_devices[device_num-1].scan_code_set = 1;
+            }
             break;
     }
 
@@ -623,7 +640,7 @@ static void ps2_keyboard_driver_internal(char device_num) {
 
     uint8_t current_byte = inb(PS2_DATA_PORT);
     if (ps2_present_devices[device_num-1].present == 0) {
-        kprintf("Recieved an interrupt for a disabled device! Ignoring\n");
+        kprintf("Received an interrupt for a disabled device! Ignoring\n");
         return;
     }
     enum ps2_internal_states * internal_state;
