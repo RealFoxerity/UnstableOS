@@ -23,7 +23,7 @@ else
 LIBC_BUILD_DIR := $(MAKE_ROOT)/build/libc
 endif
 
-LIBC_CFLAGS := $(CFLAGS) -ffreestanding -nostdlib -nodefaultlibs -std=gnu99 -I$(LIBC_ROOT)/src/include
+LIBC_CFLAGS := $(CFLAGS) -ffreestanding -nostdlib -nodefaultlibs -std=gnu99 -I$(LIBC_ROOT)/src/include -MMD -MP
 
 ifeq ($(DEBUG), 1)
 	LIBC_CFLAGS += -Og -g
@@ -68,3 +68,6 @@ clean::
 .PHONY: clean
 
 endif
+
+-include $(LIBC_OBJS:.o=.d)
+-include $(LIBC_OBJS_CRT:.o=.d)

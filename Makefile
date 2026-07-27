@@ -33,7 +33,8 @@ include utils/Include.mk
 
 KERNEL_CFLAGS := $(CFLAGS) 	-ffreestanding -nostdlib -nodefaultlibs \
 	-nostartfiles -std=gnu99 -Isrc/include $(LIBC_INCLUDES) \
-	-Wall -Wno-unknown-pragmas -fno-strict-aliasing -fstack-protector -march=i486
+	-Wall -Wno-unknown-pragmas -fno-strict-aliasing -fstack-protector -march=i486 \
+	-MMD -MP
 
 KERNEL_LDFLAGS := -T src/linker.ld $(LIBC_LIB) -lgcc
 
@@ -116,3 +117,5 @@ build/src/kernel_syscall.c.o: src/kernel_syscall.c
 	@$(CC) $(KERNEL_CFLAGS) -mgeneral-regs-only -mno-red-zone -c $< -o $@
 
 endif
+
+-include $(OBJS:.o=.d)
