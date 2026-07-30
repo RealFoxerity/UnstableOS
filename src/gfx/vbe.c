@@ -116,7 +116,7 @@ void vbe_gather_info() {
         if ( vbe_mode_info->pitch * vbe_mode_info->height * vbe_mode_info->bpp / 8 > LINEAR_FRAMEBUFFER_MAX_SIZE)
             continue; // we wouldn't be able to map the framebuffer all in
 
-
+        /*
         kprintf("VBE: (%hx) %ux%ux%hhu %c, fbaddr %lx\n",
             *video_modes,
             vbe_mode_info->width, vbe_mode_info->height,
@@ -130,7 +130,7 @@ void vbe_gather_info() {
             vbe_mode_info->green_mask, vbe_mode_info->green_position,
             vbe_mode_info->blue_mask, vbe_mode_info->blue_position,
             vbe_mode_info->memory_model);
-
+        */
         switch (vbe_mode_info->memory_model) {
             case VBE_MEMORY_MODEL_PACKED:
             case VBE_MEMORY_MODEL_DIRECT:
@@ -190,10 +190,10 @@ void vbe_set_info(const struct VBE_modes_list * mode) {
     // among other things
     gfx_remap_framebuffer((void *)mode->info.framebuffer_paddr, vbe_framebuffer_size, 0);
 
-    if (display_width < mode->info.width)
-        display_width = mode->info.width;
-    if (display_height < mode->info.height)
-        display_height = mode->info.height;
+    display_width  = mode->info.width;
+    display_height = mode->info.height;
+
+    vga_funcs.hw_shift_pixels(-1); // reset hw scrolling registers (for S/VGA compatible modes)
 }
 
 static struct VBE_modes_list * vbe_get_specified_mode(int xres, int yres) {
@@ -645,9 +645,9 @@ static void __vbe_write_framebuffer_unbuffered(unsigned int x, unsigned int y, u
                     *(uint16_t *)dest = raw;
                     break;
                 case 24:
-                    *(uint8_t *)(dest + 0) = raw >> 16;
+                    *(uint8_t *)(dest + 0) = raw >> 0;
                     *(uint8_t *)(dest + 1) = raw >> 8;
-                    *(uint8_t *)(dest + 2) = raw >> 0;
+                    *(uint8_t *)(dest + 2) = raw >> 16;
                     break;
                 case 32:
                     *(uint32_t *)dest = raw;
@@ -779,6 +779,8 @@ void vbe_fill_buffered(unsigned int start_x, unsigned int end_x, unsigned start_
     if (back_framebuffer != NULL) vbe_swap_region(start_x, end_x, start_y, end_y);
 }
 void vbe_hw_shift_scanlines(unsigned int scanlines) {
+    if (scanlines == -1)
+        return; // the reset case, we don't support hw scrolling so nothing to do
     spinlock_acquire_interruptible(&framebuffer_lock);
     if (back_framebuffer != NULL) {
         memcpy(back_framebuffer,

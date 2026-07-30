@@ -38,7 +38,7 @@ enum console_colors_palette {
 // don't make assumptions of buffered operations to be actually buffered
 // assuming hw_shift_scanlines is null, shift_pixels is used
 // always set at least one to something
-
+// either shifting function with the value of -1 resets the registers to 0
 struct gfx_funcs {
     void (*clear_screen)(); // direct, unbuffered, use write pixel otherwise
     void (*swap_region)(unsigned int start_x, unsigned int end_x, unsigned int start_y, unsigned int end_y);

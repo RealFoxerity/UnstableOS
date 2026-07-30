@@ -187,6 +187,8 @@ void vga_hw_shift_pixels(unsigned int pixels) {
     #ifndef VGA_NO_HW_SHIFT
     spinlock_acquire_interruptible(&gfx_spinlock);
     vga_pixel_offset += pixels;
+    if (pixels == -1)
+        vga_pixel_offset = 0;
 
     switch (current_vga_mode) {
         case MODE12:
