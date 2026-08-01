@@ -1,5 +1,7 @@
 CC := i686-elf-gcc
 
+QEMUFLAGS := -no-shutdown -no-reboot -m 64M -cpu 486 -display sdl -serial stdio -vga cirrus
+
 ifneq ($(words $(MAKECMDGOALS)),1)
 .DEFAULT_GOAL = all
 %:
@@ -34,7 +36,7 @@ include utils/Include.mk
 KERNEL_CFLAGS := $(CFLAGS) 	-ffreestanding -nostdlib -nodefaultlibs \
 	-nostartfiles -std=gnu99 -Isrc/include $(LIBC_INCLUDES) \
 	-Wall -Wno-unknown-pragmas -fno-strict-aliasing -fstack-protector -march=i486 \
-	-MMD -MP
+	-MMD -MP #-DUSE_LEGACY_PFA
 
 KERNEL_LDFLAGS := -T src/linker.ld $(LIBC_LIB) -lgcc
 
@@ -46,18 +48,22 @@ all: build
 build: iso
 
 kernel: build/UnstableOS.bin
-
+memdisk: build/memdisk.tar
+hdimg: build/hda.dd
 iso: build/UnstableOS.iso
 
 clean::
 	@rm -rf build
 
-run: build/hda.dd
-	qemu-system-i386 -no-shutdown -no-reboot -m 64M -cpu 486 -kernel build/UnstableOS.bin -initrd build/memdisk.tar -display sdl -serial stdio -hda build/hda.dd -vga cirrus
-	#qemu-system-i386 -no-shutdown -no-reboot -m 64M -cdrom build/UnstableOS.iso -display sdl -serial stdio -hda build/hda.dd -vga cirrus
+run-kernel: kernel memdisk hdimg
+	qemu-system-i386 $(QEMUFLAGS) -hda build/hda.dd -kernel build/UnstableOS.bin -initrd build/memdisk.tar
 
-.PHONY: FORCE default all build kernel iso clean run
-FORCE:
+run-iso: iso hdimg
+	qemu-system-i386 $(QEMUFLAGS) -hda build/hda.dd -cdrom build/UnstableOS.iso -cpu pentium2
+
+run: run-kernel
+
+.PHONY: default all build kernel memdisk hdimg iso clean run
 
 build/UnstableOS.bin: $(LIBC_LIB) $(OBJS)
 	@$(PROGRESS_LABEL) Linking $@

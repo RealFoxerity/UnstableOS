@@ -1,3 +1,5 @@
+#ifdef USE_LEGACY_PFA
+
 #include "../include/mm/kernel_memory.h"
 #include "../include/multiboot.h"
 #include <stdint.h>
@@ -240,3 +242,5 @@ unsigned long pf_get_free_memory() {
     for (int i = 0; i < page_frame_table_entries; i++) if (page_frame_table[i] == PFALLOC_UNUSED) free_mem += PAGE_SIZE_NO_PAE;
     return free_mem;
 }
+
+#endif

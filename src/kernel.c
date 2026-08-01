@@ -31,7 +31,7 @@
 #include "include/gfx/vbe.h"
 #include "pci/pci.h"
 #include "block/ata/ata.h"
-
+#include "mm/pmm.h"
 
 char early_init = 1;
 // goes to 0 0 so that the scrolling of the panic message doesn't take forever
@@ -96,7 +96,7 @@ void panic(char * reason) {
 }
 
 void kernel_entry_addr_log() {
-    kprintf("Kernel loaded at physical address from 0x%p to 0x%p\n", &_kernel_base, &_kernel_top);
+    kprintf("Kernel loaded at physical address from 0x%p to 0x%p\n", KERNEL_START, KERNEL_END);
 }
 
 #define CPUID_PROCESSOR_LIST_LEN 0x21
@@ -239,7 +239,7 @@ void kernel_print_cpu_info() {
 extern struct tss_segment tss;
 extern struct idt_gate * idt_descriptor_entries;
 
-unsigned long boot_mem_top = 0; // the top of taken memory (either &_kernel_top, or the highest multiboot module)
+uintptr_t boot_mem_top = 0; // the top of taken memory (either &_kernel_top, or the highest multiboot module)
 void * kernel_mem_top = NULL; // the top of all kernel memory (identity map, heap, page frame table)
 
 time_t system_time_sec = 0;
@@ -312,7 +312,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
 
     disable_interrupts();
 
-    boot_mem_top = (uint32_t)&_kernel_top; // the lowest free address
+    boot_mem_top = (uintptr_t)KERNEL_END; // the lowest free address
     void * initrd_start = NULL;
     unsigned long initrd_len = 0;
 
@@ -391,12 +391,23 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
             } else total_usable += mmmt->len;
         }
     }
-    if (total_usable < 1<<19) panic("At least 512K of usable memory is required for basic kernel functionality!\n");
-    kernel_mem_top = page_frame_alloc_init(mbd, (void*)boot_mem_top);
-    kprintf("Kernel: Total usable RAM: %lu bytes\n", pf_get_free_memory()); //total_usable);
+    //if (total_usable < 1<<19) panic("At least 512K of usable memory is required for basic kernel functionality!\n");
+#ifndef USE_LEGACY_PFA
 
-    // initialize basic stuff
-    setup_paging(boot_mem_top);
+	// Initialize physical memory management for the pre-vmm environment
+	pmm_init_pre_vmm(mbd);
+	kernel_mem_top = KERNEL_END; // FIXME: the new PMM manages its own memory, we shouldn't need to maintain this
+	setup_paging(boot_mem_top);
+	pmm_init_post_vmm();
+	kprintf("Kernel: Total usable RAM: %lu bytes\n", pf_get_free_memory()); //total_usable);
+#else
+	kernel_mem_top = page_frame_alloc_init(mbd, (void*)boot_mem_top);
+	kprintf("Kernel: Total usable RAM: %lu bytes\n", pf_get_free_memory()); //total_usable);
+
+	// initialize basic stuff
+	setup_paging(boot_mem_top);
+#endif
+
     construct_descriptor_tables();
     enable_interrupts();
 

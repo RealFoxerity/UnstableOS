@@ -50,7 +50,18 @@
 
 #include <UnstableOS/syscalls.h>
 
-extern unsigned long _kernel_base, _kernel_top, _kernel_stack_top, boot_mem_top;
+extern char KERNEL_START[];
+extern char KERNEL_END[];
+extern char KERNEL_SECT_TEXT_START[];
+extern char KERNEL_SECT_TEXT_END[];
+extern char KERNEL_SECT_RODATA_START[];
+extern char KERNEL_SECT_RODATA_END[];
+extern char KERNEL_SECT_DATA_START[];
+extern char KERNEL_SECT_DATA_END[];
+extern char KERNEL_SECT_BSS_START[];
+extern char KERNEL_SECT_BSS_END[];
+
+extern unsigned long _kernel_stack_top, boot_mem_top;
 extern time_t system_time_sec, uptime_clicks;
 
 void __attribute__((format(printf, 1, 2))) kprintf(const char *format, ...);

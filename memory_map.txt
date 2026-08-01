@@ -6,6 +6,8 @@ Paging Virtual Memory Map
 0x04FF'F000 - 0x04FF'FFFF kernel's PDEs
 0x0500'0000 - 0x06FF'FFFF kernel heap
 
+0x0700'0000 - 0x07FF'FFFF pmm page information
+
 0x7F7F'6000 - 0x7F7F'6FFF PCB + thread map
 0x7F7F'7000 - 0x7F7F'EFFF thread TLS and TCB blueprint - 32KiB-256B
 0x7F7F'F000 - 0x7F7F'FFFF DVT
