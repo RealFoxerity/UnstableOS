@@ -90,7 +90,7 @@ build/UnstableOS.iso: build/UnstableOS.bin build/memdisk.tar
 build/memdisk.tar: $(LIBC_HEADERS) $(UTILS_BINS)
 	@$(PROGRESS_LABEL) Generating $@
 	@mkdir -p build/initmd/bin build/initmd/dev build/initmd/usr/include
-	@cp -r $(LIBC_HEADERS) build/initmd/usr/include/
+	@cp -r libc/src/include build/initmd/usr/
 	@cp $(UTILS_BINS) build/initmd/bin/
 	@cp build/initmd/bin/ysh build/initmd/init
 	@tar -C build/initmd -cf $@ init bin dev usr

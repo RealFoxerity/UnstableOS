@@ -529,7 +529,7 @@ size_t pmm_get_free_page_count()
 
 unsigned long pf_get_free_memory()
 {
-	return pmm_get_free_page_count() * 4096;
+	return pmm_get_free_page_count() * PAGE_SIZE;
 }
 
 void* pfalloc()

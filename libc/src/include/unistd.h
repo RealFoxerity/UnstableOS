@@ -82,4 +82,9 @@ long _syscall(unsigned long syscall_number, ...); // doesn't
 
 void __attribute__((noreturn)) _exit(long exit_code);
 
+
+extern char * optarg;
+extern int opterr, optind, optopt;
+
+int getopt(int argc, char * const argv[], const char *optstring);
 #endif
