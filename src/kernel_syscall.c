@@ -285,6 +285,7 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
             asm volatile ("sti;");
 
             kernel_sem_post(current_process, arg1);
+            return_value = 0;
             break;
         case SYSCALL_SEM_WAIT:
             if (arg1 < 0 || arg1 >= SEM_NSEMS_MAX) {
@@ -436,6 +437,7 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
                 break;
             }
             *(time_t*)arg1 = system_time_sec;
+            return_value = 0;
             break;
         case SYSCALL_TIMES:
             if (!paging_check_address_range((void*)arg1, sizeof(struct tms), 1, in_kernel)) {
@@ -522,6 +524,15 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
     }
     current_thread->in_critical_section = 0;
 
+
+    reload_pcb(current_process);
+    // here because we need to modify the context going into signal_dispatch_sa
+    // lower parts need to be under cli because otherwise the eax assignment blows it up
+    // reschedule directly goes into the signal handler, so no need to worry then
+
+    if (syscall_number != SYSCALL_SIGRETURN)
+        ctx->eax = return_value;
+
     asm volatile ("cli;");
 
     memcpy(&current_thread->context, ctx, sizeof(mcontext_t) - (ctx->iret_frame.cs & 3 ? 0 : 2*sizeof(void *)));
@@ -538,10 +549,4 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
     // every syscall should be rescheduling on its own, but just in case
     if (current_thread->status != SCHED_RUNNING) reschedule();
 #endif
-
-    reload_pcb(current_process);
-
-    // wont work because we do popa
-    //return return_value;
-    ctx->eax = return_value;
 }

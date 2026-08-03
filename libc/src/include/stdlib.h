@@ -2,11 +2,12 @@
 #define _STDLIB_H
 
 #include "sys/types.h"
+#include "sys/wait.h" // posix requires WIF*
+#include "fcntl.h" // posix requires O_*
+#include <limits.h>
+#define RAND_MAX (INT_MAX)
 
-#include <stdint.h>
-#define RAND_MAX (UINT32_MAX)
-
-uint32_t rand();
+int rand();
 void srand(uint32_t seed);
 
 int atexit(void (*func)());
@@ -39,4 +40,7 @@ unsigned      long strtoul (const char * __restrict start, char ** __restrict en
               long strtol  (const char * __restrict start, char ** __restrict end_out, int base);
 
 char * getenv(const char * name);
+
+
+int getsubopt(char **restrict optionp, char * const *restrict keylistp, char **restrict valuep);
 #endif

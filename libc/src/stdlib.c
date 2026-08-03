@@ -11,7 +11,7 @@
 
 static uint32_t ___internal_rand_state = 1;
 
-uint32_t rand() {
+int rand() {
     if (__builtin_expect(___internal_rand_state == 0, 0))
         ___internal_rand_state = 0xDEADBEEF;
 
@@ -21,7 +21,7 @@ uint32_t rand() {
     ___internal_rand_state ^= ___internal_rand_state >> 17;
     ___internal_rand_state ^= ___internal_rand_state << 5;
 
-    return ___internal_rand_state % RAND_MAX;
+    return (int)(___internal_rand_state % RAND_MAX);
 }
 
 void srand(uint32_t seed) {___internal_rand_state = seed;}

@@ -193,7 +193,9 @@ void vbe_set_info(const struct VBE_modes_list * mode) {
     display_width  = mode->info.width;
     display_height = mode->info.height;
 
-    vga_funcs.hw_shift_pixels(-1); // reset hw scrolling registers (for S/VGA compatible modes)
+    // reset hw scrolling registers (for S/VGA compatible modes)
+    vga_wreg(VGA_CRTC_DATA_REG, 0xD, 0);
+    vga_wreg(VGA_CRTC_DATA_REG, 0xC, 0);
 }
 
 static struct VBE_modes_list * vbe_get_specified_mode(int xres, int yres) {

@@ -228,16 +228,16 @@ char strncmp(const char * s1, const char * s2, size_t n) {
     return 0;
 }
 
-char * strchr(const char * s, int c) {
-    for (int i = 0; s[i] != '\0'; i++) {
-        if (s[i] == c) return (char*)s+i;
-    }
-    return NULL;
+char * strchrnul(const char * s, int c) {
+    for (;*s != '\0' && *s != c; s++) {}
+    return (char*)s;
 }
 
-char * strchrnul(const char * s, int c) {
-    char * out = strchr(s, c);
-    return out == NULL?((char*)s+strlen(s)):out;
+char * strchr(const char * s, int c) {
+    char * n = strchrnul(s, c);
+    if (*n == '\0')
+        return NULL;
+    return n;
 }
 
 char * strrchr(const char * s, int c) {

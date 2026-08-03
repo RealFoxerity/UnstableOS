@@ -9,6 +9,8 @@
 #include <stdlib.h>
 #include <pthread.h>
 
+#include "errno.h"
+
 #define MALLOC_MAGIC "MAL"
 
 enum malloc_flags {
@@ -54,6 +56,7 @@ void * __attribute__((malloc, malloc(free), weak)) malloc(size_t size) {
         if (current_heap_object->flags & MALLOC_LAST_CHUNK) {
             if (sbrk(MALLOC_OOM_INCREASE) == (void *)-1) {
                 pthread_mutex_unlock(&allocator_mutex);
+                ___set_errno(ENOMEM);
                 return NULL; // -ENOMEM usually
             }
             goto again;

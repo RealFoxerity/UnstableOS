@@ -171,11 +171,15 @@ void vga_fill_buffered(unsigned int start_x, unsigned int end_x, unsigned start_
 }
 
 void vga_hw_shift_pixels(unsigned int pixels) {
-    if (pixels > display_width*display_height) {
-        memset(shadow_framebuffer, 0, display_width*display_height);
+    size_t shadow_fb_size = display_width * display_width;
+    if (shadow_fb_size > sizeof(shadow_framebuffer))
+        shadow_fb_size = sizeof(shadow_framebuffer);
+
+    if (pixels > shadow_fb_size) {
+        memset(shadow_framebuffer, 0, shadow_fb_size);
     } else {
-        memmove(shadow_framebuffer, shadow_framebuffer + pixels, display_width*display_height - pixels);
-        memset(shadow_framebuffer + display_width*display_height - pixels, 0, pixels);
+        memmove(shadow_framebuffer, shadow_framebuffer + pixels, shadow_fb_size - pixels);
+        memset(shadow_framebuffer + shadow_fb_size - pixels, 0, pixels);
     }
 
     // due to the way chained modes work, it's not possible to use the hw registers

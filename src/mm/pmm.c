@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <string.h>
 
+#include "elf.h"
 #include "kernel.h"
 #include "multiboot.h"
 
@@ -212,6 +213,37 @@ static void pre_vmm_insert_range_checked(size_t start, const size_t end, const m
 			PAGE_ALIGN_DOWN((uintptr_t)multiboot_info->u.elf_sec.addr) / PAGE_SIZE,
 			PAGE_ALIGN_UP((uintptr_t)multiboot_info->u.elf_sec.addr + multiboot_info->u.elf_sec.num * multiboot_info->u.elf_sec.size) / PAGE_SIZE,
 			reserved, &reserved_count, PRE_VMM_RESERVED_RANGES_MAX);
+
+		const struct section_header * sh_table =
+		(void *)(uintptr_t)multiboot_info->u.elf_sec.addr;
+
+		struct section_header shstrtab = sh_table[multiboot_info->u.elf_sec.shndx];
+		struct section_header symtab = {0};
+		struct section_header strtab = {0};
+
+		for (int i = 0; i < multiboot_info->u.elf_sec.num; i++) {
+			if (sh_table[i].type == ELF_SHT_SYMTAB) {
+				if (symtab.size < sh_table[i].size) {
+					symtab = sh_table[i];
+				}
+			} else if (sh_table[i].type == ELF_SHT_STRTAB) {
+				if (strtab.size < sh_table[i].size) {
+					strtab = sh_table[i];
+				}
+			}
+		}
+		if (symtab.vaddr != 0) {
+			pre_vmm_insert_range(
+				PAGE_ALIGN_DOWN(symtab.vaddr) / PAGE_SIZE,
+				PAGE_ALIGN_UP(symtab.vaddr + symtab.size) / PAGE_SIZE,
+				reserved, &reserved_count, PRE_VMM_RESERVED_RANGES_MAX);
+		}
+		if (strtab.vaddr != 0) {
+			pre_vmm_insert_range(
+				PAGE_ALIGN_DOWN(strtab.vaddr) / PAGE_SIZE,
+				PAGE_ALIGN_UP(strtab.vaddr + strtab.size) / PAGE_SIZE,
+				reserved, &reserved_count, PRE_VMM_RESERVED_RANGES_MAX);
+		}
 	}
 
 	for (size_t i = 0; i < reserved_count; i++)

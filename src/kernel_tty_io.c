@@ -784,7 +784,7 @@ static size_t tty_translate_line_outgoing(const char * s, size_t n, tty_t * tty)
                 }
             case '\v': // vertical tab is usually the same as newline
             case '\n':
-                if (tty->params.c_oflag & ONLCR) {
+                if (tty->params.c_oflag & ONLCR && s[i] != '\r') {
                     if (!(tty->params.c_oflag & OCRNL)) {
                         if (tty_queue_putch(&tty->oqueue, '\r', (tty->params.c_oflag & ONLRET) != 0) == 256) return i;
                     } else {
