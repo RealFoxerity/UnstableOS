@@ -1,7 +1,16 @@
 AR := i686-elf-ar
 CC := i686-elf-gcc
 
-QEMUFLAGS := -no-shutdown -no-reboot -m 64M -cpu 486 -display sdl -serial stdio -vga cirrus
+UNAME := $(shell uname)
+
+QEMUFLAGS := -no-shutdown -no-reboot -m 64M -cpu 486 -serial stdio -vga cirrus
+
+ifeq ($(UNAME),Linux)
+QEMUFLAGS += -display sdl
+endif
+ifeq ($(UNAME),Darwin)
+QEMUFLAGS += -display cocoa
+endif
 
 ifneq ($(words $(MAKECMDGOALS)),1)
 .DEFAULT_GOAL = all
