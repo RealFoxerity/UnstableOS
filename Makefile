@@ -70,13 +70,15 @@ build/UnstableOS.bin: $(LIBC_LIB) $(OBJS)
 	@mkdir -p build
 	@$(CC) $(KERNEL_CFLAGS) $(OBJS) -o $@ $(KERNEL_LDFLAGS)
 
+LIMINE_BIOS_SYS ?= /usr/share/limine/limine-bios.sys
+LIMINE_BIOS_CD_BIN ?= /usr/share/limine/limine-bios-cd.bin
 build/UnstableOS.iso: build/UnstableOS.bin build/memdisk.tar
 	@$(PROGRESS_LABEL) Generating $@
 	@mkdir -p build/iso/boot/limine
 	@cp build/UnstableOS.bin build/memdisk.tar build/iso
-	@cp limine.conf\
-		/usr/share/limine/limine-bios.sys\
-		/usr/share/limine/limine-bios-cd.bin\
+	@cp limine.conf \
+		$(LIMINE_BIOS_SYS) \
+		$(LIMINE_BIOS_CD_BIN) \
 		build/iso/boot/limine
 
 	@mkisofs -b boot/limine/limine-bios-cd.bin \
