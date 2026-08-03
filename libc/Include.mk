@@ -50,7 +50,7 @@ LIBC_OBJS_CRT := $(patsubst $(LIBC_ROOT)/%, $(LIBC_BUILD_DIR)/%.o, $(LIBC_SRCS_C
 $(LIBC_LIB): $(LIBC_OBJS)
 	@$(PROGRESS_LABEL) Linking $(patsubst $(MAKE_ROOT)/%,%,$(abspath $@))
 	@mkdir -p $(dir $@)
-	@ar rsc $@ $^
+	@$(AR) rsc $@ $^
 
 $(LIBC_BUILD_DIR)/%.c.o: $(LIBC_ROOT)/%.c
 	@$(PROGRESS_LABEL) Compiling $(patsubst $(MAKE_ROOT)/%,%,$(abspath $@))

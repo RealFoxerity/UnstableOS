@@ -1,3 +1,4 @@
+AR := i686-elf-ar
 CC := i686-elf-gcc
 
 QEMUFLAGS := -no-shutdown -no-reboot -m 64M -cpu 486 -display sdl -serial stdio -vga cirrus
