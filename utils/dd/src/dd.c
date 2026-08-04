@@ -18,8 +18,8 @@ char * const valid_options[] = {
     "seek",
     "count",
     "conv",
-    "iflags",
-    "oflags",
+    "iflag",
+    "oflag",
     "status",
     NULL
 };
@@ -108,7 +108,7 @@ void display_progress() {
     unsigned long long bytes_1 = written_bytes;
     unsigned long long bytes_2 = written_bytes;
     unsigned long long avg_speed = written_bytes / (new_time - start_time);
-    static const char units[] = "KMGTPEZYRQ";
+    static const char units[] = "BKMGTPEZYRQ";
     for (int i = 1; i < sizeof(units) - 1; i++) {
         if (bytes_1 > 1024) {
             bytes_1 /= 1024;
@@ -154,7 +154,8 @@ int main(int argc, char ** argv) {
     uint16_t convs = 0;
 
     unsigned short input_mode = O_RDONLY | O_NOCTTY;
-    unsigned short output_mode = O_WRONLY | O_TRUNC | O_CREAT | O_NOCTTY;
+    unsigned short output_mode = O_WRONLY | O_CREAT | O_NOCTTY;
+    unsigned char trunc = 1;
 
     for (int i = 1; i < argc; i++) {
         char * arg = argv[i];
@@ -214,7 +215,7 @@ int main(int argc, char ** argv) {
                 if (convs & 8 && convs & 0x10)
                     goto error;
                 if (convs & 0x40)
-                    output_mode &= ~O_TRUNC;
+                    trunc = 0;
                 break;
             case 9:
                 if (strchr(opt, '='))
@@ -279,6 +280,8 @@ int main(int argc, char ** argv) {
         }
     }
     lseek(out_fd, seek, SEEK_SET);
+    if (trunc)
+        ftruncate(out_fd, seek);
 
     unsigned char * block = malloc(bs);
     if (block == NULL) {
