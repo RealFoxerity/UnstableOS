@@ -78,6 +78,18 @@ struct token * tokenize_buffer(char * buffer) {
                 continue;
             case '\\':
                 if (seen_literal) continue;
+                if (seen_quotes) {
+                    switch (*(s+1)) {
+                        case '$':
+                        case '`':
+                        case '\\':
+                        case '\n':
+                            goto ok;
+                        default: break;
+                    }
+                    break;
+                }
+                ok:
                 seen_escape = 1;
 
                 strcpy(s, s+1);
