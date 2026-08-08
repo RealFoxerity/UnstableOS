@@ -263,6 +263,11 @@ void reload_pcb(const process_t * pprocess) {
 }
 
 static void inline switch_context(process_t * pprocess, thread_t * thread, mcontext_t * context) {
+    // my 486 laptop fucks up segments in some insane ways like giving me 0x1D0008 instead of 8
+    // it fortunately enough actually ignores those garbage values, but still
+    thread->context.iret_frame.cs &= 0xFFFF;
+    thread->context.iret_frame.ss &= 0xFFFF;
+
     tss_set_stack(thread->kernel_stack);
 
     if (thread->context.iret_frame.flags & IA_32_EFL_SYSTEM_VM8086) {
@@ -276,7 +281,7 @@ static void inline switch_context(process_t * pprocess, thread_t * thread, mcont
 
     // iret requires ESP and SS when returning to a different (less) privileged CPL, however not when returning to 0
     // we are copying into the target processes stack because we need to pop esp even when not switching privilege levels
-    if ((thread->context.iret_frame.cs & ~3) == GDT_KERNEL_CODE << 3) { // ring 0 code segment
+    if ((thread->context.iret_frame.cs & 3) == 0) { // ring 0 code segment
         memcpy(thread->context.esp, &thread->context.iret_frame, sizeof(struct interr_frame) - 2 * sizeof(void *)); // ring 0 already contains the iret frame from last interrupt since it did not switch stacks (to tss kernel stack)
     } else {
         // since the iret frame for ring 3 is larger by ESP and SS, we need to make room

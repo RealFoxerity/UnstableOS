@@ -145,25 +145,25 @@ void * memset(void * s, char c, size_t n) {
 */
 void * memmove(void * dest, const void * src, size_t n) {
     if (src == dest) return dest;
-    if (dest > src + n || dest + n < src) { // faster to do normal memcpy
-        memcpy(dest, src, n);
+    if (src > dest) {
+        asm volatile (
+            "cld\n"
+            "rep movsb\n"
+            :"+c"(n), "+D"(dest), "+S"(src)
+            :: "memory"
+        );
         return dest;
     }
 
-    unsigned char temp;
-    if (src > dest) {
-        for (size_t i = 0; i < n; i++) {
-            temp = ((unsigned char*)src)[i];
-            ((unsigned char*)dest)[i] = temp;
-        }
-    } else {
-        for (size_t i = n-1; i > 0; i--) { // 0-1 = 1<<32
-            temp = ((unsigned char*)src)[i];
-            ((unsigned char*)dest)[i] = temp;
-        }
-        temp = ((unsigned char*)src)[0];
-        ((unsigned char*)dest)[0] = temp;
-    }
+    dest += n-1;
+    src += n-1;
+    asm volatile (
+        "std\n"
+        "rep movsb\n"
+        "cld\n"
+        :"+c"(n), "+D"(dest), "+S"(src)
+        :: "memory"
+    );
 
     return dest;
 }

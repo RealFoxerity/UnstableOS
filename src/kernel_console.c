@@ -100,6 +100,8 @@ void console_cursor_hide() {
         }
 
         struct character_cell restored = console_buffer[console_cursor_y * console_buffer_w + console_cursor_x];
+        if (restored.c == CHAR_CELL_RELATED)
+            restored.c = ' ';
         gfx_blit_char(
            restored.c,
            console_cursor_x * console_font_width * FONT_MULTIPLIER,
@@ -346,11 +348,20 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
                 if (console_y < 0) console_y = 0;
                 if (console_x < 0) console_x = 0;
 
-                memset(console_buffer + console_y * console_buffer_w + console_x,
-                    0,
-                    (console_buffer_w - console_x) * sizeof(struct character_cell) +
-                    (console_buffer_h - console_y - 1) * console_buffer_w * sizeof(struct character_cell)
-                );
+                struct character_cell cc = {
+                    .c = CHAR_CELL_RELATED,
+                    .fg = console_color_fg,
+                    .bg = console_color_bg
+                };
+                for (int x = console_x; x < console_buffer_w - console_x; x++) {
+                    console_buffer[console_y * console_buffer_w + x] = cc;
+                }
+                for (int y = console_y + 1; y < console_buffer_h - console_y; y++) {
+                    for (int x = 0; x < console_buffer_w; x++) {
+                        console_buffer[y * console_buffer_w + x] = cc;
+                    }
+                }
+
                 spinlock_release(&console_buffer_lock);
             }
 
@@ -369,10 +380,14 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
                 if (console_y < 0) console_y = 0;
                 if (console_x < 0) console_x = 0;
 
-                memset(console_buffer + console_y * console_buffer_w + console_x,
-                    0,
-                    (console_buffer_w - console_x) * sizeof(struct character_cell)
-                );
+                struct character_cell cc = {
+                    .c = CHAR_CELL_RELATED,
+                    .fg = console_color_fg,
+                    .bg = console_color_bg
+                };
+                for (int x = console_x; x < console_buffer_w - console_x; x++) {
+                    console_buffer[console_y * console_buffer_w + x] = cc;
+                }
                 spinlock_release(&console_buffer_lock);
             }
 
@@ -438,6 +453,12 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
 
     if (sscanf(ansi_sequence, "[%d%c", &id, &csi) != 2) goto ansi2params;
 
+    struct character_cell cc = {
+        .c = CHAR_CELL_RELATED,
+        .fg = console_color_fg,
+        .bg = console_color_bg
+    };
+
     enum console_colors_palette temp;
     switch (csi) {
         // scroll up
@@ -452,10 +473,11 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
                     console_buffer + id * console_buffer_w,
                         (console_buffer_h - id) * console_buffer_w * sizeof(struct character_cell)
                     );
-                memset(console_buffer + (console_buffer_h - id) * console_buffer_w,
-                    0,
-                    id * console_buffer_w * sizeof(struct character_cell)
-                );
+                for (int y = console_buffer_h - id; y < console_buffer_h; y++) {
+                    for (int x = 0; x < console_buffer_w; x++) {
+                        console_buffer[y * console_buffer_w + x] = cc;
+                    }
+                }
                 spinlock_release(&console_buffer_lock);
             }
             current_video_funcs->copy_region_unbuffered(0, id*console_font_height*FONT_MULTIPLIER, display_width, display_height, 0, 0);
@@ -481,16 +503,18 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
                     console_buffer,
                         (console_buffer_h - id) * console_buffer_w * sizeof(struct character_cell)
                     );
-                memset(console_buffer,
-                    0,
-                    id * console_buffer_w * sizeof(struct character_cell)
-                );
+                for (int y = 0; y < id; y++) {
+                    for (int x = 0; x < console_buffer_w; x++) {
+                        console_buffer[y * console_buffer_w + x] = cc;
+                    }
+                }
 
                 if (console_y < console_buffer_h) {
-                    memset(console_buffer + (console_y + 1) * console_buffer_w,
-                        0,
-                        (console_buffer_h - console_y - 1) * console_buffer_w * sizeof(struct character_cell)
-                    );
+                    for (int y = console_y + 1; y < console_buffer_h; y++) {
+                        for (int x = 0; x < console_buffer_w; x++) {
+                            console_buffer[y * console_buffer_w + x] = cc;
+                        }
+                    }
                 }
                 spinlock_release(&console_buffer_lock);
             }
@@ -555,7 +579,7 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
             switch (id) {
                 case 0: goto erase_cursor_screen_end;
                 case 1:
-                    // erase from beginning to cursor, TODO: maybe use vga_fill?
+                    // erase from beginning to cursor
                     if (current_process && console_buffer != NULL) {
                         spinlock_acquire(&console_buffer_lock);
                         if (console_y >= console_buffer_h) console_y = console_buffer_h - 1;
@@ -564,11 +588,16 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
                         if (console_y < 0) console_y = 0;
                         if (console_x < 0) console_x = 0;
 
-                        memset(console_buffer,
-                            0,
-                            console_y * console_buffer_w * sizeof(struct character_cell) +
-                            console_x * sizeof(struct character_cell)
-                        );
+                        for (int y = 0; y < console_y; y++) {
+                            for (int x = 0; x < console_buffer_w; x++) {
+                                console_buffer[y * console_buffer_w + x] = cc;
+                            }
+                        }
+
+                        for (int x = 0; x < console_x; x++) {
+                            console_buffer[console_y * console_buffer_w + x] = cc;
+                        }
+
                         spinlock_release(&console_buffer_lock);
                     }
                     current_video_funcs->fill_buffered(
@@ -591,7 +620,11 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
                     // entire screen
                     if (current_process && console_buffer != NULL) {
                         spinlock_acquire(&console_buffer_lock);
-                        memset(console_buffer, 0, console_buffer_w * console_buffer_h * sizeof(struct character_cell));
+                        for (int y = 0; y < console_buffer_h; y++) {
+                            for (int x = 0; x < console_buffer_w; x++) {
+                                console_buffer[y * console_buffer_w + x] = cc;
+                            }
+                        }
                         spinlock_release(&console_buffer_lock);
                     }
                     current_video_funcs->fill_buffered(0, display_width - 1,
@@ -615,10 +648,10 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
                         if (console_y < 0) console_y = 0;
                         if (console_x < 0) console_x = 0;
 
-                        memset(console_buffer + console_y * console_buffer_w,
-                            0,
-                            console_x * sizeof(struct character_cell)
-                        );
+                        for (int x = 0; x < console_x; x++) {
+                            console_buffer[console_y * console_buffer_w + x] = cc;
+                        }
+
                         spinlock_release(&console_buffer_lock);
                     }
                     current_video_funcs->fill_buffered(0, console_x * console_font_width * FONT_MULTIPLIER,
@@ -634,10 +667,10 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
                         if (console_y >= console_buffer_h) console_y = console_buffer_h - 1;
                         if (console_x >= console_buffer_w) console_x = console_buffer_w - 1;
 
-                        memset(console_buffer + console_y * console_buffer_w,
-                            0,
-                            console_buffer_w * sizeof(struct character_cell)
-                        );
+                        for (int x = 0; x < console_buffer_w; x++) {
+                            console_buffer[console_y * console_buffer_w + x] = cc;
+                        }
+
                         spinlock_release(&console_buffer_lock);
                     }
                     current_video_funcs->fill_buffered(0, display_width - 1,

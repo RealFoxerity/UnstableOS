@@ -35,7 +35,7 @@ ssize_t random_pread(file_descriptor_t * file, void * buf, size_t count, off_t o
         buf   += sizeof(uint32_t) - ((unsigned long)buf % sizeof(uint32_t));
     }
     for (size_t i = 0; i < count/4; i++) {
-        ((uint32_t*)buf)[i] = rand();
+        ((uint32_t*)buf)[i] = rand() << 4 ^ rand();
     }
     if (count % sizeof(uint32_t)) {
         buf += (count / sizeof(uint32_t)) * sizeof(uint32_t);

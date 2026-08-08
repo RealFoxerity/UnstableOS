@@ -4,6 +4,7 @@
 #include <errno.h>
 
 #include "string.h"
+#include "bits/ioctl/tty_ioctl.h"
 
 off_t framebuffer_seek(file_descriptor_t *file, off_t off, int whence) {
 #ifdef FB_ACCESS_CALLS_GFX_API
@@ -115,16 +116,20 @@ ssize_t framebuffer_pwrite(file_descriptor_t *file, const void *buf, size_t coun
     return count;
 }
 #endif
-/*
+
 long framebuffer_ioctl(file_descriptor_t *file, unsigned long cmd, void * arg) {
-    return -EINVAL;
+    if (!current_video_funcs->ioctl)
+        return -ENOTTY;
+    if (__IOCTL_DEV(cmd) != DEV_MAJ_FB)
+        return -EINVAL;
+    return current_video_funcs->ioctl(cmd, arg);
 }
-*/
+
 struct dev_operations framebuffer_ops = {
     .pread = framebuffer_pread,
     .pwrite = framebuffer_pwrite,
     .seek = framebuffer_seek,
-    //.ioctl = framebuffer_ioctl,
+    .ioctl = framebuffer_ioctl,
 };
 
 void framebuffer_register() {

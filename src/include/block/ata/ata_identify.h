@@ -255,6 +255,23 @@ struct ata_identify {
             uint32_t stream_performance_granularity; // since ATA-6
             uint64_t total_user_lba48;               // since ATA-6
 
+            // since ATA-8
+            uint16_t pio_streaming_xfer_time;
+            uint16_t : 16;
+            struct {
+                uint16_t log2_lsectors_per_psector     : 4;
+                uint16_t                               : 8;
+                uint16_t psector_gt_512                : 1;
+                uint16_t multiple_lsectors_per_psector : 1;
+                uint16_t                               : 1; // always 1
+                uint16_t                               : 1; // always 0
+            } sector_sizes;
+
+            uint16_t iso7779_interseek_delay_msec;
+            uint64_t wwn;
+            uint64_t resv_wwn128;
+            uint16_t : 16; // TR-37-2004
+            uint32_t lsector_words;
             // and a bunch more stuff........
         } __attribute__((packed));
         uint16_t raw[256];

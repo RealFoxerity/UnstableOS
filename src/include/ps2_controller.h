@@ -97,7 +97,10 @@ enum ps2_keyboard_scan_code_sets {
     PS2_SCAN_CODE_GET_CURRENT,
     PS2_SCAN_CODE_SET_1,
     PS2_SCAN_CODE_SET_2,
-    PS2_SCAN_CODE_SET_3
+    PS2_SCAN_CODE_SET_3,
+    PS2_SCAN_CODE_SET_1_ALT = 0x43,
+    PS2_SCAN_CODE_SET_2_ALT = 0x41,
+    PS2_SCAN_CODE_SET_3_ALT = 0x3F
 };
 
 enum ps2_scan_code_sets_res {
@@ -191,7 +194,7 @@ enum ps2_responses {
 enum ps2_command_set_led_byte {
     PS2_LED_SCROLLLOCK = 1,
     PS2_LED_NUMBERLOCK = 2,
-    PS2_LED_CAPSLOCK = 3,
+    PS2_LED_CAPSLOCK = 4,
 };
 
 #define PS2_2_BYTE_K_CODE 0xE0

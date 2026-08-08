@@ -43,6 +43,7 @@ void vga_set_mode_13() {
 
     vga_reset_sequencer();
     current_vga_mode = CHAINED;
+    vga_pixel_offset = 0;
     current_video_funcs = &vga_funcs;
     spinlock_release(&gfx_spinlock);
 }

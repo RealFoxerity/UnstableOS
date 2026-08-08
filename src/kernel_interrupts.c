@@ -165,6 +165,7 @@ __attribute__((naked, no_caller_saved_registers)) static void interr_divide_erro
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_debug_trap(struct interr_frame * interrupt_frame) {
     fix_segments();
     kprintf("\n\n\e[0m\e[41m#### ISR: DEBUG caught! ####\e[0m\n\n");
+    print_interr_frame(interrupt_frame);
     unwind_stack_vaddr(*(void**)__builtin_frame_address(0));
     //panic("Debug");
 }

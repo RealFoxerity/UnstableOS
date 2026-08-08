@@ -2,6 +2,20 @@
 #define VGA_H
 #include <stdint.h>
 
+// 9 dot clock theoretically would allow higher resolutions
+// however either my code is bad, or qemu doesn't support it
+//#define VGA_USE_DOT9
+
+#ifdef VGA_USE_DOT9
+#define VGA_DOT_DIV 9
+#else
+#define VGA_DOT_DIV 8
+#endif
+
+#define SHADOW_FRAMEBUFFER_SIZE (720*480) // largest VGA resolutions one we support
+// we could support 800x600, but that requires a dot clock that most real cards don't have
+// specifically the Paradise SVGA clock or the Hercules on
+
 #define VGA_PAGE_ADDR ((unsigned char*)0xA0000)
 #define VGA_VRAM_SIZE (1<<16)
 #define VGA_INPUT_STATUS_1_REGISTER 0x3DA 
@@ -21,6 +35,7 @@
 #define VGA_DAC_DATA_REG 0x3C9
 
 #define VGA_MISC_OUT_REG_WR 0x3C2
+#define VGA_MISC_OUT_REG_RD 0x3CC
 
 #define VGA_GC_IDX_REG 0x3CE
 #define VGA_GC_DATA_REG 0x3CF

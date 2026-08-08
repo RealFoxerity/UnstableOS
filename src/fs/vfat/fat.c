@@ -1000,7 +1000,7 @@ static off_t fat_get_free_dentry(size_t start_cl, superblock_t * sb, char shortn
         return -EEXIST;
 
     size_t visited_clusters = 0;
-    size_t prev_cl;
+    size_t prev_cl = start_cl;
     while (start_cl < cluster_limit && visited_clusters < fi->max_chain_len) {
         prev_cl = start_cl;
         for (size_t i = 0; i < fi->bytes_per_sector * fi->sectors_per_cluster / sizeof(struct fat_dir_entry); i++) {

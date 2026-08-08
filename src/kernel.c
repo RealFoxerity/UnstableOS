@@ -34,6 +34,8 @@
 #include "mm/pmm.h"
 
 char early_init = 1;
+char vga_only = 0;
+
 // goes to 0 0 so that the scrolling of the panic message doesn't take forever
 #define KERNEL_PANIC_MSG "\e[H\e[0m\e[41m\n##############################\nKernel Panic:\n"
 void panic(char * reason) {
@@ -339,6 +341,9 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
 
     kprintf("Kernel cmdline: %s\n", (char*)mbd->cmdline);
 
+    if (strcmp((char*)mbd->cmdline, "vga") == 0)
+        vga_only = 1;
+
     if (mbd->mods_count > 0) {
         kprintf("Multiboot mods:\n");
         struct multiboot_mod_list * mods = (struct multiboot_mod_list *)mbd->mods_addr;
@@ -425,9 +430,12 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     init_inodes();
     init_superblocks();
 
+    gfx_remap_framebuffer(VGA_PAGE_ADDR, 128*1024, PTE_PDE_PAGE_WRITE_THROUGH);
+
     // assuming that by some miracle the gpu doesn't support vga emulation,
     // no text will be visible up until this point
-    vbe_gather_info();
+    if (!vga_only)
+        vbe_gather_info();
 
     kernel_print_cpu_info();
 

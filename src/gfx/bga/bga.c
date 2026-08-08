@@ -55,6 +55,9 @@ static unsigned int bga_max_yres   = 0;
 static void * bga_framebuffer_phys = NULL;
 
 char bga_init(struct pci_device device) {
+    extern char vga_only;
+    if (vga_only)
+        return -1;
     struct pci_bar framebuffer_bar = pci_get_bar(device.bus, device.device, device.function, 0);
     bga_framebuffer_phys = framebuffer_bar.base_address;
 

@@ -32,6 +32,8 @@ char * const valid_convs[] = {
     "swab",
     "notrunc",
     "noerror",
+    "excl",
+    "nocreat",
     NULL
 };
 char * const valid_iflags[] = {
@@ -85,7 +87,40 @@ static off_t get_num(const char * s) {
 }
 
 static void print_help() {
-
+    printf(
+"Usage: dd [options]\n"
+"Copy/duplicate and convert data\n\n"
+"\tbs=N          Block size for xfers\n"
+"\tconv=CONVS    Different conversion options\n"
+"\tcount=N       Only xfer N blocks\n"
+"\tif=FILE       Read from FILE instead of stdin\n"
+"\tiflag=FLAGS   Comma separated input flags\n"
+"\tof=FILE       Write to FILE instead of stdout\n"
+"\toflag=FLAGS   Comma separated output flags\n"
+"\tseek=N        Seek N into output file\n"
+"\tskip=N        Skip N from input file\n"
+"\tstatus=progress progress report each second\n"
+"\n"
+"N allows size postfixes:\n"
+"\tc=1, w=2, b=512, [KMGTPEZYRQ]B (1000), [KMGTPEZYRQ]iB (1024)\n"
+"Valid conversion specifiers:\n"
+"\tebcdic        Convert ASCII to regular EBCDIC\n"
+"\tibm           Convert ASCII to IBM flavor EBCDIC\n"
+"\tlcase         Convert all [ASCII] chars to lowercase\n"
+"\tucase                               ... to uppercase\n"
+"\tswab          Swap pairs of bytes\n"
+"\texcl          Set O_EXCL for output\n"
+"\tnocreat       Don't create if doesn't exist\n"
+"\tnotrunc       Don't call ftruncate() on larger files\n"
+"\tnoerror       Ignore read errors\n"
+"\n"
+"Valid input flags:\n"
+"\tskip_bytes    Treat skip=N as bytes instead of bs blocks\n"
+"\n"
+"Valid output flags:\n"
+"\tseek_bytes    Treat seek=N as bytes instead of bs blocks\n"
+"\tsync          Skip caches when writing\n"
+);
 }
 
 extern void transform_block(unsigned char * block, size_t bs, uint16_t convs);
@@ -216,6 +251,10 @@ int main(int argc, char ** argv) {
                     goto error;
                 if (convs & 0x40)
                     trunc = 0;
+                if (convs & 0x100)
+                    output_mode |= O_EXCL;
+                if (convs & 0x200)
+                    output_mode &= ~O_CREAT;
                 break;
             case 9:
                 if (strchr(opt, '='))
@@ -312,6 +351,8 @@ int main(int argc, char ** argv) {
         transform_block(block, read_amount, convs);
 
         if ((write_amount = write(out_fd, block, read_amount)) != bs) {
+            if (write_amount == 0)
+                break;
             if (write_amount == -1) {
                 fprintf(stderr, "%s: error writing '%s': %s\n", argv[0], output, strerror(errno));
                 fprintf(stderr, "%llu+%llu records in\n", read_blocks, read_partial_blocks);

@@ -31,8 +31,8 @@ typedef struct __attribute__((packed))
 	uint64_t order : 4;
 } page_info_t;
 
-#define PAGE_ALIGN_UP(address) ((address + (PAGE_SIZE - 1)) & ~(PAGE_SIZE - 1))
-#define PAGE_ALIGN_DOWN(address) (address & ~(PAGE_SIZE - 1))
+#define PAGE_ALIGN_UP(address) (((address) + (PAGE_SIZE - 1)) & ~(PAGE_SIZE - 1))
+#define PAGE_ALIGN_DOWN(address) ((address) & ~(PAGE_SIZE - 1))
 
 // This is where the page info structs live in memory
 #define PAGES_START 0x07000000

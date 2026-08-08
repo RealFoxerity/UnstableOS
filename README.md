@@ -56,7 +56,7 @@ Then either do `make kernel` to build just the kernel,\
 CPU: 486 class with built-in x87 math coprocessor\
 RAM: at least 2.5MiB for basic kernel, 3.5MiB for stable fork()\
 HDD: either boot live or 5MiB ATA1+ to store all utilities\
-GFX: IBM Video Graphics Array and a monitor with a resolution of 640x480 [^1]\
+GFX: IBM Video Graphics Array and a monitor with a resolution of 640x480 [^1]
 [^1]: or edit src/vga.c:394 to vga_set_mode_13 and a 320x200 composite monitor
 
 ### Testing in a VM
@@ -110,7 +110,7 @@ see [caveats.md](./caveats.md) for info
 - [x] Virtual-8086 mode
 - [x] VBE linear framebuffer instead of VGA text mode
 - [x] proper direct VRAM access
-- [ ] ioctls for framebuffer devices
+- [x] ioctls for framebuffer devices - so far only for VGA
 - [ ] SMP - multicore support
 - [x] argv, argc, envp/environ, execve
 - [ ] functional `execve()` and `spawn()` for ring 0 processes

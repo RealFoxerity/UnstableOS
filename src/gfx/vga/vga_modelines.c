@@ -2,7 +2,7 @@
 
 /*
 const struct vesa_modeline vga_1280x800 = {
-    .clock_type = PARADISE_42,
+    .clock_khz = PARADISE_42,
     .horizontal = 1280,
     .horizontal_fporch = 48,
     .horizontal_sync = 32,
@@ -53,7 +53,7 @@ const struct vesa_modeline vga_640x480 = {
 };
 
 const struct vesa_modeline vga_720x480 = {
-    .clock_type = DOT9,
+    .clock_khz = DOT9,
     .horizontal = 720,
     // straight up just guessed these, not gonna even lie
     // but they work, so probably don't touch
@@ -74,7 +74,7 @@ const struct vesa_modeline vga_720x480 = {
 
 /*
 const struct vesa_modeline vga_800_600 = {
-    .clock_type = PARADISE_42,
+    .clock_khz = PARADISE_42,
     .horizontal = 800,
     .horizontal_fporch = 40,
     .horizontal_sync = 128,
@@ -198,7 +198,7 @@ struct vesa_modeline vesa_modeline_from_pixel_clock(
     int final_refresh_rate = 0;
 
     struct vesa_modeline out = {
-        .clock_type = clock,
+        .clock_khz = clock,
         .horizontal = width,
         
         .vertical = height,

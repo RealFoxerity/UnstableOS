@@ -21,7 +21,6 @@
 - missing `sigaltstack()` and everything along with it
 - missing `SA_RESTART`, almost all `si_code` values for `siginfo_t`
 - no support for PCI Configuration Space #2 (for i486 and early Pentiums)
-- no /dev/fb0 support on pure VGA (due to banking)
 - no break condition support on TTY and RS-232
 - no baud/speed settings, delays, and control flags in termios
 - `unlinkat()` doesn't set parent mtime and ctime

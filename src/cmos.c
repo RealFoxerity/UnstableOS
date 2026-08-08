@@ -229,7 +229,8 @@ void rtc_init() {
     rtc_set_options(1, 1, 1);
     rtc_set_daylight_savings(DEFAULT_DAYLIGHT_SAVINGS_STATE);
     rtc_set_divider(RTC_DEFAULT_RATE_SELECTION_DIVIDER, RTC_DEFAULT_TIME_BASE_DIVIDER);
-    rtc_enable_interrupt(RTC_INT_PERIODIC);
     system_time_sec = rtc_get_time();
+    rtc_enable_interrupt(RTC_INT_PERIODIC);
+    rtc_enable_interrupt(RTC_INT_UPDATE_ENDED);
     rtc_get_last_interrupt_type(); // eoi for potential missed interrupts
 }

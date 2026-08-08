@@ -179,7 +179,15 @@ static char ps2_keyboard_get_cs(uint8_t device_num) {
     res_byte = inb(PS2_DATA_PORT);
     // some VMs don't support the command and return 0xFA (VirtualBox)
     // as well as some ancient laptop keyboards (at least on the Acer TravelMate 230X)
-    if (res_byte == PS2_RESPONSE_ACK) return PS2_SCAN_CODE_SET_1;
+    if (res_byte == PS2_RESPONSE_ACK) return PS2_SCAN_CODE_SET_2;
+
+    if (res_byte == PS2_SCAN_CODE_SET_1_ALT)
+        res_byte = PS2_SCAN_CODE_SET_1;
+    if (res_byte == PS2_SCAN_CODE_SET_2_ALT)
+        res_byte = PS2_SCAN_CODE_SET_2;
+    if (res_byte == PS2_SCAN_CODE_SET_3_ALT)
+        res_byte = PS2_SCAN_CODE_SET_3;
+
     return res_byte;
 }
 
@@ -608,6 +616,8 @@ enum ps2_internal_states {
     PS2_SC2_WAITING_FOR_RELEASED_PAUSE, // different state because the release is set in the not always present second byte
     PS2_SC2_WAITING_FOR_RELEASED_PAUSE_2,
 
+    PS2_DUMMY_READ,
+
     PS2_MOUSE_NORMAL = PS2_NORMAL,
     PS2_MOUSE_WAITING_FOR_BYTE_2,
     PS2_MOUSE_WAITING_FOR_BYTE_3,
@@ -650,6 +660,9 @@ static void ps2_keyboard_driver_internal(char device_num) {
             internal_state = &internal_state_port2;
     
     switch (*internal_state) {
+        case PS2_DUMMY_READ:
+            *internal_state = PS2_NORMAL;
+            return;
         case PS2_NORMAL:
             if (ps2_present_devices[device_num-1].scan_code_set == 2 && current_byte == PS2_SC2_KEY_RELEASE_BYTE) {
                 *internal_state = PS2_SC2_WAITING_FOR_RELEASE;
@@ -664,16 +677,24 @@ static void ps2_keyboard_driver_internal(char device_num) {
             }
             if (ps2_present_devices[device_num-1].scan_code_set == 2) current_byte = ps2_sc2_to_1_lookup[current_byte];
             resolve_key:
-            switch (current_byte & (~PS2_SC1_KEY_RELEASED_MASK)) {
+            switch (current_byte) {
+                case KEY_LSHIFT | PS2_SC1_KEY_RELEASED_MASK:
+                    keyboard_state.mods |= PS2_KEY_MOD_LSHIFT_MASK;
                 case KEY_LSHIFT:
                     keyboard_state.mods ^= PS2_KEY_MOD_LSHIFT_MASK;
                     break;
+                case KEY_RSHIFT | PS2_SC1_KEY_RELEASED_MASK:
+                    keyboard_state.mods |= PS2_KEY_MOD_RSHIFT_MASK;
                 case KEY_RSHIFT:
                     keyboard_state.mods ^= PS2_KEY_MOD_RSHIFT_MASK;
                     break;
+                case KEY_LCONTROL | PS2_SC1_KEY_RELEASED_MASK:
+                    keyboard_state.mods |= PS2_KEY_MOD_LCONTROL_MASK;
                 case KEY_LCONTROL:
                     keyboard_state.mods ^= PS2_KEY_MOD_LCONTROL_MASK;
                     break;
+                case KEY_LALT | PS2_SC1_KEY_RELEASED_MASK:
+                    keyboard_state.mods |= PS2_KEY_MOD_LALT_MASK;
                 case KEY_LALT:
                     keyboard_state.mods ^= PS2_KEY_MOD_LALT_MASK;
                     break;
@@ -683,16 +704,30 @@ static void ps2_keyboard_driver_internal(char device_num) {
                 case KEY_CAPSLOCK:
                     keyboard_state.leds ^= PS2_LED_CAPSLOCK;
                     keyboard_state.mods ^= PS2_KEY_MOD_CAPSLOCK_MASK;
-                    break;
+                    goto update_leds;
                 case KEY_NUMLOCK:
                     keyboard_state.leds ^= PS2_LED_NUMBERLOCK;
                     keyboard_state.mods ^= PS2_KEY_MOD_NUMLOCK_MASK;
-                    break;
+                    goto update_leds;
                 case KEY_SCROLLLOCK:
                     keyboard_state.leds ^= PS2_LED_SCROLLLOCK;
-                    break;
+                    goto update_leds;
                 default: break;
             }
+            goto skip;
+
+            update_leds:
+            // it's just leds, we don't care about consistency
+            if (device_num == 2) ps2_prepare_send_port_2();
+            ps2_wait_until_ready_w();
+            outb(PS2_DATA_PORT, PS2_COMMAND_SET_LED);
+            ps2_wait_until_ready_w();
+            outb(PS2_DATA_PORT, keyboard_state.leds);
+            ps2_wait_until_ready_r(device_num);
+            *internal_state = PS2_DUMMY_READ;
+
+            skip:
+
             out = (current_byte & (~PS2_SC1_KEY_RELEASED_MASK)) | ((current_byte&PS2_SC1_KEY_RELEASED_MASK)?KEY_RELEASED_MASK:0);
             out |= keyboard_state.mods << 12;
             break;
@@ -703,16 +738,24 @@ static void ps2_keyboard_driver_internal(char device_num) {
             }
             if (ps2_present_devices[device_num-1].scan_code_set == 2) current_byte = ps2_sc2_2byte_to_1_lookup[current_byte];
             resolve_2b_key:
-            switch (current_byte & (~PS2_SC1_KEY_RELEASED_MASK)) {
+            switch (current_byte) {
+                case PS2_SC1_B2_KEY_RALT | PS2_SC1_KEY_RELEASED_MASK:
+                    keyboard_state.mods |= PS2_KEY_MOD_RALT_MASK;
                 case PS2_SC1_B2_KEY_RALT:
                     keyboard_state.mods ^= PS2_KEY_MOD_RALT_MASK;
                     break;
+                case PS2_SC1_B2_KEY_RCONTROL | PS2_SC1_KEY_RELEASED_MASK:
+                    keyboard_state.mods |= PS2_KEY_MOD_RCONTROL_MASK;
                 case PS2_SC1_B2_KEY_RCONTROL:
                     keyboard_state.mods ^= PS2_KEY_MOD_RCONTROL_MASK;
                     break;
+                case PS2_SC1_B2_KEY_LMETA | PS2_SC1_KEY_RELEASED_MASK:
+                    keyboard_state.mods |= PS2_KEY_MOD_LMETA_MASK;
                 case PS2_SC1_B2_KEY_LMETA:
                     keyboard_state.mods ^= PS2_KEY_MOD_LMETA_MASK;
                     break;
+                case PS2_SC1_B2_KEY_RMETA | PS2_SC1_KEY_RELEASED_MASK:
+                    keyboard_state.mods |= PS2_KEY_MOD_RMETA_MASK;
                 case PS2_SC1_B2_KEY_RMETA:
                     keyboard_state.mods ^= PS2_KEY_MOD_RMETA_MASK;
                     break;

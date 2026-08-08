@@ -8,25 +8,13 @@ enum vga_clocks {
     UNSPEC
 };
 
-// set porches as if no overscan
-// TODO: decouple structure from VGA
-struct vesa_modeline {
-    int vertical, horizontal;
-    int vertical_fporch, horizontal_fporch;
-    int vertical_bporch, horizontal_bporch;
-    int vertical_sync, horizontal_sync;
-
-    char vsync_polarity, hsync_polarity;
-
-    char overscan;
-
-    char clock_type; // used in VGA
-};
+#include <bits/ioctl/fb_ioctl.h>
 
 // see the notes in vga.c for these
-extern char vga_pixels_per_address;
+extern unsigned char vga_pixels_per_address;
 extern char vga_scan_doubling;
-
+extern char vga_clock_halving;
+extern enum vga_addressing_modes vga_addressing_mode;
 void vga_load_timings(struct vesa_modeline timings, int actual_width);
 
 extern const struct vesa_modeline vga_720x480;

@@ -6,7 +6,7 @@ char * optarg = NULL;
 int opterr = 1, optind = 1, optopt = '\0';
 
 int getopt(int argc, char * const argv[], const char *optstring) {
-    if (!optstring || !argv || argc <= 0)
+    if (!optstring || !argv || argc <= 0 || !argv[optind])
         return -1;
 
     static int argument_pos = 0;

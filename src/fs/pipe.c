@@ -70,11 +70,13 @@ static int pipe_put_ch(struct pipe * pq, const unsigned char c) {
     spinlock_acquire_interruptible(&pq->pipe_lock);
     while (FULL(pq)) {
         spinlock_release(&pq->pipe_lock);
-        thread_queue_unblock(&pq->read_queue); // force reading, below release so we don't waste a timeslice
+        asm volatile("cli"); // avoid thread queue races, TODO: change when adding atomic queues
+        thread_queue_unblock_nonreentrant(&pq->read_queue); // force reading, below release so we don't waste a timeslice
 
         thread_queue_add(&pq->write_queue, current_process, current_thread, SCHED_INTERR_SLEEP);
+        asm volatile("sti");
 
-        if (pq->readers == 0) {
+        if (__atomic_load_n(&pq->readers, __ATOMIC_ACQUIRE) == 0) {
             thread_queue_unblock_all(&pq->write_queue); // force SIGPIPE to all
             signal_process(current_process, &(siginfo_t) {.si_signo = SIGPIPE});
             return -2;
@@ -131,7 +133,7 @@ static int pipe_get_ch(struct pipe * pq) {
     spinlock_acquire_interruptible(&pq->pipe_lock);
     if (EMPTY(pq)) { // race by multiple consumers
         spinlock_release(&pq->pipe_lock);
-        if (pq->writers == 0) return -2;
+        if (__atomic_load_n(&pq->writers, __ATOMIC_ACQUIRE) == 0) return -2;
 
         thread_queue_unblock(&pq->write_queue); // force writing just in case
         return -1;

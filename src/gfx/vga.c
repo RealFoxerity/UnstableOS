@@ -10,14 +10,14 @@
 #include <string.h>
 
 
-char vga_pixels_per_address = 8; // set by individual modes to correctly set the offset CRTC register
+unsigned char vga_pixels_per_address = 8; // set by individual modes to correctly set the offset CRTC register
 // note that "pixels_per_address" actually means pixels per all planes combined
 // so chained mode with 1 byte = 1 pixel actually has ppa 4 because the byte
 // is all 4 planes combined into one
 
 char vga_scan_doubling = 0; // set by individual modes, repeats every scan line to get e.g. 200->400 output
-
-static char vga_addressing_mode = 0; // set by individual modes, 0 = byte, 1 = word, 2 = dw
+char vga_clock_halving = 0;
+enum vga_addressing_modes vga_addressing_mode = 0; // set by individual modes, 0 = byte, 1 = word, 2 = dw
 
 /*
 uint8_t vga_rdattr(uint8_t index) {
@@ -32,6 +32,12 @@ void vga_wreg(uint16_t data_reg, uint8_t index, uint8_t data) {
     outb(data_reg-1, index);
     outb(data_reg, data);
 }
+uint8_t vga_rreg(uint16_t data_reg, uint8_t index) {
+    //kprintf("wr %hhx to %hx idx %hhx\n", data, data_reg, index);
+    outb(data_reg-1, index);
+    return inb(data_reg);
+}
+
 
 void vga_disable_scan() {
     vga_wreg(VGA_CRTC_DATA_REG, VGA_CRTC_MODE_CONTROL, 0);
@@ -51,9 +57,9 @@ void vga_enable_scan() {
     bit 0 - map display address 13 - enables bit 13 of address counter
     */
     if (vga_addressing_mode == VGA_AM_WORD || vga_addressing_mode == VGA_AM_DWORD)
-        vga_wreg(VGA_CRTC_DATA_REG, VGA_CRTC_MODE_CONTROL, 0b10100011);
+        vga_wreg(VGA_CRTC_DATA_REG, VGA_CRTC_MODE_CONTROL, 0b10100011 | (vga_clock_halving ? 0b100 : 0));
     else
-        vga_wreg(VGA_CRTC_DATA_REG, VGA_CRTC_MODE_CONTROL, 0b11100011);
+        vga_wreg(VGA_CRTC_DATA_REG, VGA_CRTC_MODE_CONTROL, 0b11100011 | (vga_clock_halving ? 0b100 : 0));
 }
 
 void vga_wrattr(uint8_t index, uint8_t data) {
@@ -62,16 +68,6 @@ void vga_wrattr(uint8_t index, uint8_t data) {
     outb(VGA_AC_REG, index);
     outb(VGA_AC_REG, data);
 }
-
-// 9 dot clock theoretically would allow higher resolutions
-// however either my code is bad, or qemu doesn't support it
-//#define VGA_USE_DOT9
-
-#ifdef VGA_USE_DOT9
-#define VGA_DOT_DIV 9
-#else
-#define VGA_DOT_DIV 8
-#endif
 
 void vga_load_timings(struct vesa_modeline timings, int actual_width) {
     // note: dots can be though of as memory fetch "ticks"
@@ -85,7 +81,7 @@ void vga_load_timings(struct vesa_modeline timings, int actual_width) {
     timings.vertical_fporch -= timings.overscan;
     timings.vertical_bporch -= timings.overscan;
 
-    int total_horizontal_dots =
+    unsigned int total_horizontal_dots =
         timings.overscan +
         timings.horizontal +
         timings.overscan +
@@ -95,15 +91,15 @@ void vga_load_timings(struct vesa_modeline timings, int actual_width) {
     total_horizontal_dots /= VGA_DOT_DIV;
 
     // -1 to fit inside the total horizon, -1 because zero based
-    int end_horizonal_blanking = total_horizontal_dots - 2;
-    int start_horizontal_retrace_dots =
+    unsigned int end_horizonal_blanking = total_horizontal_dots - 2;
+    unsigned int start_horizontal_retrace_dots =
         timings.overscan +
         timings.horizontal +
         timings.overscan +
         timings.horizontal_fporch;
     start_horizontal_retrace_dots /= VGA_DOT_DIV;
     
-    int total_vertical_scanlines = 
+    unsigned int total_vertical_scanlines =
         timings.overscan +
         timings.vertical +
         timings.overscan +
@@ -112,7 +108,7 @@ void vga_load_timings(struct vesa_modeline timings, int actual_width) {
         timings.vertical_bporch;
     total_vertical_scanlines--;
 
-    int start_vertical_retrace_scanlines =
+    unsigned int start_vertical_retrace_scanlines =
         timings.vertical +
         timings.overscan +
         timings.vertical_fporch;
@@ -127,7 +123,7 @@ void vga_load_timings(struct vesa_modeline timings, int actual_width) {
     outb(VGA_MISC_OUT_REG_WR, 0 |
         ((!timings.vsync_polarity) << 7) | // positive = 0
         ((!timings.hsync_polarity) << 6) |
-        (timings.clock_type << 2) |
+        (timings.clock_khz << 2) |
         0b10   | // address enable
         0b01     // sets 0x3DX for CRT addresses
     );
@@ -254,6 +250,10 @@ void vga_set_addressing_mode(enum vga_addressing_modes mode) {
         vga_wreg(VGA_CRTC_DATA_REG, 0x14, 0x40);
     else
         vga_wreg(VGA_CRTC_DATA_REG, 0x14, 0);
+
+    uint8_t mode_control = vga_rreg(VGA_CRTC_DATA_REG, VGA_CRTC_MODE_CONTROL) & ~0x40;
+    vga_wreg(VGA_CRTC_DATA_REG, VGA_CRTC_MODE_CONTROL, mode_control | (mode == VGA_AM_WORD ? 0x40 : 0));
+    vga_addressing_mode = mode;
 }
 
 // sets up common parameters of the graphics controller

@@ -11,6 +11,7 @@
 #include <fcntl.h>
 
 #include "include/args.h"
+#include "sys/ioctl.h"
 
 void show_help() {
     printf("\n"

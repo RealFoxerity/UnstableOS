@@ -52,6 +52,7 @@ struct gfx_funcs {
     void (*copy_region_unbuffered)(unsigned int x, unsigned int y, unsigned int width, unsigned int height, unsigned int final_x, unsigned int final_y);
     void (*hw_shift_pixels)(unsigned int pixels);
     void (*hw_shift_scanlines)(unsigned int lines);
+    long (*ioctl)(unsigned long cmd, void * arg);
 };
 
 extern const struct gfx_funcs * current_video_funcs;
