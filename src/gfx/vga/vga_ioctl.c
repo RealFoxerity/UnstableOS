@@ -194,7 +194,7 @@ long vga_ioctl(unsigned long cmd, void * arg) {
                     vga_set_mode_12_wide();
                     break;
                 default:
-                    break;
+                    return -EINVAL;
             }
             return 0;
         case FB_GET_MODELINE:

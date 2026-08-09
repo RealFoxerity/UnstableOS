@@ -81,7 +81,7 @@ extern struct gfx_funcs vbe_funcs;
 // call only once during setup
 void vbe_gather_info();
 unsigned char vbe_set_mode(int xres, int yres); // returns 0 as failure and bpp as success
-
+unsigned char vbe_set_info(const struct VBE_modes_list * mode); // returns 0 on failure
 
 void vbe_clear();
 void vbe_write_pixel_buffered(unsigned int x, unsigned int y, uint32_t color, char use_palette);

@@ -14,7 +14,7 @@ int fd = -1;
 static void print_help(char * argv0, char print_vga, char print_mh) {
     fprintf(stderr,
 "Usage:\n"
-" %s [gGsSWBcCeEqQdDlLpamMz]\n"
+" %s [gGsSWBcCeEqQdDlL12rRoOiIpamMz]\n"
 "\n"
 "\"zamm! rezoultion setter\" display modesetting utility\n"
 "\n"
@@ -33,7 +33,6 @@ if (print_vga)
 "\nVGA-only options:\n"
 "Last argument takes precedence\n"
 "Options marked '*' are not handled in QEMU/VirtualBox/VMWare\n"
-"Options marked '$' are incorrectly handled in all QEMU/VirtualBox/VMWare\n"
 "Options marked '~' are incorrectly handled in VMWare\n"
 "Options marked '^' are incorrectly handled in VirtualBox\n"
 "Most options under VMWare throw the card into mode 13 if not there already\n"
@@ -417,16 +416,21 @@ int main(int argc, char ** argv) {
     }
 
     struct vesa_modeline orig_modeline = {0};
+    char modeline_unsupported = 0;
     if (ioctl(fd, FB_GET_MODELINE, &orig_modeline) == -1) {
-        fprintf(stderr, "%s: Failed to get modeline: %s!\n", argv[0], strerror(errno));
-        return -1;
+        modeline_unsupported = 1;
+        //fprintf(stderr, "%s: Failed to get modeline: %s!\n", argv[0], strerror(errno));
+        //return -1;
     }
 
     if (get_mode & 1) {
         printf("Currently active mode:\n");
         print_mode(fi);
         printf("\tModeline:\n");
-        print_modeline(orig_modeline);
+        if (modeline_unsupported)
+            printf("N/A\n");
+        else
+            print_modeline(orig_modeline);
     }
     if (get_mode & 2) {
         size_t mode_count = ioctl(fd, FB_GET_MODES, NULL);
@@ -457,6 +461,10 @@ int main(int argc, char ** argv) {
     }
 
     if (set_mode == 2) {
+        if (modeline_unsupported) {
+            fprintf(stderr, "%s: /dev/fb0 does not support setting modelines\n", argv[0]);
+            return -1;
+        }
         if (ioctl(fd, FB_SET_MODELINE, &modeline) == -1) {
             fprintf(stderr, "%s: Failed to set modeline: %s!\n", argv[0], strerror(errno));
             return -1;

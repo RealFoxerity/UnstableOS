@@ -42,6 +42,7 @@ size_t vbe_framebuffer_size = 0;
 
 #define VBE_DDC 0x4F15
 
+size_t vbe_mode_count = 0; // so we don't have to count in ioctl
 struct VBE_modes_list * vbe_modes_list = NULL;
 
 void vbe_gather_info() {
@@ -82,7 +83,6 @@ void vbe_gather_info() {
         return;
     }
 
-    size_t loaded_modes = 0;
     for (; *video_modes != 0xFFFF; video_modes++) {
         memset(vbe_mode_info, 0, sizeof(struct VBE_mode_info));
         if (video_modes > (unsigned short*)0x100000) {
@@ -149,24 +149,24 @@ void vbe_gather_info() {
         this->next = vbe_modes_list;
         vbe_modes_list = this;
 
-        loaded_modes ++;
+        vbe_mode_count ++;
     }
-    if (loaded_modes == 0) {
+    if (vbe_mode_count == 0) {
         kprintf("VBE: No eligible modes available, giving up!\n");
         return;
     }
-    kprintf("VBE: Found %lu eligible modes\n", loaded_modes);
+    kprintf("VBE: Found %lu eligible modes\n", vbe_mode_count);
 
     gather_EDID_info_and_set_mode();
 }
 
 uint32_t * vbe_doubleframebuffer = NULL;
 
-void vbe_set_info(const struct VBE_modes_list * mode) {
+unsigned char vbe_set_info(const struct VBE_modes_list * mode) {
     v86_mcontext_t ret = v86_call_bios(X86_VIDEO_INT, (v86_mcontext_t){.eax = VBE_SET_MODE_INFO, .ebx = mode->mode_num | VBE_MODE_USE_LINEAR_FB});
     if (ret.eax != VBE_SUCCESS_AX) {
         kprintf("VBE: Warning: Failed to set mode %hx - error code %hx\n", mode->mode_num, (unsigned short)ret.eax);
-        return;
+        return 0;
     }
     // before mode setting in order for warnings from the realloc to go through with the old callbacks
     // for example VGA (that doesn't use the framebuffer) -> VBE, where reallocating printing a warning would page fault
@@ -196,6 +196,7 @@ void vbe_set_info(const struct VBE_modes_list * mode) {
     // reset hw scrolling registers (for S/VGA compatible modes)
     vga_wreg(VGA_CRTC_DATA_REG, 0xD, 0);
     vga_wreg(VGA_CRTC_DATA_REG, 0xC, 0);
+    return 1;
 }
 
 static struct VBE_modes_list * vbe_get_specified_mode(int xres, int yres) {
@@ -238,8 +239,7 @@ unsigned char vbe_set_mode(int xres, int yres) {
     struct VBE_modes_list * chosen_mode = vbe_get_specified_mode(xres, yres);
     if (chosen_mode == NULL) return 0;
 
-    vbe_set_info(chosen_mode);
-    return chosen_mode->info.bpp;
+    return vbe_set_info(chosen_mode) ? chosen_mode->info.bpp : 0;
 }
 
 static struct VBE_modes_list * vbe_get_highest_mode() {
@@ -523,6 +523,7 @@ __attribute__((optimize("O3"))) void vbe_swap_region(unsigned int start_x, unsig
 
 void vbe_hw_shift_pixels(unsigned int pixels) {}
 
+extern long vbe_ioctl(unsigned long cmd, void * arg);
 struct gfx_funcs vbe_funcs = {
     .clear_screen = vbe_clear,
     .swap_region = vbe_swap_region,
@@ -532,6 +533,7 @@ struct gfx_funcs vbe_funcs = {
     .read_framebuffer = vbe_read_framebuffer,
     .hw_shift_pixels = vbe_hw_shift_pixels,
     .hw_shift_scanlines = vbe_hw_shift_scanlines,
+    .ioctl = vbe_ioctl
 };
 
 // TODO: implement converting to normal rgb

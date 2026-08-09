@@ -63,7 +63,6 @@ static PAGE_DIRECTORY_TYPE * v86_create_new_address_space() {
 // TODO: allow code to be copied somewhere else than from 0x500
 v86_mcontext_t run_v86_task(void * code_start, size_t code_size,  void * final_ip, v86_mcontext_t regs) {
     if (waiting_thread != NULL) panic("Tried to spawn a Virtual-8086 task while one is already running!");
-    if (current_process != kernel_task) panic("Tried to spawn a Virtual-8086 task outside of the kernel task!");
     if (code_size > X86_SEGMENT_SIZE) panic("Tried to spawn a Virtual-8086 task with code larger than segment size!");
 
     thread_t * new_thread = kalloc(sizeof(thread_t));
