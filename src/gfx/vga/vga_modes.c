@@ -44,6 +44,8 @@ void vga_set_mode_13() {
     vga_reset_sequencer();
     current_vga_mode = CHAINED;
     vga_pixel_offset = 0;
+    vga_wreg(VGA_CRTC_DATA_REG, 0xD, 0);
+    vga_wreg(VGA_CRTC_DATA_REG, 0xC, 0);
     current_video_funcs = &vga_funcs;
     spinlock_release(&gfx_spinlock);
 }
@@ -77,6 +79,9 @@ void vga_set_mode_X() {
 
     vga_reset_sequencer();
     current_vga_mode = UNCHAINED;
+    vga_pixel_offset = 0;
+    vga_wreg(VGA_CRTC_DATA_REG, 0xD, 0);
+    vga_wreg(VGA_CRTC_DATA_REG, 0xC, 0);
     current_video_funcs = &vga_funcs;
     spinlock_release(&gfx_spinlock);
 }
@@ -109,6 +114,9 @@ void vga_set_mode_X_wide() {
 
     vga_reset_sequencer();
     current_vga_mode = UNCHAINED;
+    vga_pixel_offset = 0;
+    vga_wreg(VGA_CRTC_DATA_REG, 0xD, 0);
+    vga_wreg(VGA_CRTC_DATA_REG, 0xC, 0);
     current_video_funcs = &vga_funcs;
     spinlock_release(&gfx_spinlock);
 }
@@ -142,6 +150,9 @@ void vga_set_mode_12() {
 
     vga_reset_sequencer();
     current_vga_mode = MODE12;
+    vga_pixel_offset = 0;
+    vga_wreg(VGA_CRTC_DATA_REG, 0xD, 0);
+    vga_wreg(VGA_CRTC_DATA_REG, 0xC, 0);
     current_video_funcs = &vga_funcs;
     spinlock_release(&gfx_spinlock);
 }
@@ -175,6 +186,9 @@ void vga_set_mode_12_wide() {
 
     vga_reset_sequencer();
     current_vga_mode = MODE12;
+    vga_pixel_offset = 0;
+    vga_wreg(VGA_CRTC_DATA_REG, 0xD, 0);
+    vga_wreg(VGA_CRTC_DATA_REG, 0xC, 0);
     current_video_funcs = &vga_funcs;
     spinlock_release(&gfx_spinlock);
 }

@@ -90,11 +90,23 @@ enum vga_addressing_modes {
 };
 
 struct vga_misc_params {
-    unsigned char hicolor : 1; // 256 colors/8bpp
+    // part of the attribute controller, 256 colors have a "wider" pixel timing
+    unsigned char pel_width : 1;
+    unsigned char hicolor   : 1; // 256 colors/8bpp
     // all scanlines will be displayed twice, halving the vertical resolution
     unsigned char scan_doubling : 1;
     // the entire clock will be halved (slowed down by 2), halving both resolutions
     unsigned char clock_halving : 1;
+    // the address latches are loaded every second clock
+    unsigned char address_halving : 1;
+    // make the framebuffer into a linear one
+    unsigned char chain4 : 1;
+    // master dot clock halving
+    unsigned char dcr       : 1;
+    // cga compat even and odd numbered bits are pulled from planes
+    unsigned char shift_reg : 1;
+    // interleave planes instead of chain
+    unsigned char odd_even  : 1;
     // actual_width / (2 * vga_pixels_per_address)
     // used for setting correct resolution when loading a modeline
     // basically scan doubling but horizontally and more granular-ly

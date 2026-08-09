@@ -229,8 +229,17 @@ long vga_ioctl(unsigned long cmd, void * arg) {
             spinlock_acquire(&gfx_spinlock);
 
             params->hicolor = vga_rreg(VGA_GC_DATA_REG, 5) & VGA_GC_5_SHIFT256 ? 1 : 0;
+            params->pel_width = vga_rdattr(0x10) & 0x40 ? 1 : 0;
             params->scan_doubling = vga_scan_doubling;
             params->clock_halving = vga_clock_halving;
+            params->address_halving = vga_address_halving;
+            params->chain4 = vga_rreg(VGA_SEQ_DATA_REG, 4) & VGA_SEQ_4_CHAIN4 ? 1 : 0;
+
+            params->dcr = vga_rreg(VGA_SEQ_DATA_REG, 1) & 0x10 ? 1 : 0;
+
+            params->shift_reg = vga_rreg(VGA_GC_DATA_REG, 5) & 0x20 ? 1 : 0;
+            params->odd_even  = vga_rreg(VGA_GC_DATA_REG, 5) & 0x10 ? 1 : 0;
+
             params->data_per_scanline = vga_rreg(VGA_CRTC_DATA_REG, 0x13);
             params->pixels_per_address = vga_pixels_per_address;
             params->addressing_mode = vga_addressing_mode;
@@ -251,15 +260,38 @@ long vga_ioctl(unsigned long cmd, void * arg) {
             uint8_t gc_mode = vga_rreg(VGA_GC_DATA_REG, 5) & ~VGA_GC_5_SHIFT256;
             vga_wreg(VGA_GC_DATA_REG, 5, gc_mode | (params->hicolor ? VGA_GC_5_SHIFT256 : 0));
 
+            vga_wrattr(0x10, 0x01 | (params->pel_width ? 0x40 : 0));
+            // reenable palettes
+            inb(VGA_INPUT_STATUS_1_REGISTER);
+            outb(VGA_AC_REG, 0x20);
+
+
             uint8_t mslr = vga_rreg(VGA_CRTC_DATA_REG, 0x9) & ~0x80;
             vga_wreg(VGA_CRTC_DATA_REG, 0x9, mslr | (params->scan_doubling ? 0x80 : 0));
-            vga_scan_doubling = 1;
+            vga_scan_doubling = params->scan_doubling;
 
-            uint8_t crtc_mode_control = vga_rreg(VGA_CRTC_DATA_REG, VGA_CRTC_MODE_CONTROL) & ~0b100;
-            vga_wreg(VGA_CRTC_DATA_REG, VGA_CRTC_MODE_CONTROL, crtc_mode_control | (params->clock_halving ? 0b100 : 0));
+            uint8_t crtc_mode_control = vga_rreg(VGA_CRTC_DATA_REG, VGA_CRTC_MODE_CONTROL) & ~0b1100;
+            crtc_mode_control |= params->clock_halving ? 0b100 : 0;
+            crtc_mode_control |= params->address_halving ? 0b1000 : 0;
+            vga_wreg(VGA_CRTC_DATA_REG, VGA_CRTC_MODE_CONTROL, crtc_mode_control);
             vga_clock_halving = params->clock_halving;
-
+            vga_address_halving = params->address_halving;
             vga_wreg(VGA_CRTC_DATA_REG, 0x13, params->data_per_scanline);
+
+            uint8_t mmr = 0b10;
+            if (!params->odd_even)
+                mmr |= 0b100;
+            if (params->chain4)
+                mmr |= VGA_SEQ_4_CHAIN4;
+            vga_wreg(VGA_SEQ_DATA_REG, 4, mmr);
+
+            uint8_t cmr = vga_rreg(VGA_SEQ_DATA_REG, 1) & ~0x10;
+            vga_wreg(VGA_SEQ_DATA_REG, 1, cmr | (params->dcr ? 0x10 : 0));
+
+            uint8_t gmr = vga_rreg(VGA_GC_DATA_REG, 5) & ~0x30;
+            gmr |= params->shift_reg ? 0x20 : 0;
+            gmr |= params->odd_even ? 0x10 : 0;
+            vga_wreg(VGA_GC_DATA_REG, 5, gmr);
 
             vga_pixels_per_address = params->pixels_per_address;
 
@@ -280,6 +312,8 @@ long vga_ioctl(unsigned long cmd, void * arg) {
                 display_width = new_width;
                 display_height = new_height;
             }
+
+            vga_reset_sequencer();
 
             spinlock_release(&gfx_spinlock);
             return 0;

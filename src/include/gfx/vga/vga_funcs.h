@@ -24,5 +24,6 @@ void vga_set_addressing_mode(enum vga_addressing_modes mode);
 void vga_wreg(uint16_t data_reg, uint8_t index, uint8_t data);
 uint8_t vga_rreg(uint16_t data_reg, uint8_t index);
 void vga_wrattr(uint8_t index, uint8_t data);
+uint8_t vga_rdattr(uint8_t index);
 
 #endif

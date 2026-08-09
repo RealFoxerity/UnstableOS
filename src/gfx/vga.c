@@ -17,15 +17,9 @@ unsigned char vga_pixels_per_address = 8; // set by individual modes to correctl
 
 char vga_scan_doubling = 0; // set by individual modes, repeats every scan line to get e.g. 200->400 output
 char vga_clock_halving = 0;
+char vga_address_halving = 0;
 enum vga_addressing_modes vga_addressing_mode = 0; // set by individual modes, 0 = byte, 1 = word, 2 = dw
 
-/*
-uint8_t vga_rdattr(uint8_t index) {
-    inb(VGA_INPUT_STATUS_1_REGISTER);
-    outb(VGA_AC_REG, index);
-    return inb(VGA_AC_REG);
-}
-*/
 
 void vga_wreg(uint16_t data_reg, uint8_t index, uint8_t data) {
     //kprintf("wr %hhx to %hx idx %hhx\n", data, data_reg, index);
@@ -57,9 +51,13 @@ void vga_enable_scan() {
     bit 0 - map display address 13 - enables bit 13 of address counter
     */
     if (vga_addressing_mode == VGA_AM_WORD || vga_addressing_mode == VGA_AM_DWORD)
-        vga_wreg(VGA_CRTC_DATA_REG, VGA_CRTC_MODE_CONTROL, 0b10100011 | (vga_clock_halving ? 0b100 : 0));
+        vga_wreg(VGA_CRTC_DATA_REG, VGA_CRTC_MODE_CONTROL, 0b10100011 |
+            (vga_clock_halving ? 0b100 : 0) |
+            (vga_address_halving ? 0b1000 : 0));
     else
-        vga_wreg(VGA_CRTC_DATA_REG, VGA_CRTC_MODE_CONTROL, 0b11100011 | (vga_clock_halving ? 0b100 : 0));
+        vga_wreg(VGA_CRTC_DATA_REG, VGA_CRTC_MODE_CONTROL, 0b11100011 |
+            (vga_clock_halving ? 0b100 : 0) |
+            (vga_address_halving ? 0b1000 : 0));
 }
 
 void vga_wrattr(uint8_t index, uint8_t data) {
@@ -68,6 +66,14 @@ void vga_wrattr(uint8_t index, uint8_t data) {
     outb(VGA_AC_REG, index);
     outb(VGA_AC_REG, data);
 }
+
+
+uint8_t vga_rdattr(uint8_t index) {
+    inb(VGA_INPUT_STATUS_1_REGISTER);
+    outb(VGA_AC_REG + 1, index);
+    return inb(VGA_AC_REG + 1);
+}
+
 
 void vga_load_timings(struct vesa_modeline timings, int actual_width) {
     // note: dots can be though of as memory fetch "ticks"

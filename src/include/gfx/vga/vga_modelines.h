@@ -14,6 +14,7 @@ enum vga_clocks {
 extern unsigned char vga_pixels_per_address;
 extern char vga_scan_doubling;
 extern char vga_clock_halving;
+extern char vga_address_halving;
 extern enum vga_addressing_modes vga_addressing_mode;
 void vga_load_timings(struct vesa_modeline timings, int actual_width);
 

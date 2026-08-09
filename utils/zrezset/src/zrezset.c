@@ -14,7 +14,7 @@ int fd = -1;
 static void print_help(char * argv0, char print_vga, char print_mh) {
     fprintf(stderr,
 "Usage:\n"
-" %s [gGsSWBcCdDlLpamMz]\n"
+" %s [gGsSWBcCeEqQdDlLpamMz]\n"
 "\n"
 "\"zamm! rezoultion setter\" display modesetting utility\n"
 "\n"
@@ -32,16 +32,33 @@ if (print_vga)
     fprintf(stderr,
 "\nVGA-only options:\n"
 "Last argument takes precedence\n"
+"Options marked '*' are not handled in QEMU/VirtualBox/VMWare\n"
+"Options marked '$' are incorrectly handled in all QEMU/VirtualBox/VMWare\n"
+"Options marked '~' are incorrectly handled in VMWare\n"
+"Options marked '^' are incorrectly handled in VirtualBox\n"
+"Most options under VMWare throw the card into mode 13 if not there already\n"
 "\t-B          Do bounds checking on modelines\n"
-"\t-c          Try to set the hi-color mode (256 colors)\n"
-"\t-C             ... unset ... \n"
-"\t-d          Try to set scan doubling\n"
-"\t-D             ... unset ...\n"
-"\t-l          Try to set clock halving\n"
-"\t-L             ... unset ...\n"
-"\t-p [N]      Try to set data per scanline to N dots\n"
-"\t-a [N]      Try to set pixels per address to N\n"
-"\t-m [mode]   Try to set addressing mode to B/W/D\n"
+"\t-c~         Try to set the hi-color mode (256 colors)\n"
+"\t-C~            ... unset ... \n"
+"\t-e*         Try to set the hi-color PEL width\n"
+"\t-E*            ... unset ... \n"
+"\t-q          Try to set Chain-4\n"
+"\t-Q             ... unset ... \n"
+"\t-d~         Try to set scan doubling\n"
+"\t-D~            ... unset ...\n"
+"\t-l*         Try to set clock halving, Warning: might be dangerous to CRTs\n"
+"\t-L*            ... unset ...\n"
+"\t-1*         Try to set the address clock to latch every dot clock\n"
+"\t-2*                                               ... other ...\n"
+"\t-i*         Try to set master clock halving\n"
+"\t-I*            ... unset ...\n"
+"\t-r*~        Try to set odd/even reg bitshifting (CGA compat)\n"
+"\t-R*~           ... unset ...\n"
+"\t-o^         Try to set host odd/even (CGA compat)\n"
+"\t-O^            ... unset ...\n"
+"\t-p^ [N]     Try to set data per scanline to N dots\n"
+"\t-a^ [N]     Try to set pixels per address to N\n"
+"\t-m^ [mode]  Try to set addressing mode to B/W/D\n"
 "\t-M [amode]  Try to set access mode to C/U/M\n"
 "\t-z [WxH]    Try to set the fb console rezoultion\n"
 );
@@ -75,7 +92,7 @@ if (print_mh)
     }
 }
 
-static const char valid_options[] = ":hHVgGs:S:WBcCdDlLp:a:m:M:z:";
+static const char valid_options[] = ":hHVgGs:S:WBcCeEqQdDlL12rRoOiIp:a:m:M:z:";
 
 static void print_mode(struct fb_info fi) {
     char types[3] = "LPU";
@@ -207,6 +224,22 @@ int main(int argc, char ** argv) {
                 set_vm = 1;
                 vm.hicolor = 0;
                 break;
+            case 'e':
+                set_vm = 1;
+                vm.pel_width = 1;
+                break;
+            case 'E':
+                set_vm = 1;
+                vm.pel_width = 0;
+                break;
+            case 'q':
+                set_vm = 1;
+                vm.chain4 = 1;
+                break;
+            case 'Q':
+                set_vm = 1;
+                vm.chain4 = 0;
+                break;
             case 'd':
                 set_vm = 1;
                 vm.scan_doubling = 1;
@@ -222,6 +255,38 @@ int main(int argc, char ** argv) {
             case 'L':
                 set_vm = 1;
                 vm.clock_halving = 0;
+                break;
+            case '1':
+                set_vm = 1;
+                vm.address_halving = 0;
+                break;
+            case '2':
+                set_vm = 1;
+                vm.address_halving = 1;
+                break;
+            case 'r':
+                set_vm = 1;
+                vm.shift_reg = 1;
+                break;
+            case 'R':
+                set_vm = 1;
+                vm.shift_reg = 0;
+                break;
+            case 'o':
+                set_vm = 1;
+                vm.odd_even = 1;
+                break;
+            case 'O':
+                set_vm = 1;
+                vm.odd_even = 0;
+                break;
+            case 'i':
+                set_vm = 1;
+                vm.dcr = 1;
+                break;
+            case 'I':
+                set_vm = 1;
+                vm.dcr = 0;
                 break;
             case 'p':
                 set_vm = 1;
@@ -301,6 +366,48 @@ int main(int argc, char ** argv) {
     if (help) {
         print_help(argv[0], help & 0b100, help & 0b010);
         return 0;
+    }
+
+    if (do_bounds) {
+        char failed = 0;
+        unsigned int total_horizontal_dots =
+            modeline.overscan +
+            modeline.horizontal +
+            modeline.overscan +
+            modeline.horizontal_fporch +
+            modeline.horizontal_sync +
+            modeline.horizontal_bporch;
+        if (total_horizontal_dots / 8 > 265) {
+            fprintf(stderr, "VGA max combined horizontal width is 2080\n");
+            failed = 1;
+        } else if (total_horizontal_dots > 1200) { // around this, no really 1200
+            fprintf(stderr, "Warning: VGA DRAM refresh might not keep up with horizontal resolution\n");
+        }
+        unsigned int total_vertical_scanlines =
+            modeline.overscan +
+            modeline.vertical +
+            modeline.overscan +
+            modeline.vertical_fporch +
+            modeline.vertical_sync +
+            modeline.vertical_bporch;
+        if (total_vertical_scanlines > 1 << 10) {
+            fprintf(stderr, "VGA max combined vertical scanlines is 1040\n");
+            failed = 1;
+        }
+        if (modeline.clock_khz > 2) {
+            fprintf(stderr, "VGA unsupported clock specified\n");
+            failed = 1;
+        }
+        if (modeline.horizontal_sync / 8 >= 0x1F) {
+            fprintf(stderr, "Warning: VGA horizontal sync might not be supported on every card\n");
+        }
+        if (modeline.vertical_sync >= 0xF) {
+            fprintf(stderr, "Warning: VGA vertical sync might not be supported on every card\n");
+        }
+        if (failed) {
+            fprintf(stderr, "Out of bounds modeline for VGA, giving up\n");
+            return 1;
+        }
     }
 
     struct fb_info fi = {0};
