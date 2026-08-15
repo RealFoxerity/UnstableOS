@@ -196,8 +196,6 @@ long ioctl_dev(file_descriptor_t *file, unsigned long request, void * arg) {
     if (!file->inode->dev_opened) return -EIO;
 
     if (dev_ops.ioctl == NULL) return -ENOTTY;
-    if (file->inode->mmaped_instances)
-        return -EBUSY;
     return dev_ops.ioctl(file, request, arg);
 }
 

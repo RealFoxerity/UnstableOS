@@ -3,7 +3,7 @@
 #include <string.h>
 #include "gfx.h"
 
-extern long vga_ioctl(unsigned long cmd, void * arg);
+extern long vga_ioctl(file_descriptor_t * file, unsigned long cmd, void * arg);
 struct gfx_funcs vga_funcs = {
     .clear_screen = vga_clear_screen,
     .swap_region = vga_swap_region,

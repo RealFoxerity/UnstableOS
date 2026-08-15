@@ -137,7 +137,7 @@ void vga_get_modeline(struct vesa_modeline * mode) {
     mode->vertical_bporch += mode->overscan;
 }
 
-long vga_ioctl(unsigned long cmd, void * arg) {
+long vga_ioctl(file_descriptor_t * file, unsigned long cmd, void * arg) {
     unsigned long n = (uintptr_t)arg;
     struct vga_misc_params * params = arg;
 

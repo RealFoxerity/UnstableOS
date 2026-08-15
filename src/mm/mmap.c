@@ -73,7 +73,8 @@ char mmap_page_fault(void * fault_addr, struct page_fault_error error) {
     kassert(closest->backing_fd);
 
     if (!S_ISREG(closest->backing_fd->inode->mode))
-        panic("Missing pages for mmaped device");
+        return -1;
+        //panic("Missing pages for mmaped device");
 
     if ((off_t)(uintptr_t)fault_addr - closest->node.val + closest->mapping_offset > closest->backing_fd->inode->size) {
         rw_spinlock_release_read(&current_process->vm_lock);
@@ -170,7 +171,7 @@ static struct vm_record * mmap_split_record(struct vm_record ** vm, struct vm_re
 
 static int _sys_munmap(void *addr, size_t len, char ignore_missing);
 void *mmap_file(void *addr, size_t len, int prot, int flags, file_descriptor_t * file, off_t off) {
-    if (len == 0)
+    if (len == 0 || off < 0)
         return (void*)-EINVAL;
     if (!(flags & MAP_ANONYMOUS) && !file)
         return (void*)-EBADF;
@@ -553,7 +554,8 @@ char mmap_check_address(const void * addr, char writable) {
     if (!vmr->private) {
         kassert(vmr->backing_fd->inode);
         if (!S_ISREG(vmr->backing_fd->inode->mode))
-            panic("Missing pages for mmaped device");
+            return 0;
+            //panic("Missing pages for mmaped device");
 
         rw_spinlock_acquire_write(&vmr->backing_fd->inode->mmap_pc_lock);
         struct mmap_page_cache * mpc =

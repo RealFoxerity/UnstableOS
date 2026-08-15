@@ -523,7 +523,7 @@ __attribute__((optimize("O3"))) void vbe_swap_region(unsigned int start_x, unsig
 
 void vbe_hw_shift_pixels(unsigned int pixels) {}
 
-extern long vbe_ioctl(unsigned long cmd, void * arg);
+extern long vbe_ioctl(file_descriptor_t * file, unsigned long cmd, void * arg);
 struct gfx_funcs vbe_funcs = {
     .clear_screen = vbe_clear,
     .swap_region = vbe_swap_region,

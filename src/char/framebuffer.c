@@ -1,4 +1,4 @@
-#include "../../libc/src/include/UnstableOS/devs.h"
+#include <UnstableOS/devs.h>
 #include "dev_ops.h"
 #include "gfx.h"
 #include <errno.h>
@@ -122,14 +122,43 @@ long framebuffer_ioctl(file_descriptor_t *file, unsigned long cmd, void * arg) {
         return -ENOTTY;
     if (__IOCTL_DEV(cmd) != DEV_MAJ_FB)
         return -EINVAL;
-    return current_video_funcs->ioctl(cmd, arg);
+    return current_video_funcs->ioctl(file, cmd, arg);
 }
+
+#include <sys/mman.h>
+long framebuffer_mmap(inode_t * inode, int prot, off_t off, void * start, size_t len) {
+    if(off % PAGE_SIZE || off < 0)
+        return -EINVAL;
+
+    len += PAGE_SIZE - 1;
+    len &= ~(PAGE_SIZE - 1);
+
+    if (len + off > LINEAR_FRAMEBUFFER_MAX_SIZE)
+        len = LINEAR_FRAMEBUFFER_MAX_SIZE - off;
+    len /= PAGE_SIZE;
+    off /= PAGE_SIZE;
+    int mapping_flags = 0;
+    if (prot)
+        mapping_flags |= PTE_PDE_PAGE_USER_ACCESS;
+    if (prot & PROT_WRITE)
+        mapping_flags |= PTE_PDE_PAGE_WRITABLE;
+
+    for (size_t i = 0; i < len; i++) {
+        void * phys = paging_virt_addr_to_phys(LINEAR_FRAMEBUFFER_START + (i + off) * PAGE_SIZE);
+        if (!phys)
+            return 0;
+        paging_map_phys_addr(phys, start + i*PAGE_SIZE, mapping_flags);
+    }
+    return 0;
+}
+
 
 struct dev_operations framebuffer_ops = {
     .pread = framebuffer_pread,
     .pwrite = framebuffer_pwrite,
     .seek = framebuffer_seek,
     .ioctl = framebuffer_ioctl,
+    .mmap = framebuffer_mmap
 };
 
 void framebuffer_register() {

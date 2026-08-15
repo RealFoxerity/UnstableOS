@@ -30,7 +30,7 @@ static void vbe_to_fbinfo(struct fb_info * info, const struct VBE_modes_list * m
     info->blue_position = mode->info.blue_position;
 }
 
-long vbe_ioctl(unsigned long cmd, void * arg) {
+long vbe_ioctl(file_descriptor_t * file, unsigned long cmd, void * arg) {
     const struct VBE_modes_list * this = vbe_modes_list;
     struct fb_info *info = arg;
 
@@ -52,6 +52,8 @@ long vbe_ioctl(unsigned long cmd, void * arg) {
             }
             return 0;
         case FB_SET_MODE:
+            if (file->inode->mmaped_instances)
+                return -EBUSY;
             for (this = vbe_modes_list; this != NULL; this = this->next) {
                 if (this->mode_num == (uintptr_t)arg)
                     break;
