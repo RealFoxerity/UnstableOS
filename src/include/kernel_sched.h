@@ -11,6 +11,7 @@
 #include "kernel_spinlock.h"
 #include "mm/kernel_memory.h"
 #include "fs/fs.h"
+#include "mm/mmap.h"
 
 #if SIGRTMAX - SIGRTMIN > RTSIG_MAX
 #error "Realtime signal ranges larger than realtime signal count!"
@@ -68,7 +69,8 @@ enum pstatus_t {
     SCHED_WAITING, // process called wait()
 
     SCHED_THREAD_CLEANUP, // thread called thread_exit()
-    SCHED_V86_THREAD_CLEANUP
+    SCHED_V86_THREAD_CLEANUP,
+    SCHED_DONT_SCHEDULE,
 } typedef pstatus_t;
 
 #define FD_LIMIT_PROCESS OPEN_MAX
@@ -161,7 +163,7 @@ struct process_t {
 
     struct sem_t * semaphores[SEM_NSEMS_MAX];
 
-    struct sigaction sa_handlers[NSIG_MAX - 1];
+    struct sigaction sa_handlers[NSIG_MAX];
 
     // this structure only applies for <SIGRTMIN signals
     sigset_t sa_pending;
@@ -195,9 +197,18 @@ struct process_t {
     // always lock with interrupts disabled, this lock is used with locked scheduler in some parts
     spinlock_t lock;
 
+    rw_spinlock_t vm_lock;
+    struct vm_record * vm;
+
     struct process_t * prev;
     struct process_t * next;
 } typedef process_t;
+
+// to be called on execve and process reaper
+// assumes external locking of process->vm_lock
+// only possible with the target address space, don't reap it prior to this
+// here instead of in mm/mmap.h because of reliance on process_t
+void munmap_all(process_t * process);
 
 struct program {
     PAGE_DIRECTORY_TYPE * pd_vaddr;

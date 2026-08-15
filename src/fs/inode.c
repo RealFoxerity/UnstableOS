@@ -150,9 +150,14 @@ long register_inode(const inode_t * inode, inode_t ** inode_out, unsigned short 
 
 void close_inode(inode_t *inode) {
     if (inode == NULL) return;
-    spinlock_acquire_interruptible(&inode->lock);
     spinlock_acquire_interruptible(&kernel_inode_lock);
+    // should only happen from the very last program closing the file
+    // or the process reaper reaping a process
     if (__atomic_sub_fetch(&inode->instances, 1, __ATOMIC_RELEASE) == 0) {
+        // this would mean losing the shadow mmap file descriptors for the inode
+        kassert(!inode->mmap_page_cache);
+        kassert(!inode->mmaped_instances);
+
         __atomic_sub_fetch(&inode->backing_superblock->instances, 1, __ATOMIC_RELEASE);
         if (inode->backing_superblock &&
             inode->backing_superblock->funcs &&
@@ -162,7 +167,6 @@ void close_inode(inode_t *inode) {
         if (S_ISCHR(inode->mode) || S_ISBLK(inode->mode))
             if (inode->dev_opened) close_dev(inode);
     }
-    spinlock_release(&inode->lock);
     spinlock_release(&kernel_inode_lock);
 }
 

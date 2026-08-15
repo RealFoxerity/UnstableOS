@@ -13,6 +13,7 @@
 #include "fs/fs.h"
 #include <pthread.h>
 #include "kernel_gdt_idt.h"
+#include "sys/mman.h"
 
 #define kprintf(fmt, ...) kprintf("Kernel Routines: "fmt, ##__VA_ARGS__)
 
@@ -60,7 +61,8 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
     arg2 = ctx->esi,
     arg3 = ctx->edx,
     arg4 = ((long*)(ctx->iret_frame.sp))[0],
-    arg5 = ((long*)(ctx->iret_frame.sp))[1];
+    arg5 = ((long*)(ctx->iret_frame.sp))[1],
+    arg6 = ((long*)(ctx->iret_frame.sp))[2];
 
     long return_value = -ENOSYS;
 
@@ -68,6 +70,10 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
     CRIT_SEC_START
     #endif
     siginfo_t exited_child_status;
+
+    rw_spinlock_acquire_read(&current_process->vm_lock);
+    asm volatile ("sti;"); // should be already marked as such by the rw spinlock, but to be sure
+
     switch (syscall_number) {
         case SYSCALL_YIELD:
             reschedule();
@@ -84,6 +90,7 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
             spinlock_release(&scheduler_lock);
             break;
         case SYSCALL_EXIT_THREAD:
+            rw_spinlock_release_read(&current_process->vm_lock);
             #ifndef EXIT_AFFECTS_SYSCALLS
             CRIT_SEC_END
             #endif
@@ -93,6 +100,8 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
 
         case SYSCALL_EXIT:
         case SYSCALL_ABORT:
+            asm volatile("cli");
+            rw_spinlock_release_read(&current_process->vm_lock);
             if (syscall_number == SYSCALL_ABORT) {
                 // so that we can keep the fall-through for syscall_exit
                 kprintf("Thread %lu of process %lu called abort()!\n", current_thread->tid, current_process->pid);
@@ -152,7 +161,6 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
                 return_value = -EFAULT;
                 break;
             }
-            asm volatile ("sti;");
             return_value = sys_read(arg1, (void*)arg2, (size_t)arg3);
             break;
         case SYSCALL_WRITE:
@@ -160,7 +168,6 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
                 return_value = -EFAULT;
                 break;
             }
-            asm volatile ("sti;");
             return_value =  sys_write(arg1, (const void*)arg2, (size_t)arg3);
             break;
         case SYSCALL_PREAD:
@@ -168,7 +175,6 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
                 return_value = -EFAULT;
                 break;
             }
-            asm volatile ("sti;");
             return_value = sys_pread(arg1, (void*)arg2, (size_t)arg3, arg4);
             break;
         case SYSCALL_PWRITE:
@@ -176,7 +182,6 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
                 return_value = -EFAULT;
                 break;
             }
-            asm volatile ("sti;");
             return_value = sys_pwrite(arg1, (const void*)arg2, arg3, arg4);
             break;
         case SYSCALL_TRUNC:
@@ -184,15 +189,12 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
                 return_value = -EFAULT;
                 break;
             }
-            asm volatile("sti;");
             return_value = sys_trunc(arg1, *(off_t*)arg2);
             break;
         case SYSCALL_FCNTL:
-            asm volatile("sti;");
             return_value = sys_fcntl(arg1, arg2, arg3);
             break;
         case SYSCALL_SYNC:
-            asm volatile("sti;");
             return_value = 0;
             extern void hd_cache_flush();
             hd_cache_flush();
@@ -205,19 +207,15 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
             return_value = sys_pipe((int *)arg1, arg2);
             break;
         case SYSCALL_DUP:
-            asm volatile ("sti;");
             return_value = sys_dup(arg1);
             break;
         case SYSCALL_DUP3:
-            asm volatile ("sti;");
             return_value = sys_dup3(arg1, arg2, arg3);
             break;
         case SYSCALL_RENAMEAT:
-            asm volatile ("sti;");
             return_value = sys_renameat(arg1, (const char *)arg2, arg3, (const char *)arg4);
             break;
         case SYSCALL_UNLINKAT:
-            asm volatile ("sti;");
             return_value = sys_unlinkat(arg1, (const char *)arg2, arg3);
             break;
         case SYSCALL_SEEK:
@@ -229,7 +227,6 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
                 return_value = -EFAULT;
                 break;
             }
-            asm volatile ("sti;");
 
             off_t out = sys_seek(arg1, *(off_t*)arg2, arg3);
             if (out >= 0) {
@@ -244,10 +241,10 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
                 return_value = -EFAULT;
                 break;
             }
-            asm volatile ("sti;");
             return_value = sys_readdir(arg1, (void*)arg2, arg3);
             break;
         case SYSCALL_SEM_INIT:
+            asm volatile("cli"); // TODO: rewrite to be thread safe
             for (int i = 0; i < SEM_NSEMS_MAX; i++) {
                 if (current_process->semaphores[i] == NULL) {
                     current_process->semaphores[i] = kalloc(sizeof(sem_t));
@@ -282,7 +279,6 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
                 return_value = -ERANGE;
                 break;
             }
-            asm volatile ("sti;");
 
             kernel_sem_post(current_process, arg1);
             return_value = 0;
@@ -300,7 +296,6 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
                 return_value = -EINVAL;
                 break;
             }
-            asm volatile ("sti;");
 
             kernel_sem_wait(current_process, current_thread, arg1);
             break;
@@ -316,6 +311,7 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
             }
 
             // TODO: not thread safe, fix
+            asm volatile("cli");
             if (__atomic_sub_fetch(&current_process->semaphores[arg1]->used, 1, __ATOMIC_RELEASE) == 0)
                 kfree(current_process->semaphores[arg1]);
             current_process->semaphores[arg1] = NULL;
@@ -342,15 +338,12 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
             return_value = sys_setpgid(arg1, arg2);
             break;
         case SYSCALL_MOUNT:
-            asm volatile ("sti");
             return_value = sys_mount((const char*)arg1, (const char*)arg2, (unsigned char)arg3, (unsigned short)arg4);
             break;
         case SYSCALL_UMOUNT:
-            asm volatile ("sti");
             return_value = sys_umount((const char*)arg1);
             break;
         case SYSCALL_OPENAT:
-            asm volatile ("sti;");
             return_value = sys_openat(arg1, (const char *)arg2, arg3, arg4);
             break;
         case SYSCALL_UMASK:
@@ -361,23 +354,18 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
             return_value = (long)old_umask;
             break;
         case SYSCALL_CLOSE:
-            asm volatile ("sti;");
             return_value = sys_close(arg1);
             break;
         case SYSCALL_CHDIR:
-            asm volatile ("sti;");
             return_value = sys_chdir((const char *)arg1);
             break;
         case SYSCALL_CHROOT:
-            asm volatile ("sti;");
             return_value = sys_chroot((const char *)arg1);
             break;
         case SYSCALL_EXEC:
-            asm volatile ("sti;");
             return_value = sys_execve((const char *)arg1, (char * const*)arg2, (char * const*)arg3);
             break;
         case SYSCALL_SPAWN:
-            asm volatile ("sti;");
             return_value = sys_spawn((const char *)arg1, (char * const*)arg2, (char * const*)arg3);
             break;
         case SYSCALL_FORK:
@@ -404,7 +392,6 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
                 return_value = -EFAULT;
                 break;
             }
-            asm volatile ("sti");
             return_value = sys_fstat(arg1, (struct stat *)arg2);
             break;
 
@@ -413,7 +400,6 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
                 return_value = -EFAULT;
                 break;
             }
-            asm volatile ("sti");
             return_value = sys_fstatat(arg1, (const char*) arg2, (struct stat *)arg3, arg4);
             break;
         case SYSCALL_NANOSLEEP:
@@ -425,7 +411,6 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
                 return_value = -EFAULT;
                 break;
             }
-            asm volatile ("sti");
             return_value = sys_nanosleep(current_process, current_thread, *(struct timespec*)arg1, (struct timespec*)arg2);
             break;
         case SYSCALL_ALARM:
@@ -506,9 +491,28 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
             return_value = sys_sigqueue(arg1, arg2, (union sigval){arg3});
             break;
         case SYSCALL_IOCTL:
-            asm volatile ("sti");
             return_value = sys_ioctl(arg1, arg2, (void *)arg3);
             break;
+
+
+
+        case SYSCALL_MMAP:
+            if (!paging_check_address_range((void*)arg6, sizeof(off_t), 0, in_kernel)) {
+                return_value = -EFAULT;
+                break;
+            }
+            rw_spinlock_release_read(&current_process->vm_lock);
+            return_value = (long)sys_mmap((void*)arg1, arg2, arg3, arg4, arg5, *(off_t*)arg6);
+            goto syscall_exit_no_vm;
+        case SYSCALL_MUNMAP:
+            rw_spinlock_release_read(&current_process->vm_lock);
+            return_value = sys_munmap((void*)arg1, arg2);
+            goto syscall_exit_no_vm;
+        case SYSCALL_MPROTECT:
+            rw_spinlock_release_read(&current_process->vm_lock);
+            return_value = sys_mprotect((void*)arg1, arg2, arg3);
+            goto syscall_exit_no_vm;
+
         default:
             return_value = -ENOSYS;
             break;
@@ -516,6 +520,8 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
 
 
     syscall_exit:
+    rw_spinlock_release_read(&current_process->vm_lock);
+    syscall_exit_no_vm:
     #ifndef EXIT_AFFECTS_SYSCALLS
     CRIT_SEC_END
     #endif

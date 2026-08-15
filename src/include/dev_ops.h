@@ -15,6 +15,10 @@ struct dev_operations {
     // takes an inode and de/initializes a device specified by it
     long    (*open) (inode_t * inode, unsigned short flags);
     long    (*close)(inode_t * inode);
+
+    // it is assumed that mmap pages are not reference tracked
+    // pmm functions like free will not be called on them
+    long    (*mmap) (inode_t * inode, int prot, off_t off, void * start, size_t len);
 };
 
 ssize_t pread_dev(file_descriptor_t *file, void *buf, size_t count, off_t offset);
@@ -23,7 +27,7 @@ off_t seek_dev(file_descriptor_t * file, off_t offset, int whence);
 long ioctl_dev(file_descriptor_t *file, unsigned long request, void * arg);
 long open_dev(inode_t * inode, unsigned short flags);
 long close_dev(inode_t * inode);
-
+long mmap_dev(inode_t * inode, int prot, off_t off, void * start, size_t len);
 // if one already exists, it gets overwritten!
 void dev_register_ops(dev_t dev, const struct dev_operations * dev_ops);
 struct dev_operations dev_ops_lookup(dev_t dev);

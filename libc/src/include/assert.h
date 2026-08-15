@@ -6,7 +6,7 @@
 
 #define assert(cond) {\
     if (!(cond)) {\
-        printf("Assertion `"#cond"` failed in %s()! [" __FILE__ ":" STR(__LINE__) "]\n", __func__);\
+        printf("Assertion `%s` failed in %s()! [" __FILE__ ":" STR(__LINE__) "]\n", #cond, __func__);\
         abort();\
     }\
 }

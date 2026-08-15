@@ -15,6 +15,7 @@ It is not meant as a production OS, there is no testing, there is no fuzzing. I 
 - Ramdisks & Tar as initial ramdisk
 - `exec()`, CoW `fork()`, `spawn()`, `wait()`
 - Signals - most of `sig*`, `kill()`, `tgkill()`
+- Both shared and private mappings with `mmap()`, `mprotect()`, `munmap()`
 - Semaphores and kernel spinlocks (technically mutexes)
 - POSIX compliant TTY with most of termios
 - DEC VT102 inspired framebuffer console
@@ -74,7 +75,7 @@ For qemu you can do (assuming `make iso`):\
 see [caveats.md](./caveats.md) for info
 ### TODO in Near Future
 ---
-- [ ] `mmap()`, `munmap()`, `msync()` (only with `MAP_FIXED`)
+- [x] `mmap()`, `munmap()`, `msync()` (only with `MAP_FIXED`)
 - [x] `stat()`
 - [x] `mkdir()`, `rmdir()`
 - [x] `unlink()`

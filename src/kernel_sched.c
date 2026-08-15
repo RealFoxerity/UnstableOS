@@ -209,6 +209,8 @@ static void scheduler_remove_process(process_t * process) {
         }
     }
 
+    munmap_all(process);
+
     PAGE_DIRECTORY_TYPE * mapped_as = paging_map_phys_addr_unspecified(process->address_space_paddr, PTE_PDE_PAGE_WRITABLE);
     paging_destroy_address_space(mapped_as);
     paging_unmap_page(mapped_as);
@@ -390,12 +392,13 @@ void schedule(mcontext_t * context) {
                 panic("Tried to kill kernel");
             }
             if (checked_process == init_task) {
+                char errmsg[128] = {0};
                 if (WIFEXITED(checked_process->postmortem_wstatus)) {
-                    char errmsg[128] = {0};
                     snprintf(errmsg, 128, "Tried to kill init (exitcode: %d)", checked_process->pending_sigchld_info.si_status);
                     panic(errmsg);
                 }
-                panic("Tried to kill init");
+                snprintf(errmsg, 128, "Tried to kill init (signal: %d)", checked_process->pending_sigchld_info.si_signo);
+                panic(errmsg);
             }
             switch (checked_process->do_cleanup) {
                 case 1:
@@ -498,11 +501,11 @@ void schedule(mcontext_t * context) {
                         }
                     }
 
-                    switch_context(checked_process, checked_thread, context);
-                    // we need the correct address space
                     if (checked_thread->context.iret_frame.cs & 3) {
                         signal_dispatch_sa(checked_process, checked_thread);
                     }
+                    switch_context(checked_process, checked_thread, context);
+
                     spinlock_release(&scheduler_lock);
                     current_process = checked_process;
                     current_thread  = checked_thread;
@@ -510,6 +513,7 @@ void schedule(mcontext_t * context) {
                 case SCHED_INTERR_SLEEP:
                 case SCHED_UNINTERR_SLEEP:
                 case SCHED_WAITING:
+                case SCHED_DONT_SCHEDULE:
                     break;
                 case SCHED_V86_THREAD_CLEANUP:
                     paging_apply_address_space(kernel_address_space_paddr);

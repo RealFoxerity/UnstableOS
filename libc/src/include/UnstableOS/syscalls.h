@@ -88,6 +88,10 @@ enum syscalls {
     SYSCALL_SEM_POST, // sem_post(int semaphore id)
     SYSCALL_SEM_WAIT, // sem_wait(int semaphore id)
     SYSCALL_SEM_DESTROY,
+
+    SYSCALL_MMAP, // same as mmap(), but off is pointer to off_t
+    SYSCALL_MUNMAP,
+    SYSCALL_MPROTECT,
 };
 
 #endif

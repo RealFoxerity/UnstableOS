@@ -159,7 +159,9 @@ void * paging_add_page(void * target_virt_addr, unsigned int flags) {
     sw_mem_barrier
     flush_tlb_entry(target_virt_addr);
 
+    disable_wp();
     memset(target_virt_addr, 0, PAGE_SIZE_NO_PAE);
+    enable_wp();
 
     return target_virt_addr;
 }
@@ -286,12 +288,13 @@ char paging_check_address_range(const void * addr, size_t n, char writable, char
     for (const void * iteraddr = addr; iteraddr < addr+n && iteraddr >= addr; iteraddr += PAGE_SIZE_NO_PAE) { // > addr in case we wrap around
         const PAGE_TABLE_TYPE * pte = paging_get_pte(iteraddr);
         if (pte == NULL) {
+            if (mmap_check_address(addr, writable))
+                continue;
             if (!(iteraddr >= PROGRAM_HEAP_VADDR && iteraddr <= current_process->program_break) &&
                 !(iteraddr < PROGRAM_STACK_VADDR &&
                     iteraddr >= PROGRAM_STACK_VADDR - PTHREAD_THREADS_MAX * PROGRAM_STACK_SIZE))
                 return 0;
-            // overcommitment, we could rely on page faults, but that would
-            // require all syscalls to have interrupts enabled at all times
+            // overcommitment now to not waste time on pagefaults
             if (paging_add_page((void *)iteraddr, PTE_PDE_PAGE_USER_ACCESS | PTE_PDE_PAGE_WRITABLE) == NULL)
                 return 0;
             continue;
@@ -302,8 +305,10 @@ char paging_check_address_range(const void * addr, size_t n, char writable, char
             if (!(*pte & PTE_PDE_PAGE_USER_ACCESS)) return 0;
             if (iteraddr <= kernel_mem_top) return 0;
 
-            if (writable && !(*pte & PTE_PDE_PAGE_WRITABLE))
-                if (!fork_cow_page((void*)iteraddr)) return 0;
+            if (writable && !(*pte & PTE_PDE_PAGE_WRITABLE)) {
+                if (!fork_cow_page((void*)iteraddr) &&
+                    !mmap_mark_page_dirty((void*)iteraddr)) return 0;
+            }
             // the intel architecture allows writes into unwritable memory in ring 0 (see bit 16 of cr0),
             // this would normally be a check inside the kernel too, but due to the way we map the programs in
             // this would disallow the write() into the new address space
@@ -317,7 +322,7 @@ char paging_check_address_range(const void * addr, size_t n, char writable, char
 static unsigned long wp_disable_level = 1;
 void enable_wp() {
     // still some processes rely on WP being disabled, enabling it would case page faults
-    if (__atomic_sub_fetch(&wp_disable_level, 1, __ATOMIC_SEQ_CST) > 0) return;
+    if (__atomic_sub_fetch(&wp_disable_level, 1, __ATOMIC_RELEASE) > 0) return;
 
     asm volatile (
         "mov %cr0, %eax\n\t"
@@ -326,7 +331,7 @@ void enable_wp() {
     );
 }
 void disable_wp() {
-    __atomic_add_fetch(&wp_disable_level, 1, __ATOMIC_SEQ_CST);
+    __atomic_add_fetch(&wp_disable_level, 1, __ATOMIC_ACQUIRE);
     asm volatile (
         "mov %cr0, %eax\n\t"
         "and $0xFFFEFFFF, %eax\n\t"

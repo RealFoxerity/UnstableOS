@@ -7,6 +7,8 @@
 #include "kernel_exec.h"
 #include <string.h>
 #include <stdint.h>
+#include "mm/mmap.h"
+#include "rbtree.h"
 
 // TODO: when implementing SMP, maybe a race condition with fork() and exit()?
 
@@ -53,6 +55,9 @@ static PAGE_DIRECTORY_TYPE * fork_dup_address_space() {
         (unsigned long)page_directory_phys | PTE_PDE_PAGE_WRITABLE | PTE_PDE_PAGE_PRESENT;
 
     disable_wp();
+    int next_mmap_check_i = 0;
+    int next_mmap_check_j = 0;
+
     for (int i = 0; i < (unsigned long)(PROGRAM_STACK_VADDR - PTHREAD_THREADS_MAX * PROGRAM_STACK_SIZE) >> 22; i++) {
         if (!(PDE_ADDR_VIRT[i] & PTE_PDE_PAGE_PRESENT)) continue;
 
@@ -69,14 +74,79 @@ static PAGE_DIRECTORY_TYPE * fork_dup_address_space() {
                             PTE_PDE_PAGE_USER_ACCESS;
         new_ptes = paging_map_phys_addr_unspecified(new_ptes, PTE_PDE_PAGE_WRITABLE);
         kassert(new_ptes);
-        memset(new_ptes, 0, PAGE_TABLE_ENTRIES * sizeof(PAGE_TABLE_TYPE));
+        //memset(new_ptes, 0, PAGE_TABLE_ENTRIES * sizeof(PAGE_TABLE_TYPE));
+        memcpy(new_ptes, ptes, PAGE_TABLE_ENTRIES * sizeof(PAGE_TABLE_TYPE));
+
+        if (i >= next_mmap_check_i)
+            next_mmap_check_j = 0;
 
         for (int j = 0; j < PAGE_TABLE_ENTRIES; j++) {
             if (!(ptes[j] & PTE_PDE_PAGE_PRESENT)) continue;
-            if (get_vaddr(i, j) == new_ptes) continue;
-            if (get_vaddr(i, j) == page_directory) continue;
+            if (get_vaddr(i, j) == new_ptes ||
+                get_vaddr(i, j) == page_directory) {
+                new_ptes[j] = 0;
+                continue;
+            }
 
-            void * inc_page = pfalloc_ref_inc((void*)(unsigned long)(ptes[j] & ~(PAGE_SIZE_NO_PAE - 1)));
+            void * inc_page = NULL;
+
+            if (current_process->vm && i >= next_mmap_check_i && j >= next_mmap_check_j) {
+                struct vm_record * vmr =
+                    (struct vm_record *)rbtree_search_lte(
+                        (rbtree_t *)current_process->vm,
+                        (uintptr_t)get_vaddr(i, j)
+                );
+                if (!vmr) {
+                    vmr = (struct vm_record *)rbtree_search_gte(
+                            (rbtree_t *)current_process->vm,
+                            (uintptr_t)get_vaddr(i, j)
+                    );
+                    if (vmr) {
+                        next_mmap_check_i = (int)(vmr->node.val / PAGE_SIZE / PAGE_TABLE_ENTRIES);
+                        next_mmap_check_j = (int)(vmr->node.val / PAGE_SIZE);
+                        next_mmap_check_j %= PAGE_TABLE_ENTRIES;
+                    } else {
+                        next_mmap_check_i = PAGE_DIRECTORY_ENTRIES;
+                    }
+                } else if (vmr->node.val + vmr->len > (uintptr_t)get_vaddr(i, j)) {
+                    next_mmap_check_i = i +
+                        (int)((vmr->node.val + vmr->len - (uintptr_t)get_vaddr(i, j)) / PAGE_SIZE / PAGE_TABLE_ENTRIES);
+                    next_mmap_check_j = j +
+                        (int)((vmr->node.val + vmr->len - (uintptr_t)get_vaddr(i, j)) / PAGE_SIZE);
+                    next_mmap_check_j %= PAGE_TABLE_ENTRIES;
+
+                    // private mappings have to still do CoW
+                    // anonymous shared mappings aren't yet tracked with rbtrees and thus are all preallocated
+                    // TODO: change when doing rbtrees for them
+                    if (vmr->private || !vmr->backing_fd)
+                        goto normal_refinc;
+
+                    off_t target_offset = (uintptr_t)get_vaddr(i, j) - vmr->node.val + vmr->mapping_offset;
+                    target_offset >>= 12;
+
+                    i = next_mmap_check_i;
+                    j = next_mmap_check_j;
+
+                    if (vmr->backing_fd && S_ISREG(vmr->backing_fd->inode->mode)) {
+                        struct mmap_page_cache * mpc =
+                            (struct mmap_page_cache*)rbtree_search_exact(
+                                (rbtree_t*)vmr->backing_fd->inode->mmap_page_cache,
+                                target_offset);
+                        if (mpc) {
+                            new_ptes[j] &= ~PTE_PDE_PAGE_WRITABLE; // to facilitate dirty page marking
+                            __atomic_add_fetch(&mpc->instances, 1, __ATOMIC_ACQUIRE);
+                        } // else { what? }
+                    }
+
+                    if ((vmr->node.val + vmr->len - (uintptr_t)get_vaddr(i, j)) / PAGE_SIZE / PAGE_TABLE_ENTRIES)
+                        break;
+
+                    continue;
+                }
+            }
+
+            normal_refinc:
+            inc_page = pfalloc_ref_inc((void*)(unsigned long)(ptes[j] & ~(PAGE_SIZE_NO_PAE - 1)));
             kassert(inc_page);
 
             if (ptes[j] & PTE_PDE_PAGE_WRITABLE) {
@@ -171,12 +241,16 @@ pid_t sys_fork(mcontext_t * ctx) {
     spinlock_acquire(&current_process->lock);
     memcpy(new_proc, current_process, sizeof(process_t));
     new_proc->lock.state = SPINLOCK_UNLOCKED;
+    new_proc->vm_lock = (rw_spinlock_t) {0};
     if (current_process->pgrp_leader) {
         __atomic_add_fetch(&current_process->pgrp_leader->pgrp_members, 1, __ATOMIC_RELAXED);
     }
     __atomic_add_fetch(&current_process->pwd->instances, 1, __ATOMIC_ACQUIRE);
     __atomic_add_fetch(&current_process->root->instances, 1, __ATOMIC_ACQUIRE);
     spinlock_release(&current_process->lock);
+
+    rw_spinlock_acquire_read(&current_process->vm_lock);
+    new_proc->vm = mmap_dup_vm(new_proc->vm);
 
     spinlock_acquire(&scheduler_lock);
 
@@ -263,6 +337,7 @@ pid_t sys_fork(mcontext_t * ctx) {
     APPEND_DOUBLE_LINKED_LIST(new_proc, process_list)
 
     spinlock_release(&scheduler_lock);
+    rw_spinlock_release_read(&current_process->vm_lock);
     spinlock_release(&address_spaces_lock);
 
     //scheduler_print_processes();

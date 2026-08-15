@@ -676,7 +676,7 @@ ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t off
     if (n > SSIZE_MAX) n = SSIZE_MAX;
 #endif
 
-    if (offset >= (off_t)1<<32)
+    if (offset + n >= (off_t)1<<32)
         return -EFBIG;
 
     struct fat_info * fi = sb->data;

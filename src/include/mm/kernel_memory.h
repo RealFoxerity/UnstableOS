@@ -92,6 +92,7 @@ PAGE_TABLE_TYPE * paging_get_pte(const void * virt_addr); // returns the page ta
 PAGE_TABLE_TYPE * paging_get_pt_from_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr, void * virt_addr);
 
 // check whether the address range is inside the program, is mapped, and whether it is writable (assumes correct address space)
+// assumes external vm_lock read lock
 char paging_check_address_range(const void * addr, size_t n, char writable, char in_kernel);
 
 void print_page_table_entry(const void * pte);
@@ -113,6 +114,7 @@ PAGE_DIRECTORY_TYPE * paging_get_address_space_paddr();
 
 PAGE_DIRECTORY_TYPE * paging_create_new_address_space(); // returns VIRTUAL address of a new address space page directory
 void paging_print_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr);
+// unmap all mmaped regions before calling
 void paging_destroy_address_space(PAGE_DIRECTORY_TYPE * pd_vaddr);
 
 void * paging_get_page_from_address_space(PAGE_DIRECTORY_TYPE * pd_paddr, void * target_virt_addr, unsigned int flags);

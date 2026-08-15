@@ -100,6 +100,7 @@ struct ata_identify * ata_identify(unsigned char bus_id, unsigned char drive_num
 
 
     if (!ata_send_command(bus_id, drive_number, ATA_IDENTIFY_DEVICE)) {
+        ata_buses[bus_id].drives[drive_number].present = 0;
         return NULL;
     }
 

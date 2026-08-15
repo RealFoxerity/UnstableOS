@@ -147,30 +147,17 @@ static void signal_parent_killed(process_t * child, siginfo_t * orig_sig) {
 }
 
 static char force_kernel_sigs(process_t * group, thread_t * signaled, siginfo_t * info) {
+    char signame[SIG2STR_MAX];
     switch (info->si_signo) {
         case SIGABRT:
-            kprintf("[PID %ld TID %ld SIGABRT]\n", group->pid, signaled->tid);
-            group->do_cleanup = 1;
-            signal_parent_killed(group, info);
-            return 1;
         case SIGBUS:
-            kprintf("[PID %ld TID %ld SIGBUS]\n", group->pid, signaled->tid);
-            group->do_cleanup = 1;
-            signal_parent_killed(group, info);
-            return 1;
         case SIGFPE:
-            kprintf("[PID %ld TID %ld SIGFPE]\n", group->pid, signaled->tid);
-            group->do_cleanup = 1;
-            signal_parent_killed(group, info);
-            return 1;
         case SIGILL:
-            kprintf("[PID %ld TID %ld SIGILL]\n", group->pid, signaled->tid);
-            group->do_cleanup = 1;
-            signal_parent_killed(group, info);
-            return 1;
         case SIGSEGV:
-            kprintf("[PID %ld TID %ld SIGSEGV]\n", group->pid, signaled->tid);
+            sig2str(info->si_signo, signame);
+            kprintf("[PID %ld TID %ld SIG%s]\n", group->pid, signaled->tid, signame);
             group->do_cleanup = 1;
+            signaled->status = SCHED_DONT_SCHEDULE;
             signal_parent_killed(group, info);
             return 1;
     }
@@ -253,7 +240,8 @@ static char signal_dispatch_thread(process_t * group, thread_t * signaled, sigin
     }
 
     if ((signaled->sa_mask & GET_SIG_MASK(info->si_signo) ||
-            group->sa_handlers[info->si_signo - 1].sa_handler == SIG_IGN) &&
+            group->sa_handlers[info->si_signo - 1].sa_handler == SIG_IGN ||
+            group->sa_handlers[info->si_signo - 1].sa_handler == SIG_DFL) &&
         !(info->si_code & SI_USER)) {
         // signals raised by hardware/kernel cannot be ignored/masked
         if (force_kernel_sigs(group, signaled, info)) return 1;
@@ -269,7 +257,7 @@ static char signal_dispatch_thread(process_t * group, thread_t * signaled, sigin
             return 1;
 
     if (signaled->sa_mask & GET_SIG_MASK(info->si_signo) ||
-        signaled->status == SCHED_UNINTERR_SLEEP ||
+        signaled->status == SCHED_DONT_SCHEDULE ||
         signaled->sa_to_be_handled) {
         if (queue_up) signal_queue_up(group, info);
         return 0;
@@ -552,6 +540,7 @@ void signal_dispatch_sa(process_t * group, thread_t * thread) {
     ) {
         kprintf("Warning: PID %ld TID %ld invalid ESP (%p) on signal dispatch - segmentation fault, terminating!\n", group->pid, thread->tid, thread->context.iret_frame.sp);
         thread->sa_to_be_handled = 0; // to be sure
+        thread->status = SCHED_DONT_SCHEDULE;
         group->do_cleanup = 1;
         return;
     }
@@ -614,6 +603,7 @@ void sys_sigreturn(mcontext_t * ctx) {
         !check_address_writable(ctx->iret_frame.sp, sizeof(struct signal_stack_state))
     ) {
         kprintf("Warning: PID %ld TID %ld invalid ESP on signal return - segmentation fault, terminating!\n", current_process->pid, current_thread->tid);
+        current_thread->status = SCHED_DONT_SCHEDULE;
         current_process->do_cleanup = 1;
         return;
     }

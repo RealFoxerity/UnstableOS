@@ -157,6 +157,18 @@ off_t seek_dev(file_descriptor_t * file, off_t offset, int whence) {
 
     return dev_ops.seek(file, offset, whence);
 }
+long mmap_dev(inode_t * inode, int prot, off_t off, void * start, size_t len) {
+    kassert(inode);
+    kassert(S_ISCHR(inode->mode) || S_ISBLK(inode->mode));
+
+    struct dev_operations dev_ops = dev_ops_lookup(inode->device);
+    if (dev_ops.seek == (void*)1) return -ENXIO;
+    if (!inode->dev_opened) return -EIO;
+
+    if (dev_ops.mmap == NULL) return -ENODEV;
+
+    return dev_ops.mmap(inode, prot, off, start, len);
+}
 long ioctl_dev(file_descriptor_t *file, unsigned long request, void * arg) {
     kassert(file);
     kassert(file->inode);
@@ -184,7 +196,8 @@ long ioctl_dev(file_descriptor_t *file, unsigned long request, void * arg) {
     if (!file->inode->dev_opened) return -EIO;
 
     if (dev_ops.ioctl == NULL) return -ENOTTY;
-
+    if (file->inode->mmaped_instances)
+        return -EBUSY;
     return dev_ops.ioctl(file, request, arg);
 }
 

@@ -172,11 +172,10 @@ struct sigaction {
 #define SEGV_ACCERR 2
 
 // for SIGBUS
-/* we don't yet support any of these - detection not implemented
-#define BUS_ADRALN 1
-#define BUS_ADRERR 2
-#define BUS_OBJERR 3
-*/
+#define BUS_ADRALN 1 // never raised, we don't do alignment checking
+#define BUS_ADRERR 2 // never raised, not applicable to our usage
+#define BUS_OBJERR 3 // used for sigbus on mmap access
+
 
 // for SIGTRAP
 /* we don't yet support any of these - traps aren't implemented
@@ -244,11 +243,12 @@ int sigwaitinfo(const sigset_t *restrict set,
 
 void siglongjmp(sigjmp_buf env, int val);
 int sigsetjmp(sigjmp_buf env, int savemask);
+*/
 
-from issue 8:
+#define SIG2STR_MAX 16
 int sig2str(int signum, char *str);
 int str2sig(const char *restrict str, int *restrict pnum);
-*/
+
 
 void    psignal(int signum, const char * message);
 void  psiginfo(const siginfo_t *pinfo, const char *message);

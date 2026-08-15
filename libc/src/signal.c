@@ -237,3 +237,89 @@ int pthread_kill(pthread_t thread, int sig) {
     struct process_control_block * pcb = thread->__pcb;
     return tgkill(pcb->pid, thread->__tid, sig);
 }
+
+const static char *__sigstrs[] = {
+    [SIGHUP]    = "HUP",
+    [SIGINT]    = "INT",
+    [SIGQUIT]   = "QUIT",
+    [SIGILL]    = "ILL",
+    [SIGTRAP]   = "TRAP",
+    [SIGABRT]   = "ABRT",
+    [SIGBUS]    = "BUS",
+    [SIGFPE]    = "FPE",
+    [SIGKILL]   = "KILL",
+    [SIGUSR1]   = "USR1",
+    [SIGSEGV]   = "SEGV",
+    [SIGUSR2]   = "USR2",
+    [SIGPIPE]   = "PIPE",
+    [SIGALRM]   = "ALRM",
+    [SIGTERM]   = "TERM",
+    [SIGSTKFLT] = "STKFLT",
+    [SIGCHLD]   = "CHLD",
+    [SIGCONT]   = "CONT",
+    [SIGSTOP]   = "STOP",
+    [SIGTSTP]   = "TSTP",
+    [SIGTTIN]   = "TTIN",
+    [SIGTTOU]   = "TTOU",
+    [SIGURG]    = "URG",
+    [SIGXCPU]   = "XCPU",
+    [SIGXFSZ]   = "XFSZ",
+    [SIGVTALRM] = "VTALRM",
+    [SIGPROF]   = "PROF",
+    [SIGWINCH]  = "WINCH",
+    [SIGIO]     = "IO",
+    [SIGPWR]    = "PWR",
+    [SIGSYS]    = "SYS",
+    [SIGRTMIN]  = "RTMIN",
+};
+
+#include <string.h>
+int sig2str(int signum, char *str) {
+    if (signum <= 0 || signum > SIGRTMAX || !str) {
+        ___set_errno(EINVAL);
+        return -1;
+    }
+    if (signum <= SIGRTMIN) {
+        strcpy(str,__sigstrs[signum]);
+    } else {
+        snprintf(str, SIG2STR_MAX, "RTMIN+%d", signum - SIGRTMIN);
+    }
+    return 0;
+}
+
+#include <stdlib.h>
+
+int str2sig(const char *restrict str, int *restrict pnum) {
+    if (!str || !pnum) {
+        ___set_errno(EFAULT);
+        return -1;
+    }
+    for (int i = 1; i <= SIGRTMIN; i++) {
+        if (strcmp(str, __sigstrs[i]) == 0) {
+            *pnum = i;
+            return 0;
+        }
+    }
+    if (strncmp(str, "RTMIN+", 6) == 0) {
+        char * end = NULL;
+        int sig = SIGRTMIN + strtoul(str+6, &end, 10);
+        if (*end) {
+            ___set_errno(EINVAL);
+            return -1;
+        }
+        *pnum = sig;
+        return 0;
+    }
+    if (strncmp(str, "RTMAX-", 6) == 0) {
+        char * end = NULL;
+        int sig = SIGRTMAX + strtoul(str+6, &end, 10);
+        if (*end) {
+            ___set_errno(EINVAL);
+            return -1;
+        }
+        *pnum = sig;
+        return 0;
+    }
+    ___set_errno(EINVAL);
+    return -1;
+}

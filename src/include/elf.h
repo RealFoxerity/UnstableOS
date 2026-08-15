@@ -267,6 +267,5 @@ void readelf(void * start, size_t size);
 #include "kernel_sched.h"
 
 struct program load_elf(int elf_fd);
-void unload_elf(struct program program);
 char check_elf(int elf_fd); // returns 1 if elf is not truncated or broken, generic test, not supported test
 #endif

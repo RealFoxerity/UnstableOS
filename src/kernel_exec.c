@@ -58,6 +58,8 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
         }
     }
 
+    munmap_all(current_process);
+
     spinlock_acquire(&scheduler_lock);
 
     current_process->do_cleanup = 0;
@@ -121,6 +123,9 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
 
     void * target = new->kernel_stack - sizeof(struct interr_frame);
 
+    current_process->lock.state = SPINLOCK_UNLOCKED;
+    current_process->vm_lock = (rw_spinlock_t){0};
+
     /*
     if (current_process->ring == 0) {
         target += 2*sizeof(void*);
@@ -181,6 +186,9 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     // we need to copy multiple fields, so might as well copy everything
     memcpy(proc, current_process, sizeof(process_t));
     proc->lock.state = SPINLOCK_UNLOCKED;
+    proc->vm_lock = (rw_spinlock_t){0};
+    proc->vm = NULL;
+
     if (current_process->pgrp_leader) {
         __atomic_add_fetch(&current_process->pgrp_leader->pgrp_members, 1, __ATOMIC_RELAXED);
     }

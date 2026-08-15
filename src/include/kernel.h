@@ -21,7 +21,7 @@
 #define kassert(cond) do {\
     if (!(cond)) {\
         char errmsg[128];\
-        sprintf(errmsg, "Kernel assertion `"#cond"` failed in %s()! [" __FILE__ ":" STR(__LINE__) "]\n", __func__);\
+        sprintf(errmsg, "Kernel assertion `%s` failed in %s()! [" __FILE__ ":" STR(__LINE__) "]\n", #cond, __func__);\
         panic(errmsg);\
     }\
 } while (0)

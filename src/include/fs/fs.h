@@ -5,6 +5,7 @@
 
 #include "../kernel_spinlock.h"
 #include "../kernel.h"
+#include "../rbtree.h"
 
 #define FD_LIMIT_KERNEL 0x2000 // maximum amount of opened file descriptors kernel-wide, see FD_LIMIT_PROCESS
 #define INODE_LIMIT_KERNEL 0x1000 // maximum amount of opened files kernel-wide
@@ -16,6 +17,13 @@
 
 
 struct pipe;
+
+struct mmap_page_cache {
+    rbtree_t node;
+    unsigned long instances;
+    char dirty;
+    void * page;
+};
 
 struct inode_t {
     ino_t id; // unique identifier *for a given filesystem*
@@ -30,16 +38,26 @@ struct inode_t {
     time_t btime, ctime, mtime, atime;
 
     size_t instances; // how many descriptors (and therefore processes) use this inode, 0 is considered an unused inode
+    size_t mmaped_instances; // to refuse any ioctls for devices when mmaped
 
     off_t size;
     blksize_t io_block_size;
 
     struct superblock_t * backing_superblock; // used to lookup functions to use for i/o operations, same as next for "/"
 
-    spinlock_t lock; // never try to lock with interrupts enabled, will deadlock scheduler on process destroying
+    spinlock_t lock; // mostly just for atomic times
 
     char is_mountpoint; // if inode is a mountpoint, instances will be at least 1 to avoid clean, think of it as the superblock using it
     struct superblock_t * next_superblock; // pointer to the superblock structure mounted at this inode
+
+    // we don't do global page caches since that's potentially more memory hungry
+    // on top of that, mmap really needs it, normal pread/pwrite can suffer through it
+    // because rbtree keys are 32 bits, that gives us 44 bits of offsets, or ~16TiB max start offset
+    // all mmaps beyond that offset will be denied
+    // only relevant for MAP_SHARED
+
+    struct mmap_page_cache * mmap_page_cache;
+    rw_spinlock_t mmap_pc_lock;
 
     union {
         struct {

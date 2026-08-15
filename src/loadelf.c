@@ -140,7 +140,3 @@ struct program load_elf(int elf_fd) { // returns VIRTUAL address of page directo
         .heap = PROGRAM_HEAP_VADDR,
     };
 }
-
-void unload_elf(struct program program) { // don't call when fully loaded, the scheduler dismantles the program
-    paging_destroy_address_space(program.pd_vaddr);
-}
