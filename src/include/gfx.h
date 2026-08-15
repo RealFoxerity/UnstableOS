@@ -34,6 +34,7 @@ enum console_colors_palette {
     CONSOLE_COLOR_BRIGHT_WHITE,
 };
 
+#include "fs/fs.h"
 // this structure only enforces moving to be unbuffered
 // don't make assumptions of buffered operations to be actually buffered
 // assuming hw_shift_scanlines is null, shift_pixels is used
@@ -52,7 +53,7 @@ struct gfx_funcs {
     void (*copy_region_unbuffered)(unsigned int x, unsigned int y, unsigned int width, unsigned int height, unsigned int final_x, unsigned int final_y);
     void (*hw_shift_pixels)(unsigned int pixels);
     void (*hw_shift_scanlines)(unsigned int lines);
-    long (*ioctl)(unsigned long cmd, void * arg);
+    long (*ioctl)(file_descriptor_t * file, unsigned long cmd, void * arg);
 };
 
 extern const struct gfx_funcs * current_video_funcs;
