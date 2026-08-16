@@ -212,6 +212,7 @@ void munmap_all(process_t * process);
 
 struct program {
     PAGE_DIRECTORY_TYPE * pd_vaddr;
+    struct vm_record * vm;
     void * start;
     void * stack;
     void * heap;

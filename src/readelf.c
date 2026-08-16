@@ -6,14 +6,15 @@
 #include "include/fs/fs.h"
 #include "include/kernel.h"
 
-char check_elf(int elf_fd) { // returns 1 if elf is not truncated or broken
-    ssize_t size = sys_seek(elf_fd, 0, SEEK_END);
+char check_elf(file_descriptor_t * file) { // returns 1 if elf is not truncated or broken
+    if (!file)
+        return 0;
+    kassert(file->inode);
+    off_t size = file->inode->size;
     if (size < sizeof(struct elf_header)) return 0;
 
-    sys_seek(elf_fd, 0, SEEK_SET);
-
     struct elf_header ehdr;
-    if (sys_read(elf_fd, &ehdr, sizeof(struct elf_header)) != sizeof(struct elf_header)) return 0;
+    if (pread_file(file, &ehdr, sizeof(struct elf_header), 0) != sizeof(struct elf_header)) return 0;
 
     if (memcmp((uint8_t *)ehdr.magic, ELF_MAGIC, sizeof(ELF_MAGIC)-1) != 0) return 0;
     if (ehdr.arch != ELF_ARCH_32) return 0; // this tool only supports 32 bit files, TODO: add support to recognise 64 bit files
@@ -28,15 +29,15 @@ char check_elf(int elf_fd) { // returns 1 if elf is not truncated or broken
         if (ehdr.section_header_table_offset + ehdr.section_header_table_entry_size*ehdr.section_header_entry_count > size) return 0;
 
         struct section_header section_names_section; 
-        sys_seek(elf_fd, ehdr.section_header_table_offset + ehdr.section_header_table_strings_index*ehdr.section_header_table_entry_size, SEEK_SET);
-        sys_read(elf_fd, &section_names_section, sizeof(struct section_header));
+        pread_file(file, &section_names_section, sizeof(struct section_header),
+            ehdr.section_header_table_offset + ehdr.section_header_table_strings_index*ehdr.section_header_table_entry_size);
         // Section header entry with section names truncated
         if (section_names_section.offset + section_names_section.size > size) return 0;
 
         struct section_header SH;
         for (int i = 0; i < ehdr.section_header_entry_count; i++) {
-            sys_seek(elf_fd, ehdr.section_header_table_offset + ehdr.section_header_table_entry_size * i, SEEK_SET);
-            sys_read(elf_fd, &SH, sizeof(struct section_header));
+            pread_file(file, &SH, sizeof(struct section_header),
+                ehdr.section_header_table_offset + ehdr.section_header_table_entry_size * i);
 
             // Section truncated
             if (SH.offset + SH.size > size) return 0;
@@ -53,8 +54,8 @@ char check_elf(int elf_fd) { // returns 1 if elf is not truncated or broken
 
         struct program_header PH;
         for (int i = 0; i < ehdr.program_header_entry_count; i++) {
-            sys_seek(elf_fd, ehdr.program_header_table_offset + ehdr.program_header_table_entry_size * i, SEEK_SET);
-            sys_read(elf_fd, &PH, sizeof(struct program_header));
+            pread_file(file, &PH, sizeof(struct program_header),
+                ehdr.program_header_table_offset + ehdr.program_header_table_entry_size * i);
             
             // Program section truncated
             if (PH.offset + PH.size_file > size) return 0;

@@ -8,19 +8,18 @@
 
 #define kprintf(fmt, ...) kprintf("ELF loader: "fmt, ##__VA_ARGS__)
 
-// TODO: Extremely prone to race conditions on files, do exclusive open on the fd in the future
-
-struct program load_elf(int elf_fd) { // returns VIRTUAL address of page directory for the elf's new address space
-    ssize_t elf_size = sys_seek(elf_fd, 0, SEEK_END);
-    if (elf_size < 0) return (struct program){0};
+#include <sys/mman.h>
+#include "mm/mmap.h"
+struct program load_elf(file_descriptor_t * file) { // returns VIRTUAL address of page directory for the elf's new address space
+    if (!file || !file->inode)
+        return (struct program){0};
     // assumes kernel's address space (aka. data available in all address spaces)
     // assumes program and thread stacks are above heap, and that the program cannot load anything between the heap and stacks
 
-    if (!check_elf(elf_fd)) return (struct program){0};
+    if (!check_elf(file)) return (struct program){0};
 
     struct elf_header ehdr;
-    sys_seek(elf_fd, 0, SEEK_SET);
-    sys_read(elf_fd, &ehdr, sizeof(struct elf_header));
+    pread_file(file, &ehdr, sizeof(struct elf_header), 0);
 
     // architecture dependant things that shouldn't be in check_elf
     if (ehdr.elf_header_version != ELF_HEADER_VERSION || ehdr.elf_version != ELF_VERSION) return (struct program){0};
@@ -33,13 +32,13 @@ struct program load_elf(int elf_fd) { // returns VIRTUAL address of page directo
     size_t tls_program_headers = 0;
     struct program_header PH;
     for (int i = 0; i < ehdr.program_header_entry_count; i++) {
-        sys_seek(elf_fd, ehdr.program_header_table_offset + i*ehdr.program_header_table_entry_size, SEEK_SET);
-        sys_read(elf_fd, &PH, sizeof(struct program_header));
+        pread_file(file, &PH, sizeof(struct program_header),
+            ehdr.program_header_table_offset + i*ehdr.program_header_table_entry_size);
 
         if (PH.type == ELF_PHT_LOAD) {
             found_loadable = 1;
-            if ((void *)(unsigned long)PH.vaddr < kernel_mem_top) return (struct program){0}; // obv can't load into the kernel and the program probably wouldn't run without a loadable segment
-            if ((void*)(unsigned long)PH.vaddr + PH.size_memory > PROGRAM_HEAP_VADDR) return (struct program){0}; // same but stacks and heap
+            if ((void *)PH.vaddr < kernel_mem_top) return (struct program){0}; // obv can't load into the kernel and the program probably wouldn't run without a loadable segment
+            if ((void*)PH.vaddr + PH.size_memory > PROGRAM_HEAP_VADDR) return (struct program){0}; // same but stacks and heap
             needed_memory += PH.size_memory;
         } else if (PH.type == ELF_PHT_TLS) {
             static_tls_size += PH.size_memory;
@@ -83,45 +82,68 @@ struct program load_elf(int elf_fd) { // returns VIRTUAL address of page directo
         PROGRAM_PCB_VADDR, 0,
         PAGE_SIZE_NO_PAE);
 
-    disable_wp(); // we copy elf contents based on their permissions, so mapping into non-writable area would page fault
+    disable_wp();
     paging_memset_to_address_space(address_space,
         PROGRAM_TLS_BLUEPRINT_VADDR,
         0, PROGRAM_MAX_TLS_SIZE);
+    enable_wp();
 
     size_t tls_block_idx = 0;
     unsigned long last_tls_block_offset = 0;
-    for (int i = 0; i < ehdr.program_header_entry_count; i++) {
-        sys_seek(elf_fd, ehdr.program_header_table_offset + i*ehdr.program_header_table_entry_size, SEEK_SET);
-        sys_read(elf_fd, &PH, sizeof(struct program_header));
-        if (PH.type == ELF_PHT_LOAD) {
-            paging_map_to_address_space(address_space, (void*)(unsigned long)PH.vaddr, PH.size_memory, PTE_PDE_PAGE_USER_ACCESS | (PH.flags & ELF_PHF_WRITABLE ? PTE_PDE_PAGE_WRITABLE : 0));
-            paging_memset_to_address_space(address_space, (void*)(unsigned long)PH.vaddr, 0, PH.size_memory);
+    struct vm_record * vmr = NULL;
 
-            sys_seek(elf_fd, PH.offset, SEEK_SET);
-            for (int j = 0; j < PH.size_file / ELF_COPY_BUFFER_SIZE; j++) {
-                sys_read(elf_fd, copy_buffer, ELF_COPY_BUFFER_SIZE);
-                paging_memcpy_to_address_space(address_space, (void*)(unsigned long)PH.vaddr + j*ELF_COPY_BUFFER_SIZE, copy_buffer, ELF_COPY_BUFFER_SIZE);
+    for (int i = 0; i < ehdr.program_header_entry_count; i++) {
+        pread_file(file, &PH, sizeof(struct program_header),
+            ehdr.program_header_table_offset + i*ehdr.program_header_table_entry_size);
+        if (PH.type == ELF_PHT_LOAD) {
+            if (PH.vaddr % PAGE_SIZE) {
+                PH.size_file += PH.vaddr % PAGE_SIZE;
+                PH.offset -= PH.vaddr % PAGE_SIZE;
+                PH.vaddr &= ~(PAGE_SIZE - 1);
             }
-            if (PH.size_file % ELF_COPY_BUFFER_SIZE != 0) {
-                sys_read(elf_fd, copy_buffer, PH.size_file % ELF_COPY_BUFFER_SIZE);
-                paging_memcpy_to_address_space(address_space, (void*)(unsigned long)PH.vaddr + PH.size_file - (PH.size_file % ELF_COPY_BUFFER_SIZE), copy_buffer, PH.size_file % ELF_COPY_BUFFER_SIZE);
+            munmap_to_vmr(&vmr, (void*)PH.vaddr, PH.size_memory, 1, 1);
+            void * res = mmap_to_vmr(&vmr,
+                (void*)PH.vaddr, PH.size_file,
+                (PH.flags & ELF_PHF_WRITABLE ? PROT_WRITE : 0) | PROT_READ, MAP_PRIVATE | MAP_FIXED,
+                file, PH.offset);
+            if (res > (void*)-100) {
+                munmap_free_vm(vmr, 1);
+                return (struct program){0};
+            }
+            if (PH.size_memory > PH.size_file && PH.size_memory - PH.size_file > PAGE_SIZE) {
+                PH.size_file += PAGE_SIZE - 1;
+                PH.size_file &= ~(PAGE_SIZE - 1);
+                PH.vaddr += PH.size_file;
+
+                res = mmap_to_vmr(&vmr,
+                (void*)PH.vaddr, PH.size_memory - PH.size_file,
+                (PH.flags & ELF_PHF_WRITABLE ? PROT_WRITE : 0) | PROT_READ,
+                MAP_PRIVATE | MAP_FIXED | MAP_ANON,
+                0, 0);
+                if (res > (void*)-100) {
+                    munmap_free_vm(vmr, 1);
+                    return (struct program){0};
+                }
             }
         } else if (PH.type == ELF_PHT_TLS) {
+            // we can't use mmap on TLS because of how our kernel thread create works
             tls_block_idx ++; // intentional, idx 0 is generation id
             last_tls_block_offset += PH.size_memory;
             dvt[tls_block_idx] = last_tls_block_offset;
 
             void * daddr = PROGRAM_TLS_BLUEPRINT_TOP_VADDR - last_tls_block_offset;
 
-            sys_seek(elf_fd, PH.offset, SEEK_SET);
+            disable_wp();
+            seek_file(file, PH.offset, SEEK_SET);
             for (int j = 0; j < PH.size_file / ELF_COPY_BUFFER_SIZE; j++) {
-                sys_read(elf_fd, copy_buffer, ELF_COPY_BUFFER_SIZE);
+                read_file(file, copy_buffer, ELF_COPY_BUFFER_SIZE);
                 paging_memcpy_to_address_space(address_space, daddr + j*ELF_COPY_BUFFER_SIZE, copy_buffer, ELF_COPY_BUFFER_SIZE);
             }
             if (PH.size_file % ELF_COPY_BUFFER_SIZE != 0) {
-                sys_read(elf_fd, copy_buffer, PH.size_file % ELF_COPY_BUFFER_SIZE);
+                read_file(file, copy_buffer, PH.size_file % ELF_COPY_BUFFER_SIZE);
                 paging_memcpy_to_address_space(address_space, daddr + PH.size_file - (PH.size_file % ELF_COPY_BUFFER_SIZE), copy_buffer, PH.size_file % ELF_COPY_BUFFER_SIZE);
             }
+            enable_wp();
         }
     }
     paging_memcpy_to_address_space(address_space,
@@ -129,13 +151,13 @@ struct program load_elf(int elf_fd) { // returns VIRTUAL address of page directo
         dvt,
         PROGRAM_DVT_SIZE);
 
-    enable_wp();
     kfree(dvt);
     kfree(copy_buffer);
 
     return (struct program) {
         .pd_vaddr = address_space,
-        .start = (void *)(unsigned long)ehdr.program_entry_offset,
+        .start = (void *)ehdr.program_entry_offset,
+        .vm = vmr,
         .stack = PROGRAM_STACK_VADDR,
         .heap = PROGRAM_HEAP_VADDR,
     };

@@ -35,9 +35,7 @@ char mmap_page_fault(void * fault_addr, struct page_fault_error error) {
         mapping_flags |= PTE_PDE_PAGE_USER_ACCESS;
     if (closest->prot & PROT_WRITE)
         mapping_flags |= PTE_PDE_PAGE_WRITABLE;
-
-    off_t target_offset = (uintptr_t)fault_addr - closest->node.val + closest->mapping_offset;
-    target_offset >>= 12;
+    off_t target_offset = ((uintptr_t)fault_addr & ~(PAGE_SIZE - 1)) - closest->node.val + closest->mapping_offset;
 
     if (error.P || paging_get_pte(fault_addr)) { // either bug, dirty marker, or we raced on a different page fault
         if (error.W &&
@@ -50,7 +48,7 @@ char mmap_page_fault(void * fault_addr, struct page_fault_error error) {
             struct mmap_page_cache * mpc =
                 (void*)rbtree_search_exact(
                     (rbtree_t *)closest->backing_fd->inode->mmap_page_cache,
-                    target_offset
+                    target_offset >> 12
             );
             if (mpc) {
                 __atomic_store_n(&mpc->dirty, 1, __ATOMIC_RELEASE);
@@ -91,7 +89,7 @@ char mmap_page_fault(void * fault_addr, struct page_fault_error error) {
         struct mmap_page_cache * mpc =
             (void*)rbtree_search_exact(
                 (rbtree_t *)closest->backing_fd->inode->mmap_page_cache,
-                target_offset
+                target_offset >> 12
         );
         if (mpc) {
             __atomic_add_fetch(&mpc->instances, 1, __ATOMIC_ACQUIRE);
@@ -108,9 +106,13 @@ char mmap_page_fault(void * fault_addr, struct page_fault_error error) {
     if (!paging_add_page(fault_addr, mapping_flags))
         goto fin;
 
+    size_t to_read = 4096;
+    if (((uintptr_t)fault_addr & ~(PAGE_SIZE - 1)) - closest->node.val + 4096 > closest->len && closest->private)
+        to_read = closest->len % PAGE_SIZE;
+
     if (pread_file(closest->backing_fd,
-            (void*)((uintptr_t)fault_addr & ~(PAGE_SIZE - 1)), 4096,
-                target_offset << 12)
+            (void*)((uintptr_t)fault_addr & ~(PAGE_SIZE - 1)), to_read,
+                target_offset)
         < 0) {
         ret = -1;
         goto fin;
@@ -121,7 +123,7 @@ char mmap_page_fault(void * fault_addr, struct page_fault_error error) {
         if (!new_entry)
             goto fin;
 
-        new_entry->node.val = target_offset;
+        new_entry->node.val = target_offset >> 12;
         new_entry->instances = 1;
         new_entry->dirty = (char)error.W;
 
@@ -169,9 +171,10 @@ static struct vm_record * mmap_split_record(struct vm_record ** vm, struct vm_re
     return new;
 }
 
-static int _sys_munmap(void *addr, size_t len, char ignore_missing);
-void *mmap_file(void *addr, size_t len, int prot, int flags, file_descriptor_t * file, off_t off) {
-    if (len == 0 || off < 0)
+int munmap_to_vmr(struct vm_record ** vmr_tree, void *addr, size_t len, char ignore_missing, char was_empty);
+
+void *mmap_to_vmr(struct vm_record ** vmr, void *addr, size_t len, int prot, int flags, file_descriptor_t * file, off_t off) {
+    if (len == 0 || off < 0 || !vmr)
         return (void*)-EINVAL;
     if (!(flags & MAP_ANONYMOUS) && !file)
         return (void*)-EBADF;
@@ -186,7 +189,7 @@ void *mmap_file(void *addr, size_t len, int prot, int flags, file_descriptor_t *
     ) {
         return (void*)-ENOMEM;
     }
-    if ((uintptr_t)addr % PAGE_SIZE || off % PAGE_SIZE) {
+    if ((uintptr_t)addr % PAGE_SIZE || (off % PAGE_SIZE & flags & MAP_SHARED)) {
         return (void*)-EINVAL;
     }
 
@@ -226,13 +229,12 @@ void *mmap_file(void *addr, size_t len, int prot, int flags, file_descriptor_t *
     struct vm_record * new_rec = kalloc(sizeof(struct vm_record));
     if (!new_rec)
         return (void*)-ENOMEM;
-    rw_spinlock_acquire_write(&current_process->vm_lock);
 
-    struct vm_record * prev = (struct vm_record *)rbtree_search_lte((rbtree_t *)current_process->vm, (uintptr_t)addr);
+    struct vm_record * prev = (struct vm_record *)rbtree_search_lte((rbtree_t *)*vmr, (uintptr_t)addr);
     if (prev && prev->node.ptr + prev->len > addr) {
-        _sys_munmap(addr, len, 1);
+        kfree(new_rec);
+        return (void*)-ENOMEM;
     }
-
     // MAP_PRIVATE doesn't get shared between forked processes, so relying on CoW is enough
     // TODO: introduce an rbtree page cache per anonymous mapping
     // MAP_SHARED with MAP_ANON was introduced in linux 2.4, maybe there's not many use cases for it?
@@ -253,7 +255,6 @@ void *mmap_file(void *addr, size_t len, int prot, int flags, file_descriptor_t *
     {
         int ret = mmap_dev(file->inode, prot, off, addr, len);
         if (ret < 0) {
-            rw_spinlock_release_write(&current_process->vm_lock);
             kfree(new_rec);
             return (void*)ret;
         }
@@ -274,11 +275,17 @@ void *mmap_file(void *addr, size_t len, int prot, int flags, file_descriptor_t *
         .node.ptr = addr
     };
 
-    rbtree_add((rbtree_t**)&current_process->vm, (rbtree_t *)new_rec);
+    rbtree_add((rbtree_t**)vmr, (rbtree_t *)new_rec);
 
-    rw_spinlock_release_write(&current_process->vm_lock);
 
     return addr;
+}
+void *mmap_file(void *addr, size_t len, int prot, int flags, file_descriptor_t * file, off_t off) {
+    rw_spinlock_acquire_write(&current_process->vm_lock);
+    munmap_to_vmr(&current_process->vm, addr, len, 1, 0);
+    void * ret = mmap_to_vmr(&current_process->vm, addr, len, prot, flags, file, off);
+    rw_spinlock_release_write(&current_process->vm_lock);
+    return ret;
 }
 
 void *sys_mmap(void * addr, size_t len, int prot, int flags, int fd, off_t off) {
@@ -368,7 +375,16 @@ int sys_mprotect(void * addr, size_t len, int prot) {
     return 0;
 }
 
-static void munmap_vmr(struct vm_record * vmr) {
+static void munmap_vmr(struct vm_record * vmr, char was_empty) {
+    inode_t * backing_inode = NULL;
+    if (was_empty) {
+        if (!vmr->backing_fd) {
+            kfree(vmr);
+            return;
+        }
+        backing_inode = vmr->backing_fd->inode;
+        goto end;
+    }
     // TODO: change when implementing rbtrees for MAP_SHARED MAP_ANON
     if (vmr->private || !vmr->backing_fd) {
         for (void * i = vmr->node.ptr; i < vmr->node.ptr + vmr->len; i += PAGE_SIZE) {
@@ -383,7 +399,7 @@ static void munmap_vmr(struct vm_record * vmr) {
         return;
     }
 
-    inode_t * backing_inode = vmr->backing_fd->inode;
+    backing_inode = vmr->backing_fd->inode;
     kassert(backing_inode);
     if (vmr->private)
         goto end;
@@ -425,8 +441,8 @@ static void munmap_vmr(struct vm_record * vmr) {
     kfree(vmr);
 }
 
-static int _sys_munmap(void *addr, size_t len, char ignore_missing) {
-    if (len == 0)
+int munmap_to_vmr(struct vm_record ** vmr_tree, void *addr, size_t len, char ignore_missing, char was_empty) {
+    if (len == 0 || !vmr_tree || !*vmr_tree)
         return 0;
     kassert((uintptr_t)addr % PAGE_SIZE == 0);
 
@@ -434,18 +450,18 @@ static int _sys_munmap(void *addr, size_t len, char ignore_missing) {
 
     for (size_t i = 0; i < len;) {
         struct vm_record * vmr =
-            (struct vm_record *)rbtree_search_lte((rbtree_t*)current_process->vm, (uintptr_t)addr + i*PAGE_SIZE);
+            (struct vm_record *)rbtree_search_lte((rbtree_t*)*vmr_tree, (uintptr_t)addr + i*PAGE_SIZE);
 
         if (!vmr || vmr->node.ptr + vmr->len < addr) {
             if (ignore_missing)
-                continue;
+                i++;
             return -ENOMEM;
         }
 
         size_t offset = (uintptr_t)addr + i*PAGE_SIZE - vmr->node.val;
 
         if (offset != 0) {
-            vmr = mmap_split_record(&current_process->vm, vmr, offset);
+            vmr = mmap_split_record(vmr_tree, vmr, offset);
             kassert(vmr);
         }
 
@@ -454,12 +470,12 @@ static int _sys_munmap(void *addr, size_t len, char ignore_missing) {
             // the entire mapping (+ some), no need to split
             pages_to_change = (vmr->len + PAGE_SIZE - 1) / PAGE_SIZE;
         } else {
-            mmap_split_record(&current_process->vm, vmr, (len - i) * PAGE_SIZE);
+            mmap_split_record(vmr_tree, vmr, (len - i) * PAGE_SIZE);
             pages_to_change = len - i;
         }
 
-        rbtree_remove((rbtree_t**)&current_process->vm, (rbtree_t*)vmr);
-        munmap_vmr(vmr);
+        rbtree_remove((rbtree_t**)vmr_tree, (rbtree_t*)vmr);
+        munmap_vmr(vmr, was_empty);
 
         i += pages_to_change;
     }
@@ -473,17 +489,17 @@ int sys_munmap(void *addr, size_t len) {
         return 0; // ig?
 
     rw_spinlock_acquire_write(&current_process->vm_lock);
-    long ret = _sys_munmap(addr, len, 0);
+    long ret = munmap_to_vmr(&current_process->vm, addr, len, 0, 0);
     rw_spinlock_release_write(&current_process->vm_lock);
     return ret;
 }
 
-static void munmap_free_vm(struct vm_record * vmr) {
+void munmap_free_vm(struct vm_record * vmr, char was_empty) {
     if (!vmr)
         return;
-    munmap_free_vm((struct vm_record *)vmr->node.nodes[0]);
-    munmap_free_vm((struct vm_record *)vmr->node.nodes[1]);
-    munmap_vmr(vmr);
+    munmap_free_vm((struct vm_record *)vmr->node.nodes[0], was_empty);
+    munmap_free_vm((struct vm_record *)vmr->node.nodes[1], was_empty);
+    munmap_vmr(vmr, was_empty);
 }
 
 void munmap_all(process_t * process) {
@@ -492,7 +508,7 @@ void munmap_all(process_t * process) {
 
     void * old_cr3 = paging_get_address_space_paddr();
     paging_apply_address_space(process->address_space_paddr);
-    munmap_free_vm(process->vm);
+    munmap_free_vm(process->vm, 0);
     process->vm = NULL;
     paging_apply_address_space(old_cr3);
 }
@@ -549,7 +565,6 @@ char mmap_check_address(const void * addr, char writable) {
     }
 
     off_t target_offset = (uintptr_t)addr - vmr->node.val + vmr->mapping_offset;
-    target_offset >>= 12;
 
     if (!vmr->private) {
         kassert(vmr->backing_fd->inode);
@@ -560,7 +575,7 @@ char mmap_check_address(const void * addr, char writable) {
         rw_spinlock_acquire_write(&vmr->backing_fd->inode->mmap_pc_lock);
         struct mmap_page_cache * mpc =
             (struct mmap_page_cache *)rbtree_search_exact(
-                (rbtree_t *)vmr->backing_fd->inode->mmap_page_cache, target_offset
+                (rbtree_t *)vmr->backing_fd->inode->mmap_page_cache, target_offset >> 12
         );
         if (mpc) {
             if (writable)
@@ -576,7 +591,7 @@ char mmap_check_address(const void * addr, char writable) {
     if (!paging_map((void*)addr, 1, mapping_flags))
         return 0;
     disable_wp();
-    pread_file(vmr->backing_fd, (void*)addr, PAGE_SIZE, target_offset << 12);
+    pread_file(vmr->backing_fd, (void*)addr, PAGE_SIZE, target_offset);
     enable_wp();
 
     if (!vmr->private) {
@@ -584,7 +599,7 @@ char mmap_check_address(const void * addr, char writable) {
         kassert(new_mpc);
         new_mpc->dirty = writable;
         new_mpc->instances = 1;
-        new_mpc->node.val = target_offset;
+        new_mpc->node.val = target_offset >> 12;
         new_mpc->page = paging_virt_addr_to_phys((void*)addr);
         rbtree_add((rbtree_t**)&vmr->backing_fd->inode->mmap_page_cache, (rbtree_t*)new_mpc);
 

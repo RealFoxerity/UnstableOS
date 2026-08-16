@@ -40,6 +40,14 @@ void *sys_mmap(void * addr, size_t len, int prot, int flags, int fd, off_t off);
 int sys_mprotect(void * addr, size_t len, int prot);
 int sys_munmap(void * addr, size_t len);
 
+// for internal uses by likes of loadelf
+// mapping devices is not supported outside of current_process
+// mapping anonymous shared regions is not supported outside of current_process
+void *mmap_to_vmr(struct vm_record ** vmr, void *addr, size_t len, int prot, int flags, file_descriptor_t * file, off_t off);
+// was_empty = 1 skips all page freeing and just decrements file references and frees the vmr
+int munmap_to_vmr(struct vm_record ** vmr_tree, void *addr, size_t len, char ignore_missing, char was_empty);
+void munmap_free_vm(struct vm_record * vmr, char was_empty);
+
 // expects external read locking of vm_lock
 struct vm_record * mmap_dup_vm(const struct vm_record * vmr);
 

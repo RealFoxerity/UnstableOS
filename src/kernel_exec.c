@@ -30,17 +30,30 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
 
     if (stack_state_sz < 0) return stack_state_sz;
 
-    int elf_fd = sys_openat(AT_FDCWD, path, O_RDONLY, 0);
-    if (elf_fd < 0) return elf_fd;
-    if (S_ISDIR(current_process->fds[elf_fd]->inode->mode)) {
-        sys_close(elf_fd);
+    file_descriptor_t * file = get_free_fd();
+    if (!file) {
+        kfree(stack_state);
+        return -ENOMEM;
+    }
+
+    inode_t * inode = NULL;
+    int status = openat_inode((void*)AT_FDCWD, path, O_RDONLY, 0, &inode, 0);
+    if (status < 0 || inode == NULL) return status;
+    if (S_ISDIR(inode->mode)) {
+        close_inode(inode);
         kfree(stack_state);
         return -EISDIR;
     }
-    struct program new_prog = load_elf(elf_fd);
-    sys_close(elf_fd);
+
+
+    file->inode = inode;
+    file->flags = O_RDONLY;
+
+    struct program new_prog = load_elf(file);
+    close_file(file);
     if (new_prog.pd_vaddr == NULL) {
         kprintf("Exec format error on attempted exec() by pid %lu tid %lu!\n", current_process->pid, current_thread->tid);
+        kfree(stack_state);
         return -ENOEXEC;
     }
 
@@ -90,6 +103,7 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
     paging_unmap_page(mapped_as);
 
     current_process->address_space_paddr = new_pd_paddr;
+    current_process->vm = new_prog.vm;
     current_process->program_break = PROGRAM_HEAP_VADDR;
 
     current_process->after_exec = 1;
@@ -162,19 +176,33 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     spinlock_acquire(&scheduler_lock);
     char * stack_state = NULL;
     ssize_t stack_state_sz = exec_safe_argv_dup(argv, envp, PROGRAM_STACK_VADDR, &stack_state);
-    if (stack_state_sz < 0) return stack_state_sz;
     spinlock_release(&scheduler_lock);
+    if (stack_state_sz < 0) return stack_state_sz;
 
-    int elf_fd = sys_openat(AT_FDCWD, path, O_RDONLY, 0);
-    if (elf_fd < 0) return elf_fd;
-    if (S_ISDIR(current_process->fds[elf_fd]->inode->mode)) {
-        sys_close(elf_fd);
+    file_descriptor_t * file = get_free_fd();
+    if (!file) {
+        kfree(stack_state);
+        return -ENOMEM;
+    }
+
+    inode_t * inode = NULL;
+    int status = openat_inode((void*)AT_FDCWD, path, O_RDONLY, 0, &inode, 0);
+    if (status < 0 || inode == NULL) return status;
+    if (S_ISDIR(inode->mode)) {
+        close_inode(inode);
+        kfree(stack_state);
         return -EISDIR;
     }
-    struct program new_prog = load_elf(elf_fd);
-    sys_close(elf_fd);
+
+
+    file->inode = inode;
+    file->flags = O_RDONLY;
+
+    struct program new_prog = load_elf(file);
+    close_file(file);
     if (new_prog.pd_vaddr == NULL) {
         kprintf("Exec format error on attempted spawn() by pid %lu tid %lu!\n", current_process->pid, current_thread->tid);
+        kfree(stack_state);
         return -ENOEXEC;
     }
 
@@ -187,7 +215,7 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     memcpy(proc, current_process, sizeof(process_t));
     proc->lock.state = SPINLOCK_UNLOCKED;
     proc->vm_lock = (rw_spinlock_t){0};
-    proc->vm = NULL;
+    proc->vm = new_prog.vm;
 
     if (current_process->pgrp_leader) {
         __atomic_add_fetch(&current_process->pgrp_leader->pgrp_members, 1, __ATOMIC_RELAXED);
