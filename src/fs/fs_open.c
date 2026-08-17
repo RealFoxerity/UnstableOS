@@ -346,7 +346,7 @@ int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t
         if (new && last_fragment && (S_ISREG(new->mode) || S_ISDIR(new->mode))) {
             if ((sb->mount_options & MOUNT_RDONLY ||
                 sb->funcs->pwrite == NULL)
-                    && mode & O_WRONLY) {
+                    && flags & O_WRONLY) {
                 close_inode(prev);
                 ret = -EROFS;
                 goto err;
