@@ -39,8 +39,8 @@ char check_elf(file_descriptor_t * file) { // returns 1 if elf is not truncated 
             pread_file(file, &SH, sizeof(struct section_header),
                 ehdr.section_header_table_offset + ehdr.section_header_table_entry_size * i);
 
-            // Section truncated
-            if (SH.offset + SH.size > size) return 0;
+            // Section truncated, doesn't matter since we're interested in program headers
+            //if (SH.offset + SH.size > size) return 0;
             // Invalid section alignment
             if (SH.alignment != 0 && SH.vaddr % SH.alignment != 0) return 0;
         }
