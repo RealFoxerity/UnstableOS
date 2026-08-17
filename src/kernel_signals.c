@@ -547,7 +547,7 @@ void signal_dispatch_sa(process_t * group, thread_t * thread) {
 
     struct signal_stack_state * sss = thread->context.iret_frame.sp - sizeof(struct signal_stack_state);
 
-    sss->restorer_eip     = current_process->sa_handlers[thread->sa_to_be_handled - 1].__restorer;
+    sss->restorer_eip     = group->sa_handlers[thread->sa_to_be_handled - 1].__restorer;
     sss->previous_sa_mask = thread->sa_mask;
 
     if (!(group->sa_handlers[thread->sa_to_be_handled - 1].sa_flags & SA_NODEFER)) {
