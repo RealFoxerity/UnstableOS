@@ -4,7 +4,7 @@
 #include "include/lowlevel.h"
 #include "include/timer.h"
 #include <stdint.h>
-#include "../libc/src/include/sys/types.h"
+#include <sys/types.h>
 
 // TODO: probably not thread safe, redo?
 // TODO: test if 12 hour format actually works, i have a feeling it doesn't :P
@@ -223,6 +223,39 @@ time_t rtc_get_time() {
         shown_info = 1;
     }
     return timestamp;
+}
+
+#include <time.h>
+void rtc_set_time(time_t epoch) {
+    struct tm new_time;
+    gmtime_r(&epoch, &new_time);
+    new_time.tm_year += 1900;
+    new_time.tm_year %= 100;
+
+    if (!rtc_uses_24h && new_time.tm_hour > 12) {
+        new_time.tm_hour -= 12;
+        new_time.tm_hour |= 0x80;
+    }
+    if (!rtc_uses_binary) {
+        new_time.tm_sec = int_to_bcd(new_time.tm_sec);
+        new_time.tm_min = int_to_bcd(new_time.tm_min);
+        new_time.tm_hour = (new_time.tm_hour & 0x80) | int_to_bcd(new_time.tm_hour & 0x7F);
+        new_time.tm_year = int_to_bcd(new_time.tm_year);
+        new_time.tm_wday = int_to_bcd(new_time.tm_wday);
+        new_time.tm_mday = int_to_bcd(new_time.tm_mday);
+        new_time.tm_mon = int_to_bcd(new_time.tm_mon);
+    }
+
+    disable_interrupts();
+    cmos_set_register(CMOS_RTC_SECONDS, new_time.tm_sec);
+    cmos_set_register(CMOS_RTC_MINUTES, new_time.tm_min);
+    cmos_set_register(CMOS_RTC_HOURS, new_time.tm_hour);
+    cmos_set_register(CMOS_RTC_DAY_OF_WEEK, new_time.tm_mday);
+    cmos_set_register(CMOS_RTC_DAY_OF_MONTH, new_time.tm_mday);
+    cmos_set_register(CMOS_RTC_MONTH, new_time.tm_mon);
+    cmos_set_register(CMOS_RTC_YEAR, new_time.tm_year);
+    system_time_sec = epoch;
+    enable_interrupts();
 }
 
 void rtc_init() {

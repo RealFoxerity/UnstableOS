@@ -259,7 +259,7 @@ unsigned sleep(unsigned seconds) {
     struct timespec actual = {0};
     struct timespec waited = {.tv_sec = seconds, .tv_nsec = 0};
 
-    long ret = syscall(SYSCALL_NANOSLEEP, &waited, &actual);
+    long ret = syscall(SYSCALL_CLOCK_NANOSLEEP, CLOCK_MONOTONIC, 0, &waited, &actual);
     if (ret < 0) {
         ___set_errno(-ret);
         return ret;

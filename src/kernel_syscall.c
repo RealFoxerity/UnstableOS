@@ -402,17 +402,7 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
             }
             return_value = sys_fstatat(arg1, (const char*) arg2, (struct stat *)arg3, arg4);
             break;
-        case SYSCALL_NANOSLEEP:
-            if (!paging_check_address_range((void*)arg1, sizeof(struct timespec), 0, in_kernel)) {
-                return_value = -EFAULT;
-                break;
-            }
-            if ((struct timespec *)arg2 != NULL && !paging_check_address_range((void*)arg1, sizeof(struct timespec), 1, in_kernel)) {
-                return_value = -EFAULT;
-                break;
-            }
-            return_value = sys_nanosleep(current_process, current_thread, *(struct timespec*)arg1, (struct timespec*)arg2);
-            break;
+
         case SYSCALL_ALARM:
             return_value = (long)sys_alarm((unsigned)arg1);
             break;
@@ -424,6 +414,75 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
             *(time_t*)arg1 = system_time_sec;
             return_value = 0;
             break;
+
+        case SYSCALL_CLOCK_GETRES:
+            if ((void*)arg2 != NULL && !paging_check_address_range((void*)arg2, sizeof(struct timespec), 1, in_kernel)) {
+                return_value = -EFAULT;
+                break;
+            }
+            switch (arg1) {
+                case CLOCK_MONOTONIC:
+                case CLOCK_REALTIME:
+                    if (arg2) {
+                        *(struct timespec*)arg2 = (struct timespec) {
+                            .tv_nsec = 1000000000 / RTC_TIMER_RESOLUTION_HZ};
+                    }
+                    return_value = 0;
+                    break;
+                default:
+                    return_value = -EINVAL;
+            }
+            break;
+        case SYSCALL_CLOCK_GETTIME:
+            if (!paging_check_address_range((void*)arg2, sizeof(struct timespec), 1, in_kernel)) {
+                return_value = -EFAULT;
+                break;
+            }
+            struct timespec * ts = (struct timespec *) arg2;
+            switch (arg1) {
+                case CLOCK_MONOTONIC:
+                    ts->tv_sec = uptime_clicks / RTC_TIMER_RESOLUTION_HZ;
+                    ts->tv_nsec = (long)(uptime_clicks % RTC_TIMER_RESOLUTION_HZ) * RTC_TIME_RESOLUTION_USEC * 1000;
+                    return_value = 0;
+                    break;
+                case CLOCK_REALTIME:
+                    ts->tv_sec = system_time_sec;
+                    ts->tv_nsec = (long)(uptime_clicks % RTC_TIMER_RESOLUTION_HZ) * RTC_TIME_RESOLUTION_USEC * 1000;
+                    return_value = 0;
+                    break;
+                default:
+                    return_value = -EINVAL;
+            }
+            break;
+        case SYSCALL_CLOCK_SETTIME:
+            if (!paging_check_address_range((void*)arg2, sizeof(struct timespec), 0, in_kernel)) {
+                return_value = -EFAULT;
+                break;
+            }
+            extern void rtc_set_time(time_t epoch);
+            struct timespec * new_time = (struct timespec *) arg2;
+            switch (arg1) {
+                case CLOCK_REALTIME:
+                    rtc_set_time(new_time->tv_sec);
+                    return_value = 0;
+                    break;
+                case CLOCK_MONOTONIC:
+                default:
+                    return_value = -EINVAL;
+            }
+            break;
+        case SYSCALL_CLOCK_NANOSLEEP:
+            if (!paging_check_address_range((void*)arg3, sizeof(struct timespec), 0, in_kernel)) {
+                return_value = -EFAULT;
+                break;
+            }
+            if ((struct timespec *)arg4 != NULL && !paging_check_address_range((void*)arg4, sizeof(struct timespec), 1, in_kernel)) {
+                return_value = -EFAULT;
+                break;
+            }
+            return_value = sys_clock_nanosleep(current_process, current_thread, (clockid_t)arg1, arg2, *(struct timespec*)arg3, (struct timespec*)arg4);
+            break;
+
         case SYSCALL_TIMES:
             if (!paging_check_address_range((void*)arg1, sizeof(struct tms), 1, in_kernel)) {
                 return_value = -EFAULT;

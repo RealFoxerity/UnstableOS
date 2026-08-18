@@ -207,7 +207,7 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_bound_r
 }
 
 void invalid_opcode_handler(mcontext_t * ctx) {
-    kprintf("\n\e[0m\e[41m\n#### ISR: Tried to execute invalid opcode at %p! ####", ctx->iret_frame.ip);
+    kprintf("\n\e[0m\e[41m\n#### ISR: Tried to execute invalid opcode ####\n");
     print_interr_frame(&ctx->iret_frame);
 
     scheduler_print_process(current_process);

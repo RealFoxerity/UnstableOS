@@ -55,7 +55,7 @@ long futex_wait(const uint32_t * wait_addr, uint32_t expected, pid_t owner, stru
         // interrupts disabled here because of the earlier cli
 
         // nanosleep has an internal reschedule() which reenables them
-        long slept = sys_nanosleep(current_process, current_thread, *timeout, NULL);
+        long slept = sys_clock_nanosleep(current_process, current_thread, CLOCK_MONOTONIC, 0, *timeout,NULL);
         current_thread->is_waiting_on_futex = 0;
         // however the reschedule() resets the flags back to disabled interrupts...
         asm volatile("sti;");

@@ -230,7 +230,7 @@ void thread_queue_unblock_nonreentrant(thread_queue_t * thread_queue);
 void thread_queue_unblock_all_nonreentrant(thread_queue_t * thread_queue);
 
 void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, enum pstatus_t new_status);
-// always "interruptible sleep" because we internally reuse sys_nanosleep
+// always "interruptible sleep" because we internally reuse sys_clock_nanosleep
 // returns 1 if exited due to timer running out
 char thread_queue_add_with_timeout(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, struct timespec ts);
 
@@ -250,7 +250,7 @@ void reload_pcb(const process_t * pprocess); // only works if in the same cr3 as
 
 // kernel_sched_sleep_queue.c
 void sleep_sched_tick(size_t ticks);
-long sys_nanosleep(process_t * pprocess, thread_t * thread, struct timespec requested, struct timespec * elapsed);
+long sys_clock_nanosleep(process_t * pprocess, thread_t * thread, clockid_t clock_id, int flags, struct timespec requested, struct timespec * elapsed);
 void sleep_remove_thread(process_t * pprocess, thread_t * thread);
 unsigned sys_alarm(unsigned seconds);
 void reschedule();

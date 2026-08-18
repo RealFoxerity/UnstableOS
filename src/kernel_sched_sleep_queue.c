@@ -97,19 +97,36 @@ void sleep_sched_tick(size_t ticks) {
     spinlock_release(&sleep_queue_lock);
 }
 
-long sys_nanosleep(process_t * pprocess, thread_t * thread, struct timespec requested, struct timespec * elapsed) {
+long sys_clock_nanosleep(process_t * pprocess, thread_t * thread, clockid_t clock_id, int flags, struct timespec requested, struct timespec * elapsed) {
+    switch (clock_id) {
+        case CLOCK_MONOTONIC:
+        case CLOCK_REALTIME: // we're using the RTC clock as both the monotonic and realtime clocks
+            break;
+        default:
+            return -ENOTSUP;
+    }
+
     kassert(thread);
     kassert(thread->instances > 0);
+
+    if (flags & TIMER_ABSTIME && clock_id == CLOCK_REALTIME)
+        requested.tv_sec -= system_time_sec;
 
     if (requested.tv_sec < 0) return 0;
 
     if (requested.tv_nsec >= 1000000000 || requested.tv_nsec < 0) return -EINVAL;
 
+    time_t old_time_usec = uptime_clicks * RTC_TIME_RESOLUTION_USEC;
     time_t requested_usec = requested.tv_sec * 1000000 + requested.tv_nsec/1000;
+
+    if (flags & TIMER_ABSTIME && clock_id != CLOCK_REALTIME)
+        requested_usec -= old_time_usec;
+    if (requested_usec < 0)
+        return 0;
+
     time_t delta_usec = requested_usec;
     if (requested_usec == 0) return 0;
 
-    time_t old_time_usec = uptime_clicks * RTC_TIME_RESOLUTION_USEC;
 
     struct sleep_queue *new_entry = kalloc(sizeof(struct sleep_queue));
     kassert(new_entry);
@@ -155,7 +172,7 @@ long sys_nanosleep(process_t * pprocess, thread_t * thread, struct timespec requ
     if (old_time_usec + requested_usec > uptime_clicks * RTC_TIME_RESOLUTION_USEC) {
         sleep_remove_thread(pprocess, thread);
 
-        if (elapsed == NULL) return -EINTR;
+        if (elapsed == NULL || flags & TIMER_ABSTIME) return -EINTR;
 
         requested_usec -= uptime_clicks * RTC_TIME_RESOLUTION_USEC - old_time_usec;
 

@@ -47,7 +47,7 @@ ssize_t fmt_handler_printf(char * fmt_buf, const char * s, va_list * args) { // 
         case 'd':
             dec:
             if (*s == 'u') itoaud(va_arg(*args, uint32_t), fmt_buf);
-            else itoad(va_arg(*args, uint32_t), fmt_buf);
+            else itoad(va_arg(*args, int32_t), fmt_buf);
             int_prec:
             curr_fmt_len = strlen(fmt_buf);
             if (curr_fmt_len < precision) {
