@@ -93,6 +93,8 @@ int putc(int c, FILE *stream); // just to provide the prototype
 #define putc(c, stream) fputc(c, stream)
 
 int fputs(const char *__restrict s, FILE *__restrict stream);
+int puts(const char *s);
+#define puts(s) fputs(s, stdout)
 
 size_t fread(void *__restrict ptr, size_t size, size_t nitems, FILE *__restrict stream);
 size_t fwrite(const void *__restrict ptr, size_t size, size_t nitems, FILE *__restrict stream);

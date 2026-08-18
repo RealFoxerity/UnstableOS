@@ -484,14 +484,21 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
         close_inode(dev_inode);
     }
 
-    switch (sys_spawn("/init", (char *[]){"/init", "root=memdisk", NULL}, (char * []){"PATH=/bin:/sbin", "PWD=/", "HOME=/",NULL})) {
-        case 1: break; // success, pid 1
-        case -ENOEXEC: panic("Exec format error on init process!");
-        case -ENOENT: panic("Failed to locate /init!");
-        case -EISDIR: panic("/init is a directory!");
-        default:
-            panic("Failed to load /init!\n");
+    static char * init_names[] = {
+        "/init",
+        "/bin/init",
+        "/bin/ysh",
+    };
+    char success = 0;
+    for (int i = 0; i < sizeof(init_names)/sizeof(char*); i++) {
+        kprintf("Trying %s\n", init_names[i]);
+        if (sys_spawn(init_names[i], (char *[]){init_names[i], (char*)mbd->cmdline, NULL}, (char * []){"PATH=/bin:/sbin", "PWD=/", "HOME=/",NULL}) >= 0) {
+            success = 1;
+            break;
+        }
     }
+    if (!success)
+        panic("Couldn't load init!");
 
     enable_interrupts();
 

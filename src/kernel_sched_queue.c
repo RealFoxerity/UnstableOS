@@ -102,7 +102,7 @@ char thread_queue_add_with_timeout(thread_queue_t * thread_queue, process_t * pp
     __thread_queue_add(thread_queue, pprocess, thread);
 
     spinlock_release(&thread_queue->queue_lock);
-    if (sys_nanosleep(pprocess, thread, ts, NULL) == 0) return 1;
+    if (sys_clock_nanosleep(pprocess, thread, CLOCK_MONOTONIC, 0, ts,NULL) == 0) return 1;
     //sleep_remove_thread(pprocess, thread); nanosleep gets woken up in time to remove the process
     return 0;
 }

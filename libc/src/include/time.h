@@ -5,6 +5,11 @@
 
 #define CLOCKS_PER_SEC 1024 // kernel.h RTC_TIMER_RESOLUTION_HZ
 
+#define TIME_UTC 1
+#define CLOCK_MONOTONIC 0
+#define CLOCK_REALTIME 1
+#define TIMER_ABSTIME 1
+
 struct tm {
     int tm_sec;
     int tm_min;
@@ -38,5 +43,10 @@ struct tm * localtime_r(const time_t * __restrict timer, struct tm * __restrict 
 
 char * ctime(const time_t * clock);
 char * ctime_r(const time_t * clock, char * buf);
+
+int clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *rqtp, struct timespec *rmtp);
+int clock_getres(clockid_t clock_id, struct timespec *res);
+int clock_gettime(clockid_t clock_id, struct timespec *tp);
+int clock_settime(clockid_t clock_id, const struct timespec *tp);
 
 #endif

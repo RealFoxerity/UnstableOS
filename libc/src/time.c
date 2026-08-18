@@ -1,16 +1,11 @@
-#include "include/time.h"
-#include "include/sys/times.h"
-#include "include/unistd.h"
-#include "../../src/include/kernel.h"
-#include "include/errno.h"
+#include <time.h>
+#include <sys/times.h>
+#include <unistd.h>
+#include <UnstableOS/syscalls.h>
+#include <errno.h>
 
 int nanosleep(const struct timespec * rqtp, struct timespec * rmtp) {
-    int ret = syscall(SYSCALL_NANOSLEEP, rqtp, rmtp);
-    if (ret < 0) {
-        ___set_errno(-ret);
-        return -1;
-    }
-    return ret;
+    return clock_nanosleep(CLOCK_MONOTONIC, 0, rqtp, rmtp);
 }
 
 time_t time(time_t * tloc) {
@@ -33,7 +28,7 @@ clock_t clock() {
         return -1;
     } // assuming at most 255 errnos
 
-    return (info.tms_utime + info.tms_stime) / CLOCKS_PER_SEC;
+    return info.tms_utime + info.tms_stime;
 }
 
 
@@ -154,4 +149,37 @@ char * ctime(const time_t * clock) {
 char * ctime_r(const time_t * clock, char * buf) {
     struct tm temp;
     return asctime_r(localtime_r(clock, &temp), buf);
+}
+
+int clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *rqtp, struct timespec *rmtp) {
+    int ret = syscall(SYSCALL_CLOCK_NANOSLEEP, clock_id, flags, rqtp, rmtp);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return ret;
+}
+int clock_getres(clockid_t clock_id, struct timespec *res) {
+    int ret = syscall(SYSCALL_CLOCK_GETRES, clock_id, res);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return ret;
+}
+int clock_gettime(clockid_t clock_id, struct timespec *tp) {
+    int ret = syscall(SYSCALL_CLOCK_GETTIME, clock_id, tp);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return ret;
+}
+int clock_settime(clockid_t clock_id, const struct timespec *tp) {
+    int ret = syscall(SYSCALL_CLOCK_SETTIME, clock_id, tp);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return ret;
 }

@@ -10,6 +10,7 @@ typedef size_t nlink_t;
 
 typedef long long time_t;
 typedef unsigned long long clock_t;
+typedef short clockid_t;
 typedef size_t useconds_t;
 typedef ssize_t suseconds_t;
 
@@ -39,7 +40,7 @@ struct __pthread {
     struct __pthread * __self;
     void * __dtv_ptr;
     void * __pcb;
-    pid_t __tid;;
+    pid_t __tid;
     unsigned int __thread_slot;
 
     // our objects
