@@ -155,6 +155,8 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
 
     current_thread->in_critical_section = 0;
 
+    reload_pcb(current_process);
+
     asm volatile ( // check the note in kernel_syscall.c
         "call fix_segments\n\t"
         "pushl %0\n\t" // save the new esp

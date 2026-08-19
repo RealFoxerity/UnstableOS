@@ -105,8 +105,7 @@ build/memdisk.tar: $(LIBC_HEADERS) $(UTILS_BINS)
 	@mkdir -p build/initmd/bin build/initmd/dev build/initmd/usr/include
 	@cp -r libc/src/include build/initmd/usr/
 	@cp $(UTILS_BINS) build/initmd/bin/
-	@cp build/initmd/bin/ysh build/initmd/init
-	@tar -C build/initmd --format ustar -cf $@ init bin dev usr
+	@tar -C build/initmd --format ustar -cf $@ bin dev usr
 
 build/hda.dd:
 	@$(PROGRESS_LABEL) Generating $@

@@ -544,6 +544,8 @@ __attribute__((no_caller_saved_registers)) void pic_send_eoi_all() {
 }
 
 
+#include <stdlib.h>
+
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_default(struct interr_frame * interrupt_frame) {
     fix_segments();
     outb(PIC_M_COMM_ADDR, PIC_OCW2_EOI);
@@ -561,7 +563,7 @@ __attribute__((naked, no_caller_saved_registers)) void interr_pic_pit(struct int
         //"addl $"STR(KERNEL_TIMER_RESOLUTION_MSEC)", uptime_msec\n\t" // not that accurate, using rtc instead
 
         "pushl %esp\n\t"
-
+        "call rand\n\t"
         "call schedule\n\t"
 
         "popl %eax\n\t" // get rid of argument
@@ -585,36 +587,49 @@ __attribute__((naked, no_caller_saved_registers)) void interr_pic_pit(struct int
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_keyboard(struct interr_frame * interrupt_frame) {
     fix_segments();
     ps2_driver(1);
+
+    rand();
 }
 
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_mouse(struct interr_frame * interrupt_frame) {
     fix_segments();
     ps2_driver(2);
+
+    rand();
 }
 
 extern void com_recv_byte(char com);
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_com2(struct interr_frame * interrupt_frame) {
     fix_segments();
     com_recv_byte(1);
+
+    rand();
 }
 
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_com1(struct interr_frame * interrupt_frame) {
     fix_segments();
     com_recv_byte(0);
+
+    rand();
 }
 
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_lpt2(struct interr_frame * interrupt_frame) {
     fix_segments();
     pic_send_eoi(PIC_INTERR_LPT2);
+
+    rand();
 }
 
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_floppy(struct interr_frame * interrupt_frame) {
     fix_segments();
     pic_send_eoi(PIC_INTERR_FLOPPY);
+
+    rand();
 }
 
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_lpt1(struct interr_frame * interrupt_frame) {
     fix_segments();
+    rand();
     if (pic_is_spurious(PIC_INTERR_LPT1)) return;
 
     pic_send_eoi(PIC_INTERR_LPT1);
@@ -623,7 +638,7 @@ __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_lpt1(struc
 __attribute__((interrupt, no_caller_saved_registers)) void interr_cmos_rtc(struct interr_frame * interrupt_frame) {
     fix_segments();
     enum rtc_interrupt_bitmasks called_ints = rtc_get_last_interrupt_type();
-
+    rand();
     if (called_ints & RTC_INT_PERIODIC) {
         // this is bad, not atomic; i486 unfortunately doesn't really have atomic 64 bit increments
         // should be fine considering we're only doing this in this interrupt
@@ -666,6 +681,7 @@ __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_pri_ata(st
 
     // drives hold back on IRQs themselves until the status register is read
     pic_send_eoi(PIC_INTERR_PRIMARY_ATA);
+    rand();
 }
 
 __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_sec_ata(struct interr_frame * interrupt_frame) {
@@ -676,6 +692,7 @@ __attribute__((interrupt, no_caller_saved_registers)) void interr_pic_sec_ata(st
 
     ata_irq_handler(PIC_INTERR_SECONDARY_ATA);
     pic_send_eoi(PIC_INTERR_SECONDARY_ATA);
+    rand();
 }
 
 const void * pic_interr_handlers[PIC_INTERR_COUNT] = {

@@ -186,6 +186,63 @@ enum section_header_flags {
     ELF_SHF_SOLARIS_EXCLUDE = 0x8000000, // section excluded unless used
 };
 
+enum dynamic_entry_types {
+    ELF_DT_NULL,
+    ELF_DT_NEEDED,
+    ELF_DT_PLTRELSZ,
+    ELF_DT_PLTGOT,
+    ELF_DT_HASH,
+    ELF_DT_STRTAB,
+    ELF_DT_SYMTAB,  // supported by loadelf's relocation
+    ELF_DT_RELA,    // supported by loadelf's relocation
+    ELF_DT_RELASZ,  // supported by loadelf's relocation
+    ELF_DT_RELAENT, // supported by loadelf's relocation
+    ELF_DT_STRSZ,
+    ELF_DT_SYMENT,  // supported by loadelf's relocation
+    ELF_DT_INIT,
+    ELF_DT_FINI,
+    ELF_DT_SONAME,
+    ELF_DT_RPATH,
+    ELF_DT_SYMBOLIC,
+    ELF_DT_REL,     // supported by loadelf's relocation
+    ELF_DT_RELSZ,   // supported by loadelf's relocation
+    ELF_DT_RELENT,  // supported by loadelf's relocation
+    ELF_DT_PLTREL,
+    ELF_DT_DEBUG,
+    ELF_DT_TEXTREL,
+    ELF_DT_JMPREL,
+    ELF_DT_BIND_NOW,
+    ELF_DT_INIT_ARRAY,
+    ELF_DT_FINI_ARRAY,
+    ELF_DT_INIT_ARRAYSZ,
+    ELF_DT_FINI_ARRAYSZ,
+    ELF_DT_RUNPATH,
+    ELF_DT_FLAGS,
+    ELF_DT_ENCODING = 32,
+    ELF_DT_PREINIT_ARRAY = 32,
+    ELF_DT_PREINIT_ARRAYSZ,
+    ELF_DT_SYMTAB_SHNDX,
+    ELF_DT_LOOS = 0x6000000D,
+    // 0x6000000D - 0x6ffff000 OS specific
+    // 0x70000000 - 0x7fffffff CPU specific
+};
+
+struct dynamic_entry {
+    int32_t type;
+    union {
+        uint32_t val;
+        uint32_t ptr;
+    };
+};
+
+struct dynamic_entry64 {
+    int32_t type;
+    union {
+        uint64_t val;
+        uint64_t ptr;
+    };
+};
+
 struct section_header {
     uint32_t string_offset; // offset into .shstrtab (offset into section names)
     uint32_t type;
@@ -242,6 +299,8 @@ enum symbol_table_visibility {
     ELF_STV_PROTECTED,
 };
 
+#define ELF_STN_UNDEF 0
+
 struct symbol_table_entry {
     uint32_t string_offset;
     uint32_t value;
@@ -259,6 +318,48 @@ struct symbol_table_entry64 {
     uint64_t value;
     uint64_t size;
 };
+
+struct rel_entry {
+    uint32_t offset;
+    uint32_t info;
+};
+struct rela_entry {
+    uint32_t offset;
+    uint32_t info;
+    int32_t addend;
+};
+struct rel_entry64 {
+    uint64_t offset;
+    uint64_t info;
+};
+struct rela_entry64 {
+    uint64_t offset;
+    uint64_t info;
+    int64_t addend;
+};
+
+#define ELF32_R_SYM(i)	  ((i)>>8)
+#define ELF32_R_TYPE(i)   ((unsigned char)(i))
+#define ELF32_R_INFO(s,t) (((s)<<8)+(unsigned char)(t))
+
+#define ELF64_R_SYM(i)    ((i)>>32)
+#define ELF64_R_TYPE(i)   ((i)&0xffffffffL)
+#define ELF64_R_INFO(s,t) (((s)<<32)+((t)&0xffffffffL))
+
+enum reltypes {
+    ELF_RELT_386_NONE,
+    ELF_RELT_386_32,
+    ELF_RELT_386_PC32,
+    ELF_RELT_386_GOT32,
+    ELF_RELT_386_PLT32,
+    ELF_RELT_386_COPY,
+    ELF_RELT_386_GLOB_DAT,
+    ELF_RELT_386_JMP_SLOT,
+    ELF_RELT_386_RELATIVE,
+    ELF_RELT_386_GOTOFF,
+    ELF_RELT_386_GOTPC,
+};
+
 
 void readelf(void * start, size_t size);
 

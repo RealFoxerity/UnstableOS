@@ -23,7 +23,7 @@ else
 LIBC_BUILD_DIR := $(MAKE_ROOT)/build/libc
 endif
 
-LIBC_CFLAGS := $(CFLAGS) -ffreestanding -nostdlib -nodefaultlibs -std=gnu99 -I$(LIBC_ROOT)/src/include -MMD -MP
+LIBC_CFLAGS := $(CFLAGS) -ffreestanding -nostdlib -nodefaultlibs -std=gnu99 -I$(LIBC_ROOT)/src/include -MMD -MP -fPIC
 
 ifeq ($(DEBUG), 1)
 	LIBC_CFLAGS += -Og -g
