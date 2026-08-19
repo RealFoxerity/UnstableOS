@@ -19,8 +19,8 @@ endif
 UTILS := cat clear echo ls mkdir mount pwd rename rm rmdir setsid sleep stty umount xxd ysh dd zrezset
 UTILS_BINS = $(patsubst %, $(UTILS_BUILD_DIR)/%, $(UTILS))
 
-UTILS_CFLAGS := $(CFLAGS) -ffreestanding -Og -g $(LIBC_INCLUDES) -MMD -MP
-UTILS_LDFLAGS := -static -nostdlib -nodefaultlibs
+UTILS_CFLAGS := $(CFLAGS) -ffreestanding -Ofast -g $(LIBC_INCLUDES) -MMD -MP -fPIE -pie -Wl,--no-dynamic-linker
+UTILS_LDFLAGS := -nostdlib -nodefaultlibs
 UTILS_LDLIBS := $(LIBC_LIB) -lgcc
 
 define DEFINE_UTIL_RULE
