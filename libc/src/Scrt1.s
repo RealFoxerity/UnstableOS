@@ -1,23 +1,23 @@
 .section .text
-
 .global _start
+.type _start, @function
+
 _start:
-    # end of stack frame
-    movl $0, %ebp
+    xorl %ebp, %ebp
     pushl %ebp # eip
     pushl %ebp # ebp
 
     movl %esp, %ebp
+    call 1f
+1:
+    popl %ebx
 
     pushl %ebp      # argv
     addl $0xC, (%esp)
 
     pushl 0x8(%ebp) # argc
 
-    call __libc_init
-    call _init
+    addl $_GLOBAL_OFFSET_TABLE_+[.-1b], %ebx
+    push main@GOT(%ebx)
 
-    call main
-    pushl %eax
-    call exit
-.size _start, . - _start
+    call __libc_init@plt

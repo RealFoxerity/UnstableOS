@@ -54,6 +54,15 @@ SECTIONS
 
 	KERNEL_END = .;
 
+    # provide symbols the libc init needs
+    # we won't call it, but we need the symbols to link
+    PROVIDE_HIDDEN (__preinit_array_start = .);
+    PROVIDE_HIDDEN (__preinit_array_end = .);
+    PROVIDE_HIDDEN (__init_array_start = .);
+    PROVIDE_HIDDEN (__init_array_end = .);
+    PROVIDE_HIDDEN (__fini_array_start = .);
+    PROVIDE_HIDDEN (__fini_array_end = .);
+
 	/DISCARD/ :
 	{
 		*(.note .note.*)

@@ -231,8 +231,7 @@ FILE * fopen(const char *restrict pathname, const char *restrict mode) {
     return out;
 }
 
-// supposed to be called from __libc_init
-void __stdio_init() {
+__attribute__((constructor(1))) void __stdio_init() {
     pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr);
     pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
@@ -247,7 +246,7 @@ void __stdio_init() {
 }
 
 // supposed to be called from exit()
-void __stdio_deinit() {
+void __attribute__((destructor(0))) __stdio_deinit() {
     assert(!pthread_mutex_lock(&__files_lock));
     while (__files) fclose(__files);
     // leaking lock to prevent creating new streams

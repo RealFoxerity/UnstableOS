@@ -1,18 +1,22 @@
 #include <stddef.h>
 #include <unistd.h>
+#include <stdlib.h>
 #include <UnstableOS/syscalls.h>
 
 char ** environ = NULL;
 
-#define START_HEAP_SIZE 0x8000000 // 128MiB
+extern void (* __init_array_start[])();
+extern void (* __init_array_end[])();
+extern void (* __preinit_array_start[])();
+extern void (* __preinit_array_end[])();
 
-extern void malloc_prepare(void *heap_struct_start, void *heap_top);
-extern void __stdio_init();
-void __libc_init(int argc, char ** args) {
-    void * heap_start = sbrk(START_HEAP_SIZE);
-
-    malloc_prepare(heap_start, heap_start + START_HEAP_SIZE);
-    environ = args + argc + 1;
-
-    __stdio_init();
+extern void _init();
+void __libc_init(int (*main)(int argc, char **argv, char **envp), int argc, char ** argv) {
+    environ = argv + argc + 1;
+    _init();
+    for (size_t i = 0; __preinit_array_start + i < __preinit_array_end; i++)
+        __preinit_array_start[i]();
+    for (size_t i = 0; __init_array_start + i < __init_array_end; i++)
+        __init_array_start[i]();
+    exit(main(argc, argv, environ));
 }
