@@ -23,7 +23,7 @@ else
 LIBC_BUILD_DIR := $(MAKE_ROOT)/build/libc
 endif
 
-LIBC_CFLAGS := $(CFLAGS) -ffreestanding -nostdlib -nodefaultlibs -std=gnu99 -I$(LIBC_ROOT)/src/include -MMD -MP -fPIC
+LIBC_CFLAGS := $(CFLAGS) -ffreestanding -nostdlib -nodefaultlibs -std=gnu99 -I$(LIBC_ROOT)/src/include -MMD -MP -fPIC -Wno-prio-ctor-dtor
 
 ifeq ($(DEBUG), 1)
 	LIBC_CFLAGS += -Og -g
@@ -37,9 +37,10 @@ LIBC_HEADERS := $(shell find $(LIBC_ROOT)/src/include -type f)
 
 LIBC_CRTBEGIN := $(shell $(CC) $(LIBC_CFLAGS) -print-file-name=crtbegin.o)
 LIBC_CRTEND := $(shell $(CC) $(LIBC_CFLAGS) -print-file-name=crtend.o)
-LIBC_CRT0 := $(LIBC_BUILD_DIR)/src/crt0.s.o
-LIBC_CRTI := $(LIBC_BUILD_DIR)/src/crti.s.o
-LIBC_CRTN := $(LIBC_BUILD_DIR)/src/crtn.s.o
+LIBC_CRT1  := $(LIBC_BUILD_DIR)/src/crt1.s.o
+LIBC_SCRT1 := $(LIBC_BUILD_DIR)/src/Scrt1.s.o
+LIBC_CRTI  := $(LIBC_BUILD_DIR)/src/crti.s.o
+LIBC_CRTN  := $(LIBC_BUILD_DIR)/src/crtn.s.o
 
 LIBC_SRCS_ALL := $(shell find $(LIBC_ROOT)/src/ -type f -name "*.[cs]")
 LIBC_SRCS_CRT := $(filter $(LIBC_ROOT)/src/crt%s, $(LIBC_SRCS_ALL))

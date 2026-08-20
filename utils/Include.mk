@@ -26,12 +26,12 @@ UTILS_LDLIBS := $(LIBC_LIB) -lgcc
 define DEFINE_UTIL_RULE
 UTILS_SRCS_$(1) := $$(shell find $(UTILS_ROOT)/$(1)/src/ -type f -name "*.[cs]" 2>/dev/null)
 
-$(UTILS_BUILD_DIR)/$(1): $$(UTILS_SRCS_$(1)) $(LIBC_LIB) $(LIBC_CRT0) $(LIBC_CRTI) $(LIBC_CRTN)
+$(UTILS_BUILD_DIR)/$(1): $$(UTILS_SRCS_$(1)) $(LIBC_LIB) $(LIBC_SCRT1) $(LIBC_CRTI) $(LIBC_CRTN)
 	@$$(PROGRESS_LABEL) Building $$(patsubst $$(MAKE_ROOT)/%,%,$$(abspath $$@))
 	@mkdir -p $$(dir $$@)
 	@$$(CC) $(UTILS_CFLAGS) -I$(UTILS_ROOT)/$(1)/src/include \
 		$(UTILS_LDFLAGS) \
-		$(LIBC_CRT0) $(LIBC_CRTI) $(LIBC_CRTBEGIN) \
+		$(LIBC_SCRT1) $(LIBC_CRTI) $(LIBC_CRTBEGIN) \
 		$$(UTILS_SRCS_$(1)) \
 		$(UTILS_LDLIBS) $(LIBC_CRTEND) $(LIBC_CRTN) \
 		-o $$@

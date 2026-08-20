@@ -29,16 +29,17 @@ struct malloc_heap_header { // aligning so that we try to avoid alignment check
 };
 
 static void * heap_base = NULL;
+#define START_HEAP_SIZE 0x8000000 // 128MiB
 
 pthread_mutex_t allocator_mutex = PTHREAD_MUTEX_INITIALIZER;
-void malloc_prepare(void * heap_struct_start, void * heap_top) { // don't call multiple times
-    heap_base = heap_struct_start;
-    *(struct malloc_heap_header*)heap_struct_start = (struct malloc_heap_header) {
+__attribute__((constructor(0))) void __malloc_init() {
+    heap_base = sbrk(START_HEAP_SIZE);
+    *(struct malloc_heap_header*)heap_base = (struct malloc_heap_header) {
         .flags = MALLOC_FIRST_CHUNK | MALLOC_LAST_CHUNK,
-        .prev_chunk = heap_struct_start,
-        .next_chunk = heap_top
+        .prev_chunk = heap_base,
+        .next_chunk = heap_base + START_HEAP_SIZE
     };
-    memcpy(((struct malloc_heap_header*)heap_struct_start)->magic, MALLOC_MAGIC, 3);
+    memcpy(((struct malloc_heap_header*)heap_base)->magic, MALLOC_MAGIC, 3);
 }
 
 void * __attribute__((malloc, malloc(free), weak)) malloc(size_t size) {

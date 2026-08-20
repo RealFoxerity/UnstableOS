@@ -1,9 +1,14 @@
 #ifndef _ERRNO_H
 #define _ERRNO_H
 
+// I hate this so fucking much but gcc needs errno to be a macro to not do "extern int errno"
+// which of course is wrong and collides with our extern definition
+#define errno errno
 extern __thread int errno; // libc_init.c
+
 void ___set_errno(int error);
 int ___get_errno();
+
 #define ENOSYS    1
 #define EINVAL    2
 #define ERANGE    3

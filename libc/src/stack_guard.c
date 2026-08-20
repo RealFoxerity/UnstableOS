@@ -1,5 +1,5 @@
-#include "include/stdlib.h"
-#include "include/stdio.h"
+#include <stdlib.h>
+#include <stdio.h>
 
 #define STACK_CHK_VAL 0xdeadbeef
 

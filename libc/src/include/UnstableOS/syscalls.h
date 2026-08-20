@@ -1,10 +1,10 @@
 #ifndef _UNSTABLEOS_SYSCALLS_H
 #define _UNSTABLEOS_SYSCALLS_H
 
-#define SYSCALL_INTERR 0xF0 // if changing, change crt0.s
+#define SYSCALL_INTERR 0xF0 // if changing, change crt1.s
 
 enum syscalls {
-    SYSCALL_EXIT = 0, // if changing, change crt0.s, exit(long exitcode)
+    SYSCALL_EXIT = 0,
     SYSCALL_ABORT = 1,
     SYSCALL_BRK, // same as linux, returns the current end on error
     SYSCALL_OPENAT,
@@ -73,9 +73,12 @@ enum syscalls {
 
     SYSCALL_YIELD,
 
-    SYSCALL_NANOSLEEP,
     SYSCALL_ALARM,
     SYSCALL_TIME,
+    SYSCALL_CLOCK_GETRES,
+    SYSCALL_CLOCK_GETTIME,
+    SYSCALL_CLOCK_SETTIME,
+    SYSCALL_CLOCK_NANOSLEEP,
 
     // different from the function since we can't easily return 64 bits: struct tms * buffer, clock_t * elapsed
     // we could do 32 bits, but then the 2038 problem comes to bite us

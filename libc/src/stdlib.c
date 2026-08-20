@@ -9,6 +9,12 @@
 #include <sys/wait.h>
 #include <pthread.h>
 
+int abs(int i) {
+    if (i < 0)
+        return -i;
+    return i;
+}
+
 static uint32_t ___internal_rand_state = 1;
 
 int rand() {
@@ -72,7 +78,10 @@ static void __call_atexit() {
     }
 }
 
-extern void __stdio_deinit();
+extern void (*__fini_array_start[])();
+extern void (*__fini_array_end[])();
+extern void _fini();
+
 void exit(long exit_code) {
     static char is_exiting = 0;
     if (__atomic_load_n(&is_exiting, __ATOMIC_ACQUIRE)) {
@@ -82,7 +91,11 @@ void exit(long exit_code) {
     __atomic_store_n(&is_exiting, 1, __ATOMIC_RELEASE);
 
     __call_atexit();
-    __stdio_deinit();
+
+    for (int i = __fini_array_end - __fini_array_start - 1; i >= 0; i--)
+        __fini_array_start[i]();
+
+    _fini();
     _exit(exit_code);
 }
 

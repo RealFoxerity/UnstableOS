@@ -33,6 +33,10 @@
 #include "block/ata/ata.h"
 #include "mm/pmm.h"
 
+// so we can link against libc
+void _init() {}
+void _fini() {}
+
 char early_init = 1;
 char vga_only = 0;
 
