@@ -77,7 +77,9 @@ enum pstatus_t {
 
 struct sem_t;
 #include "v8086.h"
+// use check_eintr unless you really only want to check against signals
 #define sa_to_be_handled sa_info_to_be_handled.si_signo
+
 #define PAUSE_SIGNALS() ({sigset_t _ = current_thread->sa_mask; current_thread->sa_mask = (sigset_t)-1; _; })
 #define RESTORE_SIGNALS(prevmask) {current_thread->sa_mask = (prevmask); signal_retry_process(current_process);}
 struct thread_t {
@@ -290,7 +292,7 @@ int sys_sigsuspend(const sigset_t * set);
 int sys_sigqueue(pid_t pid, int signo, union sigval value);
 
 // futex.c
-long sys_futex(const uint32_t * wait_addr, int op, uint32_t val, pid_t owner, struct timespec * timeout);
+long sys_futex(const uint32_t * wait_addr, int op, uint32_t val, pid_t owner, struct timespec * timeout, clockid_t clockid);
 // awake robust futexes on thread exit
 // assumes locked scheduler
 void futex_wake_owner_dead(const process_t * parent, pid_t tid);
@@ -315,6 +317,12 @@ void signal_retry_process(process_t * signaled);
 void signal_dispatch_sa(process_t * group, thread_t * thread);
 
 int signal_process_group(pid_t process_group, siginfo_t * info);
+
+// check whether a function is supposed to throw -EINTR
+// applies for both signals and pthread_cancel
+// only works on current thread
+// returns 1 if there's a pending EINTR action
+int check_eintr();
 
 // if defined, allows threads in syscalls not currently in critical sections to be killed
 // if not defined, entering syscalls automatically enables a critical section, thus disallowing killing

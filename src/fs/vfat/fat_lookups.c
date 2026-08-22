@@ -220,7 +220,7 @@ int fat_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t
 
 
     sigset_t mask = PAUSE_SIGNALS();
-    if (current_thread->sa_to_be_handled) {
+    if (check_eintr()) {
         RESTORE_SIGNALS(mask);
         return -EINTR;
     }

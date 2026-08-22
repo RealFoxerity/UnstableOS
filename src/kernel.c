@@ -360,8 +360,6 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
         }
     }
 
-    uint32_t total_usable = 0;
-
     for (int i = 0; i < mbd->mmap_length; i+= sizeof(multiboot_memory_map_t)) {
         multiboot_memory_map_t* mmmt = (multiboot_memory_map_t*) (mbd->mmap_addr + i);
 
@@ -388,19 +386,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
                 kprintf("???UNKNOWN");
         }
         kprintf("\n");
-
-        //if ((uint64_t)mmmt->addr < (uint64_t)1<<32 && mmmt->addr + mmmt->len >= LOWEST_PHYS_ADDR_ALLOWABLE && mmmt->type == MULTIBOOT_MEMORY_AVAILABLE) {
-        if ((uint64_t)mmmt->addr < (uint64_t)1<<32 && mmmt->addr + mmmt->len >= boot_mem_top && mmmt->type == MULTIBOOT_MEMORY_AVAILABLE) { // this approach wastes some memory, but considering we have the kernel directly after LOWEST_PHYS_ADDR_ALLOWABLE, it shouldn't matter
-            if ((uint64_t)mmmt->addr + mmmt->len >= (uint64_t)1<<32) {
-                total_usable += mmmt->len - (((uint64_t)mmmt->addr + mmmt->len) - ((uint64_t)1<<32));
-            //} else if (mmmt->addr < LOWEST_PHYS_ADDR_ALLOWABLE) {
-            } else if (mmmt->addr < boot_mem_top) {
-                //total_usable += mmmt->len - (mmmt->addr - LOWEST_PHYS_ADDR_ALLOWABLE);
-                total_usable += mmmt->len - (boot_mem_top - mmmt->addr);
-            } else total_usable += mmmt->len;
-        }
     }
-    //if (total_usable < 1<<19) panic("At least 512K of usable memory is required for basic kernel functionality!\n");
 #ifndef USE_LEGACY_PFA
 
 	// Initialize physical memory management for the pre-vmm environment
@@ -408,10 +394,10 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
 	kernel_mem_top = KERNEL_END; // FIXME: the new PMM manages its own memory, we shouldn't need to maintain this
 	setup_paging(boot_mem_top);
 	pmm_init_post_vmm();
-	kprintf("Kernel: Total usable RAM: %lu bytes\n", pf_get_free_memory()); //total_usable);
+	kprintf("Kernel: Total usable RAM: %lu bytes\n", pf_get_free_memory());
 #else
 	kernel_mem_top = page_frame_alloc_init(mbd, (void*)boot_mem_top);
-	kprintf("Kernel: Total usable RAM: %lu bytes\n", pf_get_free_memory()); //total_usable);
+	kprintf("Kernel: Total usable RAM: %lu bytes\n", pf_get_free_memory());
 
 	// initialize basic stuff
 	setup_paging(boot_mem_top);

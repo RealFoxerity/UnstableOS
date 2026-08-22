@@ -80,4 +80,50 @@ struct {
 
     pid_t * __owner_tcb_field;
 } typedef pthread_mutex_t;
+
+// same idea as in the mutex to allow for the (optional) EDEADLK
+struct {
+    union {
+        struct {
+            unsigned long __owner : 31;
+            unsigned long __locked : 1;
+        };
+        pid_t __ownerx;
+    };
+} typedef pthread_spinlock_t;
+
+// only valid rwlock attribute is the pshared attribute,
+// since we don't support TSH (Thread Process-Shared Synchronization), it doesn't do anything
+// here so that the compiler doesn't complain about initializers
+struct {
+    int __pshared;
+} typedef pthread_rwlockattr_t;
+
+struct {
+    pthread_rwlockattr_t __attr;
+    unsigned long __val;
+    pthread_mutex_t __vlock;
+    pthread_mutex_t __wlock;
+} typedef pthread_rwlock_t;
+
+struct {
+    clockid_t __clockid;
+} typedef pthread_condattr_t;
+
+struct {
+    pthread_condattr_t __attr;
+    pthread_mutex_t __cond_lock; // to guarantee the atomic relock
+    unsigned long __magic; // to avoid races between __cond_lock release and futex wait
+} typedef pthread_cond_t;
+
+struct {
+    int __pshared; // see pthread_rwlockattr_t
+} typedef pthread_barrierattr_t;
+
+struct {
+    pthread_barrierattr_t __attr;
+    unsigned long __requested_count;
+    unsigned long __counter;
+} typedef pthread_barrier_t;
+
 #endif

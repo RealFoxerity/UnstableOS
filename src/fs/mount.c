@@ -138,7 +138,7 @@ long sys_mount(const char * dev_path, const char * mount_path, unsigned char typ
     }
 
     sigset_t mask = PAUSE_SIGNALS();
-    if (current_thread->sa_to_be_handled) {
+    if (check_eintr()) {
         RESTORE_SIGNALS(mask);
         return -EINTR;
     }

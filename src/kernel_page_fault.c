@@ -154,6 +154,9 @@ __attribute__((no_caller_saved_registers)) int page_fault_handler(unsigned long 
     if (!error.U) { // don't wanna unnecessarily break the spinlocks
         gfx_spinlock.state = SPINLOCK_UNLOCKED;
         framebuffer_lock.state = SPINLOCK_UNLOCKED;
+        back_framebuffer_w = 0;
+        back_framebuffer_h = 0;
+        back_framebuffer = NULL;
     }
     kprintf("\n\e[0m\e[41m\n#### ISR: Segmentation fault - Invalid memory reference! ####\nTried to reference address %p\n", fault_address);
     kprintf("\nCR3: %p\n", paging_get_address_space_paddr());

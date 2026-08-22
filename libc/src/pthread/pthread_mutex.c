@@ -31,8 +31,11 @@ union mutex_owner { // keep the same as in types.h, needed for cmpxchg
 
 #define PTHREAD_SPINAMOUNT 1000
 extern char is_klibc;
-int pthread_mutex_lock(pthread_mutex_t *mutex) {
+static int __pthread_mutex_clocklock(pthread_mutex_t *mutex, clockid_t clock_id, const struct timespec *restrict abstime, char check_time) {
     if (is_klibc) return 0;
+    if (check_time && !abstime)
+        return EINVAL;
+
     int error = pthread_mutex_trylock(mutex);
     switch (error) {
         case 0:
@@ -69,9 +72,9 @@ int pthread_mutex_lock(pthread_mutex_t *mutex) {
             __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)
         ) {
             // another potential race? this time with pthread_mutex_unlock()?
-            if (syscall(SYSCALL_FUTEX,
+            if (_syscall(SYSCALL_FUTEX,
                     &mutex->__ownerx, FUTEX_WAIT,
-                    mutex->__ownerx, mutex->__owner, NULL) == -EOWNERDEAD
+                    mutex->__ownerx, mutex->__owner, abstime, clock_id) == -EOWNERDEAD
             ) {
                 mutex->__inconsistent = 1;
                 mutex->__contended = 0;
@@ -80,6 +83,18 @@ int pthread_mutex_lock(pthread_mutex_t *mutex) {
         }
     }
     return 0;
+}
+
+int pthread_mutex_clocklock(pthread_mutex_t *mutex, clockid_t clock_id, const struct timespec *restrict abstime) {
+    return __pthread_mutex_clocklock(mutex, clock_id, abstime, 1);
+}
+
+int pthread_mutex_timedlock(pthread_mutex_t *mutex, const struct timespec *restrict abstime) {
+    return __pthread_mutex_clocklock(mutex, CLOCK_REALTIME, abstime, 1);
+}
+
+int pthread_mutex_lock(pthread_mutex_t *mutex) {
+    return __pthread_mutex_clocklock(mutex, 0, NULL, 0);
 }
 
 // TODO: i guess rewrite when futex robust lists?
@@ -92,7 +107,7 @@ int pthread_mutex_trylock(pthread_mutex_t *mutex) {
     if (/*mutex->__inconsistent ||*/ mutex->__unrecoverable) {
         /*mutex->__unrecoverable = 1;
         if (mutex->__contended)
-            syscall(SYSCALL_FUTEX, &mutex->__ownerx, FUTEX_WAKE, ULONG_MAX);
+            _syscall(SYSCALL_FUTEX, &mutex->__ownerx, FUTEX_WAKE, ULONG_MAX);
 
         mutex->__contended = 0;*/
         return ENOTRECOVERABLE;
@@ -125,7 +140,7 @@ int pthread_mutex_trylock(pthread_mutex_t *mutex) {
         // only way to happen is if owner died and we got goto'd from below
         if (is_dead) {
             mutex->__inconsistent = 1;
-            syscall(SYSCALL_FUTEX, &mutex->__ownerx, FUTEX_WAKE, 1);
+            _syscall(SYSCALL_FUTEX, &mutex->__ownerx, FUTEX_WAKE, 1);
 
             // we internally make all mutexes robust,
             // but expose just enough to the user application
@@ -155,7 +170,7 @@ int pthread_mutex_trylock(pthread_mutex_t *mutex) {
     expected.__ownerx = mutex->__ownerx;
     if (!mutex->__owner_tcb_field || (unsigned long)*mutex->__owner_tcb_field != mutex->__owner) {
         // cheap fix to that race in the single assignment a bit up
-        yield();
+        sched_yield();
         if (!mutex->__owner_tcb_field || (unsigned long)*mutex->__owner_tcb_field != mutex->__owner) {
             is_dead = 1;
             goto docas;
@@ -172,7 +187,7 @@ int pthread_mutex_unlock(pthread_mutex_t *mutex) {
         (mutex->__inconsistent || mutex->__unrecoverable)) {
         mutex->__unrecoverable = 1;
         if (mutex->__contended)
-            syscall(SYSCALL_FUTEX, &mutex->__ownerx, FUTEX_WAKE, ULONG_MAX);
+            _syscall(SYSCALL_FUTEX, &mutex->__ownerx, FUTEX_WAKE, ULONG_MAX);
 
         mutex->__contended = 0;
         mutex->__state = 0;
@@ -192,7 +207,7 @@ int pthread_mutex_unlock(pthread_mutex_t *mutex) {
         unsigned long was_contented = mutex->__contended;
         __atomic_store_n(&mutex->__ownerx, 0, __ATOMIC_RELEASE);
         if (was_contented)
-            syscall(SYSCALL_FUTEX, &mutex->__ownerx, FUTEX_WAKE, ULONG_MAX);
+            _syscall(SYSCALL_FUTEX, &mutex->__ownerx, FUTEX_WAKE, ULONG_MAX);
     }
     return 0;
 }

@@ -13,7 +13,7 @@
 // note: each task gets only 4KiB of stack mapped
 
 static unsigned short * real_mode_ivt = (unsigned short *)0;
-#define V86_STACK_END 0x7FFF0
+#define V86_STACK_END 0x7BF0
 
 #define V86_TERMINATING_INTERRUPT 3
 

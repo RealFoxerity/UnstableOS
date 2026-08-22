@@ -9,7 +9,7 @@ void pthread_testcancel() {
     if (us->__cancelable == PTHREAD_CANCEL_ENABLE &&
         us->__cancel_pending
     )
-        pthread_exit(NULL);
+        pthread_exit(PTHREAD_CANCELED);
 }
 
 int pthread_setcancelstate(int state, int *oldstate) {

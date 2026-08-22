@@ -70,7 +70,6 @@ int open_raw_device_fd(dev_t device, unsigned short flags) {
 
 static char check_page(const char * addr) {
     if ((PAGE_DIRECTORY_TYPE*)addr >= PTE_ADDR_VIRT_BASE) return 0; // colliding with page tables
-    if (addr < (const char *)LOWEST_PHYS_ADDR_ALLOWABLE) return 0; // we don't store data in low memory
 
     PAGE_TABLE_TYPE * pte = paging_get_pte(addr);
     if (pte == NULL) return 0;

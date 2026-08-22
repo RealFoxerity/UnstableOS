@@ -57,8 +57,6 @@ extern spinlock_t address_spaces_lock;
 //#define PTE_ADDR_VIRT_BASE ((uint32_t*)(___PDE_VADDR_BASE - (PAGE_TABLE_ENTRIES * (PAGE_DIRECTORY_ENTRIES-1) * sizeof(PAGE_TABLE_TYPE))))  // around 0xFFBFF000 normally, but we want the PDE itself to work as the last PTE, mapping all PTEs to 0xFFC00000 - 0xFFFFFFFF so that we can access them
 #define PTE_ADDR_VIRT_BASE ((uint32_t*)___PTE_VADDR_BASE)
 
-#define LOWEST_PHYS_ADDR_ALLOWABLE 0x00100000 // addresses below this are usually reserved for something, e.g. vga memory
-
 #define IDENT_MAPPING_MAX_ADDR (10*PAGE_TABLE_ENTRIES*PAGE_SIZE_NO_PAE) // 40MB, for initrd
 
 #ifdef USE_LEGACY_PFA

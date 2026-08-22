@@ -10,7 +10,7 @@
 #include "kernel.h"
 #include "multiboot.h"
 
-#define LOWEST_PAGE (PAGE_ALIGN_UP(LOWEST_PHYS_ADDR_ALLOWABLE) / PAGE_SIZE)
+#define LOWEST_PAGE (0x10) // 65K should be enough for v86 usecases, hopefully anyway
 
 // Maximum allocation order: 2^10 = 1024 pages = 4 MiB
 #define PMM_ORDER_MAX 10
@@ -143,6 +143,11 @@ static void pre_vmm_insert_range_checked(size_t start, const size_t end, const m
 
 	range_t reserved[PRE_VMM_RESERVED_RANGES_MAX]; // Let's hope 32 is enough here >_<
 	size_t reserved_count = 0;
+	// Add regions from the EBDA through to the BIOS to the list
+	pre_vmm_insert_range(
+		0x80,
+		0x100,
+		reserved, &reserved_count, PRE_VMM_RESERVED_RANGES_MAX);
 
 	// Add the kernel to the list of ranges to avoid
 	pre_vmm_insert_range(

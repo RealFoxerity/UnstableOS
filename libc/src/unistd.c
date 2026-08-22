@@ -21,8 +21,8 @@ void swab(const void *restrict src, void *restrict dest, ssize_t nbytes) {
 }
 
 int brk(void * addr) {
-    void * old_break = (void *)syscall(SYSCALL_BRK, NULL);
-    void * new_break = (void *)syscall(SYSCALL_BRK, addr);
+    void * old_break = (void *)_syscall(SYSCALL_BRK, NULL);
+    void * new_break = (void *)_syscall(SYSCALL_BRK, addr);
 
     if (new_break == old_break) {
         ___set_errno(-ENOMEM);
@@ -32,8 +32,8 @@ int brk(void * addr) {
 }
 
 void * sbrk(intptr_t increment) {
-    void * old_break = (void *)syscall(SYSCALL_BRK, NULL);
-    void * new_break = (void *)syscall(SYSCALL_BRK, old_break + increment);
+    void * old_break = (void *)_syscall(SYSCALL_BRK, NULL);
+    void * new_break = (void *)_syscall(SYSCALL_BRK, old_break + increment);
 
     if (new_break == old_break) {
         ___set_errno(-ENOMEM);

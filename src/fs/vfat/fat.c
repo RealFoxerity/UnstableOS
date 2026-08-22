@@ -181,7 +181,7 @@ ssize_t fat_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_si
 
     struct fat_dir_entry dentry_buf = {0};
     sigset_t mask = PAUSE_SIGNALS();
-    if (current_thread->sa_to_be_handled) {
+    if (check_eintr()) {
         RESTORE_SIGNALS(mask);
         return -EINTR;
     }
@@ -368,7 +368,7 @@ ssize_t fat_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) {
         return EOVERFLOW;
 
     sigset_t mask = PAUSE_SIGNALS();
-    if (current_thread->sa_to_be_handled) {
+    if (check_eintr()) {
         RESTORE_SIGNALS(mask);
         return -EINTR;
     }
@@ -445,7 +445,7 @@ ssize_t fat_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) {
     n -= to_read;
     if (n == 0)
         goto end;
-    if (current_thread->sa_to_be_handled)
+    if (check_eintr())
         goto end;
 
     while (n > 0) {
@@ -475,7 +475,7 @@ ssize_t fat_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) {
             goto end;
 
         n -= to_read;
-        if (current_thread->sa_to_be_handled)
+        if (check_eintr())
             goto end;
     }
 
@@ -683,7 +683,7 @@ ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t off
     ssize_t written = 0;
 
     sigset_t mask = PAUSE_SIGNALS();
-    if (current_thread->sa_to_be_handled) {
+    if (check_eintr()) {
         RESTORE_SIGNALS(mask);
         return -EINTR;
     }
@@ -753,7 +753,7 @@ ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t off
     RESTORE_SIGNALS(mask);
 
     written = -EINTR;
-    if (current_thread->sa_to_be_handled)
+    if (check_eintr())
         goto end;
 
     offset %= bytes_per_cluster;
@@ -771,7 +771,7 @@ ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t off
     n -= to_write;
     if (n == 0)
         goto end;
-    if (current_thread->sa_to_be_handled)
+    if (check_eintr())
         goto end;
     while (n > 0) {
         start_cl = fat_next_in_chain(start_cl, sb);
@@ -800,7 +800,7 @@ ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t off
 
         n -= to_write;
 
-        if (current_thread->sa_to_be_handled)
+        if (check_eintr())
             goto end;
     }
 
@@ -922,7 +922,7 @@ int fat_unlink(inode_t * file) {
         return -EBUSY;
 
     sigset_t mask = PAUSE_SIGNALS();
-    if (current_thread->sa_to_be_handled) {
+    if (check_eintr()) {
         RESTORE_SIGNALS(mask);
         return -EINTR;
     }
@@ -1240,7 +1240,7 @@ static int __fat_creat(inode_t * parent, const char * pathname, mode_t mode, ino
 
 int fat_creat(inode_t * parent, const char * pathname, mode_t mode, inode_t ** inode_out) {
     sigset_t mask = PAUSE_SIGNALS();
-    if (current_thread->sa_to_be_handled) {
+    if (check_eintr()) {
         RESTORE_SIGNALS(mask);
         return -EINTR;
     }
@@ -1251,7 +1251,7 @@ int fat_creat(inode_t * parent, const char * pathname, mode_t mode, inode_t ** i
 
 int fat_mkdir(inode_t * parent, const char * pathname, mode_t mode, inode_t ** inode_out) {
     sigset_t mask = PAUSE_SIGNALS();
-    if (current_thread->sa_to_be_handled) {
+    if (check_eintr()) {
         RESTORE_SIGNALS(mask);
         return -EINTR;
     }
@@ -1268,7 +1268,7 @@ int fat_rename(inode_t * old, inode_t * new, const char * name) {
     struct fat_info * fi = sb->data;
 
     sigset_t mask = PAUSE_SIGNALS();
-    if (current_thread->sa_to_be_handled) {
+    if (check_eintr()) {
         RESTORE_SIGNALS(mask);
         return -EINTR;
     }
@@ -1373,7 +1373,7 @@ int fat_trunc(inode_t * file, off_t length) {
     struct fat_info * fi = sb->data;
 
     sigset_t mask = PAUSE_SIGNALS();
-    if (current_thread->sa_to_be_handled) {
+    if (check_eintr()) {
         RESTORE_SIGNALS(mask);
         return -EINTR;
     }

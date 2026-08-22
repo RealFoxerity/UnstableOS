@@ -5,7 +5,7 @@
 #define FUTEX_WAKE 1
 
 /* syntax of sys_futex(...)
- * syscall(SYSCALL_FUTEX, uint32_t * uaddr, FUTEX_WAIT, uint32_t expected, pid_t owner, struct timespec * _Nullable timeout)
+ * syscall(SYSCALL_FUTEX, uint32_t * uaddr, FUTEX_WAIT, uint32_t expected, pid_t owner, struct timespec * _Nullable timeout, clockid_t clockid)
  * owner being set to other than 0 makes it a "robust" futex that's to be awoken when the owner dies
  * if timeout is not null, and is 0, can be used to check whether the owner still lives
  *

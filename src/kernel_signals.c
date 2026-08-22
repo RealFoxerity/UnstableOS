@@ -667,7 +667,7 @@ int sys_sigprocmask(int how, const sigset_t * __restrict set, sigset_t * oset) {
 }
 
 int sys_sigsuspend(const sigset_t * set) {
-    if (current_thread->sa_to_be_handled) return -EINTR;
+    if (check_eintr()) return -EINTR;
 
     sigset_t old_set = current_thread->sa_mask;
     sigset_t new_set = *set;
@@ -677,7 +677,7 @@ int sys_sigsuspend(const sigset_t * set) {
 
     asm volatile ("sti;");
 
-    while (!current_thread->sa_to_be_handled) reschedule();
+    while (!check_eintr()) reschedule();
 
     current_thread->sa_mask = old_set;
     return -EINTR;
@@ -700,4 +700,29 @@ int sys_sigqueue(pid_t pid, int signo, union sigval value) {
     spinlock_release(&scheduler_lock);
 
     return ret;
+}
+
+#include <pthread.h>
+// check whether a function is supposed to throw -EINTR
+// applies for both signals and pthread_cancel
+// only works on current thread
+int check_eintr() {
+    if (current_thread->sa_to_be_handled)
+        return 1;
+
+    // artifact from PAUSE_SIGNALS, impossible to be set otherwise
+    // meaning the kernel explicitly wants for EINTR to not be possible
+    if (current_thread->sa_mask == (sigset_t)-1)
+        return 0;
+
+    if (!current_thread->tcb ||
+        paging_get_address_space_paddr() != current_process->address_space_paddr ||
+        paging_get_pte(current_thread->tcb) == NULL) // bug? either way, userspace's problem
+            return 0;
+
+    pthread_t thread_us = (pthread_t)current_thread->tcb;
+    if (thread_us->__cancelable == PTHREAD_CANCEL_ENABLE && thread_us->__cancel_pending)
+        return 1;
+
+    return 0;
 }

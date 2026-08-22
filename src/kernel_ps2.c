@@ -484,7 +484,7 @@ ssize_t ps2_mouse_pread(file_descriptor_t * file, void * buf, size_t n, off_t of
     if (offset) return -ESPIPE;
 
     thread_queue_add(&mouse_queue, current_process, current_thread, SCHED_INTERR_SLEEP);
-    if (current_thread->sa_to_be_handled != 0) return -EINTR;
+    if (check_eintr()) return -EINTR;
 
 #ifdef PS2_MOUSE_LINUX_COMPAT
     memcpy(buf, mouse_buffer, n > 3 ? 3 : n);

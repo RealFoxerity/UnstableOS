@@ -88,6 +88,7 @@ struct stack_frame {
     void * eip;
 };
 
+#define LOWEST_FUNC_ADDR_ALLOWABLE ((void*)0x00100000)
 
 #define MAX_DEPTH 20
 void unwind_stack_vaddr(void * ebp) {
@@ -100,7 +101,7 @@ void unwind_stack_vaddr(void * ebp) {
     for (depth = 0;
         paging_get_pte(frame) != NULL &&
         paging_get_pte(frame+1) != NULL &&
-        (void*)frame > (void*)LOWEST_PHYS_ADDR_ALLOWABLE &&
+        (void*)frame > LOWEST_FUNC_ADDR_ALLOWABLE &&
         depth < MAX_DEPTH;
         depth ++)
     {
