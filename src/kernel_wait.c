@@ -66,7 +66,7 @@ pid_t sys_waitpid(pid_t pid, int * wstatus, int options) {
         spinlock_release(&scheduler_lock);
         reschedule();
 
-        if (current_thread->sa_to_be_handled) {
+        if (check_eintr()) {
             if (current_thread->sa_to_be_handled != SIGCHLD) return -EINTR;
             if (current_thread->sa_info_to_be_handled.si_code & SI_USER) return -EINTR;
 
@@ -207,7 +207,7 @@ int sys_waitid(idtype_t idtype, id_t id, siginfo_t * infop, int options) {
         spinlock_release(&scheduler_lock);
         reschedule();
 
-        if (current_thread->sa_to_be_handled) {
+        if (check_eintr()) {
             if (current_thread->sa_to_be_handled != SIGCHLD) return -EINTR;
             if (current_thread->sa_info_to_be_handled.si_code & SI_USER) return -EINTR;
 

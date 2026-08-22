@@ -400,6 +400,21 @@ void setup_paging(unsigned long ident_map_end) {
         // check whether writable is really needed here, note: ia-32 allows writes anywhere in ring 0 unless bit 16 of cr0 is set
     }
 
+    // we now need to preallocate all the page directories the kernel might need,
+    //  so that the address space creation can rely on regular memcpy
+    // the lower address to 0x0800'0000 should be enough,
+    //  the kernel then only has the upper 750M which will remain the same after hardware init finishes
+    for (unsigned int i = 0; i < 0x07FFFFFF/PAGE_SIZE/PAGE_DIRECTORY_ENTRIES; i++) {
+        if (page_directory[i])
+            continue;
+        page_directory[i] = (PAGE_TABLE_TYPE)pfalloc();
+        if (!page_directory[i])
+            dpanic("Not enough memory for auxiliary page directory entries!\n");
+        memset((void*)page_directory[i], 0, PAGE_TABLE_ENTRIES*sizeof(PAGE_TABLE_TYPE));
+        page_directory[i] &= ~(PAGE_SIZE_NO_PAE-1);
+        page_directory[i] |= PTE_PDE_PAGE_PRESENT | PTE_PDE_PAGE_WRITABLE;
+    }
+
     page_directory[PAGE_DIRECTORY_ENTRIES-1] = ((unsigned long)page_directory&~(PAGE_SIZE_NO_PAE-1)) | PTE_PDE_PAGE_PRESENT | PTE_PDE_PAGE_WRITABLE;
     
     kernel_address_space_paddr = page_directory;

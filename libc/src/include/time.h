@@ -6,8 +6,9 @@
 #define CLOCKS_PER_SEC 1024 // kernel.h RTC_TIMER_RESOLUTION_HZ
 
 #define TIME_UTC 1
-#define CLOCK_MONOTONIC 0
-#define CLOCK_REALTIME 1
+// CLOCK_REALTIME has to be 0 for PTHREAD_COND_INITIALIZER to be {0}
+#define CLOCK_REALTIME 0
+#define CLOCK_MONOTONIC 1
 #define TIMER_ABSTIME 1
 
 struct tm {

@@ -43,6 +43,9 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
     kassert(current_process);
     kassert(current_thread);
 
+    if (current_process->do_cleanup) reschedule();
+    if (current_process->is_stopped) reschedule();
+
     // we might want to call syscalls from other syscalls and/or drivers
     char in_kernel = (ctx->iret_frame.cs & 3) == 0;
 
@@ -262,7 +265,7 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
             break;
         case SYSCALL_FUTEX:
             // address checked in the function
-            return_value = sys_futex((uint32_t *)arg1, arg2, arg3, arg4, (struct timespec *)arg5);
+            return_value = sys_futex((uint32_t *)arg1, arg2, arg3, arg4, (struct timespec *)arg5, (clockid_t)arg6);
             break;
         case SYSCALL_SEM_POST:
             if (arg1 < 0 || arg1 >= SEM_NSEMS_MAX) {

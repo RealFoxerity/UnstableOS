@@ -7,8 +7,11 @@
 #include <UnstableOS/futex.h>
 spinlock_t futex_lock = {0};
 
-long futex_wait(const uint32_t * wait_addr, uint32_t expected, pid_t owner, struct timespec * timeout) {
+long futex_wait(const uint32_t * wait_addr, uint32_t expected, pid_t owner, struct timespec * timeout, clockid_t clockid) {
     if (owner < 0) return -EINVAL;
+    if (timeout != NULL && clockid != CLOCK_MONOTONIC && clockid != CLOCK_REALTIME)
+        return -EINVAL;
+
     if (current_process->threads->next == NULL)
         return -EDEADLK;
     if (owner > 0) {
@@ -29,7 +32,6 @@ long futex_wait(const uint32_t * wait_addr, uint32_t expected, pid_t owner, stru
     if (timeout && !paging_check_address_range(timeout, sizeof(struct timespec), 0, is_kernel))
         return -EFAULT;
 
-    // owner check
     if (timeout && timeout->tv_nsec == 0 && timeout->tv_sec == 0)
         return 0;
 
@@ -55,7 +57,7 @@ long futex_wait(const uint32_t * wait_addr, uint32_t expected, pid_t owner, stru
         // interrupts disabled here because of the earlier cli
 
         // nanosleep has an internal reschedule() which reenables them
-        long slept = sys_clock_nanosleep(current_process, current_thread, CLOCK_MONOTONIC, 0, *timeout,NULL);
+        long slept = sys_clock_nanosleep(current_process, current_thread, clockid, TIMER_ABSTIME, *timeout, NULL);
         current_thread->is_waiting_on_futex = 0;
         // however the reschedule() resets the flags back to disabled interrupts...
         asm volatile("sti;");
@@ -63,7 +65,7 @@ long futex_wait(const uint32_t * wait_addr, uint32_t expected, pid_t owner, stru
         if (slept == 0)
             return -ETIMEDOUT;
         if (slept == -EINTR) {
-            if (current_thread->sa_to_be_handled)
+            if (check_eintr())
                 return -EINTR;
             if (current_thread->owner_dead && owner)
                 return -EOWNERDEAD;
@@ -79,7 +81,7 @@ long futex_wait(const uint32_t * wait_addr, uint32_t expected, pid_t owner, stru
     current_thread->is_waiting_on_futex = 0;
     asm volatile("sti;");
 
-    if (current_thread->sa_to_be_handled)
+    if (check_eintr())
         return -EINTR;
     return 0;
 }
@@ -108,7 +110,7 @@ long futex_wake(const uint32_t * wait_addr, uint32_t wakeup_count) {
     return waked_up_threads;
 }
 
-long sys_futex(const uint32_t * wait_addr, int op, uint32_t val, pid_t owner, struct timespec * timeout) {
+long sys_futex(const uint32_t * wait_addr, int op, uint32_t val, pid_t owner, struct timespec * timeout, clockid_t clockid) {
     if ((long)wait_addr % 4)
         return -EINVAL;
     char is_kernel = current_process->pid == 0;
@@ -117,7 +119,7 @@ long sys_futex(const uint32_t * wait_addr, int op, uint32_t val, pid_t owner, st
 
     switch (op) {
         case FUTEX_WAIT:
-            return futex_wait(wait_addr, val, owner, timeout);
+            return futex_wait(wait_addr, val, owner, timeout, clockid);
         case FUTEX_WAKE:
             return futex_wake(wait_addr, val);
         default:

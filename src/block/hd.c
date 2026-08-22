@@ -201,7 +201,7 @@ ssize_t hd_read_ata(file_descriptor_t *file, void *buf, size_t count, off_t offs
         lba++
     ) {
         lookup_again:
-        if (current_thread->sa_to_be_handled) {
+        if (check_eintr()) {
             if (read == 0)
                 return -EINTR;
             return (ssize_t)read;
@@ -270,7 +270,7 @@ ssize_t hd_write_ata(file_descriptor_t *file, const void *buf, size_t count, off
         lba++
     ) {
         lookup_again:
-        if (current_thread->sa_to_be_handled) {
+        if (check_eintr()) {
             if (written == 0)
                 return -EINTR;
             return (ssize_t)written;

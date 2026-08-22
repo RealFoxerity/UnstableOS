@@ -486,7 +486,8 @@ void schedule(mcontext_t * context) {
 
                     paging_apply_address_space(checked_thread->cr3_state);
 
-                    if (checked_process->ring != 0 && // useless to do for the kernel
+                    if (current_thread->tcb &&
+                        checked_process->ring != 0 && // useless to do for the kernel
                         checked_thread->cr3_state == checked_process->address_space_paddr && // see above
                         paging_get_pte(checked_thread->tcb) != NULL // bug? either way, userspace's problem
                     ) {
@@ -496,6 +497,7 @@ void schedule(mcontext_t * context) {
                                 thread_us->__cancelability_type == PTHREAD_CANCEL_ASYNCHRONOUS &&
                                 thread_us->__cancel_pending
                         ) {
+                            thread_us->__ret = PTHREAD_CANCELED;
                             checked_thread->status = SCHED_THREAD_CLEANUP;
                             goto scheduler_start;
                         }
@@ -511,6 +513,19 @@ void schedule(mcontext_t * context) {
                     current_thread  = checked_thread;
                     return;
                 case SCHED_INTERR_SLEEP:
+                    // pthread_cancel wakeup where applicable
+                    if (current_thread->tcb &&
+                        paging_get_address_space_paddr() == checked_process->address_space_paddr &&
+                        paging_get_pte(checked_thread->tcb) != NULL // bug? either way, userspace's problem
+                    ) {
+                        pthread_t thread_us = (pthread_t)checked_thread->tcb;
+
+                        if (thread_us->__cancelable == PTHREAD_CANCEL_ENABLE &&
+                                thread_us->__cancel_pending
+                        ) {
+                            checked_thread->status = SCHED_RUNNABLE;
+                        }
+                    }
                 case SCHED_UNINTERR_SLEEP:
                 case SCHED_WAITING:
                 case SCHED_DONT_SCHEDULE:

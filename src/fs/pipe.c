@@ -81,7 +81,7 @@ static int pipe_put_ch(struct pipe * pq, const unsigned char c) {
             signal_process(current_process, &(siginfo_t) {.si_signo = SIGPIPE});
             return -2;
         }
-        if (current_thread->sa_to_be_handled) {
+        if (check_eintr()) {
             return 256;
         }
 
@@ -127,7 +127,7 @@ static int pipe_get_ch(struct pipe * pq) {
         if (pq->writers == 0) return -2;
         return -1;
     }
-    if (current_thread->sa_to_be_handled) return 256;
+    if (check_eintr()) return 256;
 
     unsigned char out = 0;
     spinlock_acquire_interruptible(&pq->pipe_lock);

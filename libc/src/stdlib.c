@@ -113,11 +113,6 @@ void abort() {
     __builtin_unreachable();
 }
 
-
-void yield() {
-    syscall(SYSCALL_YIELD);
-}
-
 pid_t wait(int * wstatus) {
     return waitpid(-1, wstatus, 0);
 }
