@@ -30,8 +30,6 @@ typedef off_t blkcnt_t;
 /* PTHREADS DEFINES */
 // don't know why they have to be here, but sure :P
 
-//typedef pid_t pthread_t; // thread id
-
 // our layout of the TCB - the pthread object;
 // check UnstableOS/tls.h for the kernel provided one
 // kernel TCB size limited at 256 bytes!
@@ -49,6 +47,8 @@ struct __pthread {
     volatile unsigned char __cancel_pending;
     volatile unsigned char __cancelable;
     volatile unsigned char __cancelability_type;
+    void ** __pthread_keys; // array of size PTHREAD_KEYS_MAX (128)
+    void * __cleanup_stack;
     void * __ret;
 };
 struct {
@@ -125,5 +125,9 @@ struct {
     unsigned long __requested_count;
     unsigned long __counter;
 } typedef pthread_barrier_t;
+
+typedef unsigned int pthread_once_t;
+
+typedef unsigned int pthread_key_t;
 
 #endif

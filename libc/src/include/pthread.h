@@ -13,6 +13,8 @@
 #define PTHREAD_RWLOCK_INITIALIZER ((pthread_rwlock_t){0})
 #define PTHREAD_COND_INITIALIZER ((pthread_cond_t){0})
 
+#define PTHREAD_ONCE_INIT ((pthread_once_t){0})
+
 #define PTHREAD_BARRIER_SERIAL_THREAD 1
 
 // pthread_mutex_init_destroy.c
@@ -109,6 +111,11 @@ int pthread_barrier_init(pthread_barrier_t *restrict barrier,
 int pthread_barrier_destroy(pthread_barrier_t *barrier);
 int pthread_barrier_wait(pthread_barrier_t *barrier);
 
+// pthread_key.c
+int pthread_key_create(pthread_key_t *key, void (*destructor)(void*));
+int pthread_key_delete(pthread_key_t key);
+void *pthread_getspecific(pthread_key_t key);
+int pthread_setspecific(pthread_key_t key, const void *value);
 
 // pthread_attr.c
 int pthread_attr_init(pthread_attr_t *attr);
@@ -147,4 +154,21 @@ int pthread_cancel(pthread_t thread);
 
 // pthread_atfork.c
 int pthread_atfork(void (*prepare)(), void (*parent)(), void (*child)());
+
+struct __ptcs {
+       void (*routine)(void*);
+       void *arg;
+       struct __ptcs *next;
+};
+#define pthread_cleanup_push(f, x) do { \
+       struct __ptcs __cs = {.routine = (f), .arg = (x), .next = pthread_self()->__cleanup_stack}; \
+       pthread_self()->__cleanup_stack = &__cs;
+
+#define pthread_cleanup_pop(r) \
+       if (r) __cs.routine(__cs.arg); \
+       pthread_self()->__cleanup_stack = __cs.next; \
+} while (0)
+
+// pthread_once.c
+int pthread_once(pthread_once_t *once_control, void (*init_routine)(void));
 #endif

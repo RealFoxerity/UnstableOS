@@ -110,13 +110,17 @@ char mmap_page_fault(void * fault_addr, struct page_fault_error error) {
     if (((uintptr_t)fault_addr & ~(PAGE_SIZE - 1)) - closest->node.val + 4096 > closest->len && closest->private)
         to_read = closest->len % PAGE_SIZE;
 
+    // so that pread doesn't throw EINTR
+    sigset_t old_sigs = PAUSE_SIGNALS();
     if (pread_file(closest->backing_fd,
             (void*)((uintptr_t)fault_addr & ~(PAGE_SIZE - 1)), to_read,
                 target_offset)
         < 0) {
+        RESTORE_SIGNALS(old_sigs);
         ret = -1;
         goto fin;
     }
+    RESTORE_SIGNALS(old_sigs);
 
     if (!closest->private) {
         struct mmap_page_cache * new_entry = kalloc(sizeof(struct mmap_page_cache));

@@ -536,7 +536,7 @@ void signal_dispatch_sa(process_t * group, thread_t * thread) {
     if (!(
         thread->context.iret_frame.sp <  PROGRAM_STACK_VADDR &&
         thread->context.iret_frame.sp >= PROGRAM_STACK_VADDR - PROGRAM_STACK_SIZE * PTHREAD_THREADS_MAX) ||
-        !check_address_writable(thread->context.iret_frame.sp - sizeof(struct signal_stack_state), sizeof(struct signal_stack_state))
+        !check_address_writable(thread->context.iret_frame.sp - 16 - sizeof(struct signal_stack_state), 16 + sizeof(struct signal_stack_state))
     ) {
         kprintf("Warning: PID %ld TID %ld invalid ESP (%p) on signal dispatch - segmentation fault, terminating!\n", group->pid, thread->tid, thread->context.iret_frame.sp);
         thread->sa_to_be_handled = 0; // to be sure
@@ -546,6 +546,9 @@ void signal_dispatch_sa(process_t * group, thread_t * thread) {
     }
 
     struct signal_stack_state * sss = thread->context.iret_frame.sp - sizeof(struct signal_stack_state);
+
+    // align to 16 bytes to allow FPU ctx functions
+    sss = (void*)((uintptr_t)sss & ~0xF);
 
     sss->restorer_eip     = group->sa_handlers[thread->sa_to_be_handled - 1].__restorer;
     sss->previous_sa_mask = thread->sa_mask;
@@ -557,13 +560,16 @@ void signal_dispatch_sa(process_t * group, thread_t * thread) {
     thread->sa_mask &= SAFE_SA_MASK;
 
     sss->__ctx = (ucontext_t) {
-        .uc_link      = NULL,
+        .uc_link      = thread->last_context,
         .uc_sigmask   = thread->sa_mask,
         .uc_stack     = (stack_t) {
             .ss_flags = SS_DISABLE
         },
-        .uc_mcontext  = thread->context,
     };
+
+    memcpy(&sss->__ctx.uc_mcontext.gregs, &thread->context, sizeof(__gregcontext_t));
+    memcpy(&sss->__ctx.uc_mcontext.fregs, &thread->fpu_context, sizeof(__fpcontext_t));
+
     sss->__info = thread->sa_info_to_be_handled;
 
     sss->ctx    = &sss->__ctx;
@@ -578,6 +584,7 @@ void signal_dispatch_sa(process_t * group, thread_t * thread) {
         group->sa_handlers[thread->sa_to_be_handled - 1] = (struct sigaction){0};
 
     thread->sa_to_be_handled = 0;
+    thread->last_context = sss->ctx;
 }
 
 #include "include/lowlevel.h"
@@ -588,15 +595,29 @@ void signal_dispatch_sa(process_t * group, thread_t * thread) {
     IA_32_EFL_STATUS_ZERO   | \
     IA_32_EFL_STATUS_SIGN     \
 )
-static void sigreturn_restore_context(mcontext_t * target_ctx, mcontext_t * source_ctx) {
-    memcpy(target_ctx, source_ctx, sizeof(mcontext_t) - sizeof(struct interr_frame));
-    target_ctx->iret_frame.ip     = source_ctx->iret_frame.ip;
-    target_ctx->iret_frame.sp     = source_ctx->iret_frame.sp;
+static void sigreturn_restore_context(__gregcontext_t * target_ctx, const mcontext_t * source_ctx) {
+    memcpy(target_ctx, &source_ctx->gregs, sizeof(__gregcontext_t) - sizeof(struct interr_frame));
+    target_ctx->iret_frame.ip     = source_ctx->gregs.iret_frame.ip;
+    target_ctx->iret_frame.sp     = source_ctx->gregs.iret_frame.sp;
     target_ctx->iret_frame.flags &= ~SAFE_EFL_MASK; // remove all status flags
-    target_ctx->iret_frame.flags |= source_ctx->iret_frame.flags & SAFE_EFL_MASK;
+    target_ctx->iret_frame.flags |= source_ctx->gregs.iret_frame.flags & SAFE_EFL_MASK;
+
+    if ((uintptr_t)source_ctx & 0xF)
+        return;
+
+    if (fxsave_available)
+        asm volatile(
+            "fxrstor %0"
+            ::"m"(source_ctx->fregs)
+        );
+    else
+        asm volatile(
+            "frstor %0"
+            ::"m"(source_ctx->fregs)
+        );
 }
 
-void sys_sigreturn(mcontext_t * ctx) {
+void sys_sigreturn(__gregcontext_t * ctx) {
     if (!(
         ctx->iret_frame.sp < PROGRAM_STACK_VADDR &&
         ctx->iret_frame.sp >= PROGRAM_STACK_VADDR - PROGRAM_STACK_SIZE * PTHREAD_THREADS_MAX) ||
@@ -608,10 +629,16 @@ void sys_sigreturn(mcontext_t * ctx) {
         return;
     }
 
+    if ((uintptr_t)ctx->iret_frame.sp & 0xF) {
+        kprintf("Warning: PID %ld TID %ld Unaligned ESP on signal return - can't restore FPU state!\n", current_process->pid, current_thread->tid);
+    }
+
     struct signal_stack_state * sss = ctx->iret_frame.sp - sizeof(void*); // the restorer_eip will be popped off during ret
 
     current_thread->sa_mask  = sss->previous_sa_mask;
     current_thread->sa_mask &= SAFE_SA_MASK;
+
+    current_thread->last_context = sss->ctx->uc_link;
 
     sigreturn_restore_context(ctx, &sss->__ctx.uc_mcontext);
 }
@@ -634,7 +661,7 @@ int sys_sigaction(int sig, struct sigaction * __restrict act, struct sigaction *
     }
 
     memcpy(&current_process->sa_handlers[sig-1], act, sizeof(struct sigaction));
-    current_process->sa_handlers[sig-1].sa_flags &= SAFE_SA_MASK;
+    current_process->sa_handlers[sig-1].sa_mask &= SAFE_SA_MASK;
     return 0;
 }
 
@@ -707,13 +734,17 @@ int sys_sigqueue(pid_t pid, int signo, union sigval value) {
 // applies for both signals and pthread_cancel
 // only works on current thread
 int check_eintr() {
-    if (current_thread->sa_to_be_handled)
-        return 1;
-
     // artifact from PAUSE_SIGNALS, impossible to be set otherwise
     // meaning the kernel explicitly wants for EINTR to not be possible
     if (current_thread->sa_mask == (sigset_t)-1)
         return 0;
+
+    if (current_process->is_stopped)
+        return 1;
+    if (current_process->do_cleanup)
+        return 1;
+    if (current_thread->sa_to_be_handled)
+        return 1;
 
     if (!current_thread->tcb ||
         paging_get_address_space_paddr() != current_process->address_space_paddr ||

@@ -88,13 +88,19 @@ struct thread_t {
     PAGE_DIRECTORY_TYPE * cr3_state; // if a kernel routine switched address spaces and was then preempted
 
     union {
-        mcontext_t context;
+        __gregcontext_t context;
         v86_mcontext_t v86_context;
     };
 
     // either for fxsave and fxrstor (full 512 bytes, incl sse and mmx)
     // or for fsave and frstor (max 108 bytes, x87 only)
-    alignas(16) unsigned char fpu_context[512];
+    alignas(16) __fpcontext_t fpu_context;
+
+
+    // do not dereference in the kernel!
+    // here just to track the needed info for uc_link
+    // no error and/or bounds checking is ever performed!
+    ucontext_t * last_context;
 
     pstatus_t status;
 
@@ -245,7 +251,7 @@ struct sem_t {
 
 __attribute__((noreturn)) void kernel_idle();
 void scheduler_init();
-void schedule(mcontext_t * context);
+void schedule(__gregcontext_t * context);
 void scheduler_print_process(const process_t * process);
 void scheduler_print_processes();
 void reload_pcb(const process_t * pprocess); // only works if in the same cr3 as pprocess
@@ -286,7 +292,7 @@ extern pid_t last_tid;
 int sys_kill(pid_t pid, int sig);
 int sys_tgkill(pid_t tgid, pid_t tid, int sig);
 int sys_sigaction(int sig, struct sigaction * __restrict act, struct sigaction * __restrict oact);
-void sys_sigreturn(mcontext_t * ctx);
+void sys_sigreturn(__gregcontext_t * ctx);
 int sys_sigprocmask(int how, const sigset_t * __restrict set, sigset_t * oset);
 int sys_sigsuspend(const sigset_t * set);
 int sys_sigqueue(pid_t pid, int signo, union sigval value);

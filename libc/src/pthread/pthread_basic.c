@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <limits.h>
 #include <stdlib.h>
+#include <string.h>
 
 static size_t thread_count = 1;
 
@@ -20,9 +21,20 @@ int pthread_equal(pthread_t t1, pthread_t t2) {
     return 1; //?
 }
 
+__attribute__((visibility("internal"))) void __pthread_key_call_dtors();
 __attribute__((noreturn)) void pthread_exit(void *value_ptr) {
-    // run the dtors
+    pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &(int){0});
     pthread_t us = pthread_self();
+    while (us->__cleanup_stack) {
+        struct __ptcs * entry = us->__cleanup_stack;
+        entry->routine(entry->arg);
+        us->__cleanup_stack = entry->next;
+    }
+
+    __pthread_key_call_dtors();
+    free(us->__pthread_keys);
+    us->__pthread_keys = NULL;
+
     us->__ret = value_ptr;
 
     if (__atomic_sub_fetch(&thread_count, 1, __ATOMIC_RELEASE) == 0)
@@ -101,6 +113,7 @@ int pthread_join(pthread_t thread, void **value_ptr) {
 
 struct wrapped_args {
     void *(*start_routine)(void*);
+    void **keys; // to void keys[PTHREAD_KEYS_MAX]
     void *arg;
 };
 
@@ -108,6 +121,8 @@ static __attribute__((noreturn)) void pthread_create_wrapper(struct wrapped_args
     __atomic_add_fetch(&thread_count, 1, __ATOMIC_ACQUIRE);
     struct wrapped_args largs = *args; // to free as soon as possible
     free(args);
+    memset(largs.keys, 0, PTHREAD_KEYS_MAX * sizeof(void *));
+    pthread_self()->__pthread_keys = largs.keys;
     pthread_exit(largs.start_routine(largs.arg));
 }
 
@@ -123,13 +138,18 @@ int pthread_create(pthread_t *restrict thread,
 
     struct wrapped_args * args = malloc(sizeof(struct wrapped_args));
     if (args == NULL) return ENOMEM;
-
+    args->keys = malloc(PTHREAD_KEYS_MAX * sizeof(void *));
+    if (args->keys == NULL) {
+        free(args);
+        return ENOMEM;
+    }
     args->start_routine = start_routine;
     args->arg = arg;
 
     // syscall because pthread_create is a cancellation point
     pthread_t new_thread = (pthread_t)syscall(SYSCALL_CREATE_THREAD, pthread_create_wrapper, args, guard_size);
     if (new_thread == NULL) {
+        free(args->keys);
         free(args);
         return EAGAIN;
     }

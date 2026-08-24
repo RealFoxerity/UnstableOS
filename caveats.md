@@ -19,7 +19,7 @@
 - `execve()` family of functions doesn't currently implement auxv
 - everything in the TODO obviously
 - missing `sigaltstack()` and everything along with it
-- missing `SA_RESTART`, almost all `si_code` values for `siginfo_t`
+- missing almost all `si_code` values for `siginfo_t`
 - no support for PCI Configuration Space #2 (for i486 and early Pentiums)
 - no break condition support on TTY and RS-232
 - no baud/speed settings, delays, and control flags in termios

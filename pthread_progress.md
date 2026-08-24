@@ -5,7 +5,7 @@ Plan: all base spec, no TCT, TSH, TPS, TSA, TSS, TPP, RPP
 - [x] pthread_create()
 - [x] pthread_detach()
 - [x] pthread_equal()
-- [x] pthread_exit() - without the pthread_cleanup_* and pthread_key_*
+- [x] pthread_exit()
 - [x] pthread_join()
 - [x] pthread_atfork()
 - [x] pthread_attr_init()
@@ -20,9 +20,9 @@ Plan: all base spec, no TCT, TSH, TPS, TSA, TSS, TPP, RPP
 - [x] pthread_testcancel()
 - [x] pthread_setcancelstate()
 - [x] pthread_setcanceltype()
-- [ ] pthread_once()
-- [ ] pthread_cleanup_push()
-- [ ] pthread_cleanup_pop()
+- [x] pthread_once()
+- [x] pthread_cleanup_push()
+- [x] pthread_cleanup_pop()
 - [x] pthread_kill()
 - [x] pthread_sigmask()
 ## conditions
@@ -79,7 +79,7 @@ Plan: all base spec, no TCT, TSH, TPS, TSA, TSS, TPP, RPP
 - [x] pthread_spin_trylock()
 - [x] pthread_spin_unlock()
 ## keys
-- [ ] pthread_key_create()
-- [ ] pthread_key_delete()
-- [ ] pthread_getspecific()
-- [ ] pthread_setspecific()
+- [x] pthread_key_create()
+- [x] pthread_key_delete()
+- [x] pthread_getspecific()
+- [x] pthread_setspecific()

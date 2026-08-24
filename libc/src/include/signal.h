@@ -69,8 +69,16 @@ struct {
     unsigned long ebx, edx, ecx, eax;
 
     struct interr_frame iret_frame;
+}  __attribute__((packed)) typedef __gregcontext_t;
 
-}  __attribute__((packed)) typedef mcontext_t;
+struct {
+    unsigned long _[128];
+} __attribute__((packed)) typedef __fpcontext_t;
+
+struct {
+    __gregcontext_t gregs;
+    __attribute__((aligned(16))) __fpcontext_t fregs;
+} typedef mcontext_t;
 
 struct ucontext_t {
     struct ucontext_t * uc_link;
@@ -95,13 +103,13 @@ struct sigaction {
 #define SA_NOCLDSTOP    0x1
 // #define SA_ONSTACK // not supported
 #define SA_RESETHAND    0x4
-//#define SA_RESTART // not supported
+#define SA_RESTART      0x8
 #define SA_SIGINFO      0x10 // not checked by the kernel; kernel just pushes args as if set
 #define SA_NOCLDWAIT    0x20
 #define SA_NODEFER      0x40
 
 // sigprocmask "how" argument
-#define SIG_BLOCK 0
+#define SIG_BLOCK   0
 #define SIG_SETMASK 1
 #define SIG_UNBLOCK 2
 

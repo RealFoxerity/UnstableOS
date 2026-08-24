@@ -69,7 +69,7 @@ thread_t * idle_task = NULL; // used as a last resort idle task
 
 pid_t last_pid = 0;
 
-void print_registers(const mcontext_t * context) {
+void print_registers(const __gregcontext_t * context) {
     kprintf("eax %lx\nebx %lx\necx %lx\nedx %lx\nedi %lx\nesi %lx\n", context->eax, context->ebx, context->ecx, context->edx, context->edi, context->esi);
     kprintf("esp (gregs) %p\nesp (iret) %p\nebp %p\neip %p\nefl %lx\n", context->esp, context->iret_frame.sp, context->ebp, context->iret_frame.ip, context->iret_frame.flags);
     kprintf("ss %lx\ncs %lx\n", context->iret_frame.ss, context->iret_frame.cs);
@@ -140,7 +140,7 @@ static inline void push_thread_to_end(process_t * pprocess, thread_t * thread) {
 }
 
 #define KERNEL_ARGV0 "kernel/core"
-static inline void register_kernel_task(mcontext_t * context) {
+static inline void register_kernel_task(__gregcontext_t * context) {
     kernel_task = kalloc(sizeof(process_t));
     if (!kernel_task) panic("Not enough memory for kernel task!");
     memset(kernel_task, 0, sizeof(process_t));
@@ -154,7 +154,7 @@ static inline void register_kernel_task(mcontext_t * context) {
 
     kernel_task->threads->prev = kernel_task->threads;
 
-    memcpy(&kernel_task->threads->context, context, sizeof(mcontext_t) - 2*sizeof(void*)); // kernel is ring 0 and when switching from ring 0 (interrupt) to ring 0, SS and SP are not pushed
+    memcpy(&kernel_task->threads->context, context, sizeof(__gregcontext_t) - 2*sizeof(void*)); // kernel is ring 0 and when switching from ring 0 (interrupt) to ring 0, SS and SP are not pushed
 
     kernel_task->threads->context.iret_frame.ss = GDT_KERNEL_DATA << 3; // just so we have correct information here
     kernel_task->threads->context.iret_frame.sp = (void*)kernel_task->threads->context.esp;
@@ -264,7 +264,7 @@ void reload_pcb(const process_t * pprocess) {
     pcb->gid = pprocess->gid;
 }
 
-static void inline switch_context(process_t * pprocess, thread_t * thread, mcontext_t * context) {
+static void inline switch_context(process_t * pprocess, thread_t * thread, __gregcontext_t * context) {
     // my 486 laptop fucks up segments in some insane ways like giving me 0x1D0008 instead of 8
     // it fortunately enough actually ignores those garbage values, but still
     thread->context.iret_frame.cs &= 0xFFFF;
@@ -296,7 +296,7 @@ static void inline switch_context(process_t * pprocess, thread_t * thread, mcont
     // hack to ensure stuff doesn't break accidentally
     thread->context.iret_frame.flags |= IA_32_EFL_SYSTEM_INTER_EN;
 
-    memcpy(context, &thread->context, sizeof(mcontext_t)-sizeof(struct interr_frame));
+    memcpy(context, &thread->context, sizeof(__gregcontext_t)-sizeof(struct interr_frame));
 
     // should be safe, fpe is raised on the *next* fp instruction
     if (fxsave_available)
@@ -332,7 +332,7 @@ static void inline switch_context(process_t * pprocess, thread_t * thread, mcont
     );
 }
 
-void schedule(mcontext_t * context) {
+void schedule(__gregcontext_t * context) {
     if (scheduler_lock.state == SPINLOCK_LOCKED) return;
     spinlock_acquire_nonreentrant(&scheduler_lock);
     if (__builtin_expect(registering_kernel_task, 0)) {
@@ -350,9 +350,9 @@ void schedule(mcontext_t * context) {
         if (context->iret_frame.flags & IA_32_EFL_SYSTEM_VM8086) {
             memcpy(&current_thread->v86_context, context, sizeof(v86_mcontext_t));
         } else if (context->iret_frame.cs & 3) { // ring 3 -> ring 0 causes SS and SP to be pushed
-            memcpy(&current_thread->context, context, sizeof(mcontext_t));
+            memcpy(&current_thread->context, context, sizeof(__gregcontext_t));
         } else {
-            memcpy(&current_thread->context, context, sizeof(mcontext_t) - 2 * sizeof(void *));
+            memcpy(&current_thread->context, context, sizeof(__gregcontext_t) - 2 * sizeof(void *));
         }
 
         // eager fpu context save

@@ -55,7 +55,7 @@ int sigaction(int sig, const struct sigaction *__restrict act, struct sigaction 
 }
 
 void (*signal(int sig, void (*func)(int)))(int) {
-    if (sigaction(sig, &(struct sigaction) {.sa_handler = func}, NULL) == -1)
+    if (sigaction(sig, &(struct sigaction) {.sa_handler = func, .sa_flags = SA_RESTART}, NULL) == -1)
         return SIG_ERR;
     return func;
 }

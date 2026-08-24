@@ -1,40 +1,60 @@
-#include "include/debug/backtrace.h"
-#include "include/kernel.h"
-#include "include/kernel_interrupts.h"
-#include "../libc/src/include/UnstableOS/devs.h"
-#include "include/kernel_gdt_idt.h"
-#include "include/kernel_sched.h"
-#include "include/kernel_exec.h"
-#include "include/kernel_spinlock.h"
-#include "include/mm/kernel_memory.h"
-#include "include/block/memdisk.h"
-#include "include/kernel_spinlock.h"
-#include "../libc/src/include/string.h"
-#include "include/gfx/vga.h"
-
+#include "debug/backtrace.h"
+#include "kernel.h"
+#include "kernel_interrupts.h"
+#include <UnstableOS/devs.h>
+#include "kernel_gdt_idt.h"
+#include "kernel_sched.h"
+#include "kernel_exec.h"
+#include "kernel_spinlock.h"
+#include "mm/kernel_memory.h"
+#include "block/memdisk.h"
+#include "kernel_spinlock.h"
+#include <string.h>
+#include "gfx/vga.h"
+#include "lowlevel.h"
 #pragma clang diagnostic ignored "-Wexcessive-regsave"
 
-void page_fault_send_sigsegv(long was_not_mapped, mcontext_t * ctx) {
+void page_fault_send_sigsegv(long was_not_mapped, __gregcontext_t * ctx) {
     void * fault_address;
     asm volatile ("movl %%cr2, %0":"=R"(fault_address));
-    memcpy(&current_thread->context, ctx, sizeof(mcontext_t) - ((ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *)));
+    if (fxsave_available)
+        asm volatile(
+            "fxsave %0"
+            ::"m"(current_thread->fpu_context)
+        );
+    else
+        asm volatile(
+            "fnsave %0"
+            ::"m"(current_thread->fpu_context)
+        );
+    memcpy(&current_thread->context, ctx, sizeof(__gregcontext_t) - ((ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *)));
     signal_thread(current_process, current_thread, &(siginfo_t){
         .si_signo = SIGSEGV,
         .si_code = was_not_mapped ? SEGV_MAPERR : SEGV_ACCERR,
         .si_addr = fault_address
     });
     signal_dispatch_sa(current_process, current_thread);
-    memcpy(ctx, &current_thread->context, sizeof(mcontext_t) - ((ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *)));
+    memcpy(ctx, &current_thread->context, sizeof(__gregcontext_t) - ((ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *)));
 }
 
-void page_fault_send_sigbus(mcontext_t * ctx) {
-    memcpy(&current_thread->context, ctx, sizeof(mcontext_t) - ((ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *)));
+void page_fault_send_sigbus(__gregcontext_t * ctx) {
+    if (fxsave_available)
+        asm volatile(
+            "fxsave %0"
+            ::"m"(current_thread->fpu_context)
+        );
+    else
+        asm volatile(
+            "fnsave %0"
+            ::"m"(current_thread->fpu_context)
+        );
+    memcpy(&current_thread->context, ctx, sizeof(__gregcontext_t) - ((ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *)));
     signal_thread(current_process, current_thread, &(siginfo_t){
         .si_signo = SIGBUS,
         .si_code = BUS_OBJERR,
     });
     signal_dispatch_sa(current_process, current_thread);
-    memcpy(ctx, &current_thread->context, sizeof(mcontext_t) - ((ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *)));
+    memcpy(ctx, &current_thread->context, sizeof(__gregcontext_t) - ((ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *)));
 }
 
 extern __attribute__((naked)) void fix_segments();

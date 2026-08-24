@@ -300,7 +300,9 @@ long syscall(unsigned long syscall_number, ...) {
     va_list args;
     va_start(args, syscall_number);
     pthread_testcancel();
-    return _vsyscall(syscall_number, args);
+    long ret = _vsyscall(syscall_number, args);
+    pthread_testcancel();
+    return ret;
 }
 long _syscall(unsigned long syscall_number, ...) {
     va_list args;

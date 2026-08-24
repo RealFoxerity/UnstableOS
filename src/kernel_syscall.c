@@ -14,6 +14,7 @@
 #include <pthread.h>
 #include "kernel_gdt_idt.h"
 #include "sys/mman.h"
+#include "lowlevel.h"
 
 #define kprintf(fmt, ...) kprintf("Kernel Routines: "fmt, ##__VA_ARGS__)
 
@@ -22,7 +23,7 @@ extern void clear_screen_fatal(); // kernel_interrupts.c
 #define SYSCALL_PANIC_TEXT " #### RING 2 INDUCED PANIC; HALTING #### "
 
 
-void kernel_syscall_dispatcher(mcontext_t * ctx);
+void kernel_syscall_dispatcher(__gregcontext_t * ctx);
 // since we use system V abi, arg4 is pushed onto the stack by the user
 __attribute__((naked, no_caller_saved_registers)) void interr_syscall(struct interr_frame * interrupt_frame) {
     asm volatile (
@@ -39,7 +40,7 @@ __attribute__((naked, no_caller_saved_registers)) void interr_syscall(struct int
     );
 }
 
-void kernel_syscall_dispatcher(mcontext_t * ctx) {
+void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
     kassert(current_process);
     kassert(current_thread);
 
@@ -598,15 +599,44 @@ void kernel_syscall_dispatcher(mcontext_t * ctx) {
     // lower parts need to be under cli because otherwise the eax assignment blows it up
     // reschedule directly goes into the signal handler, so no need to worry then
 
-    if (syscall_number != SYSCALL_SIGRETURN)
-        ctx->eax = return_value;
+    if (syscall_number != SYSCALL_SIGRETURN) {
+        // now time to handle EINTR and SA_RESTART
+        if (return_value == -EINTR && (
+            (
+                current_thread->sa_to_be_handled &&
+                current_process->sa_handlers[current_thread->sa_to_be_handled - 1].sa_flags & SA_RESTART
+            ) || current_process->is_stopped
+        )) {
+            switch (syscall_number) {
+                // add other cases where EINTR is not meant to be SA_RESTARTed
+                case SYSCALL_SIGSUSPEND:
+                    ctx->eax = return_value;
+                    break;
+                default:
+                    ctx->iret_frame.ip -= 2; // int $0xF0 -> cd f0
+            }
+        } else {
+            ctx->eax = return_value;
+        }
+    }
 
     asm volatile ("cli;");
 
-    memcpy(&current_thread->context, ctx, sizeof(mcontext_t) - (ctx->iret_frame.cs & 3 ? 0 : 2*sizeof(void *)));
-    signal_dispatch_sa(current_process, current_thread);
-    memcpy(ctx, &current_thread->context, sizeof(mcontext_t) - (ctx->iret_frame.cs & 3 ? 0 : 2*sizeof(void *)));
-
+    if (current_thread->sa_to_be_handled) {
+        if (fxsave_available)
+            asm volatile(
+                "fxsave %0"
+                ::"m"(current_thread->fpu_context)
+            );
+        else
+            asm volatile(
+                "fnsave %0"
+                ::"m"(current_thread->fpu_context)
+            );
+        memcpy(&current_thread->context, ctx, sizeof(__gregcontext_t) - (ctx->iret_frame.cs & 3 ? 0 : 2*sizeof(void *)));
+        signal_dispatch_sa(current_process, current_thread);
+        memcpy(ctx, &current_thread->context, sizeof(__gregcontext_t) - (ctx->iret_frame.cs & 3 ? 0 : 2*sizeof(void *)));
+    }
 #ifdef SYSCALLS_RESCHEDULE
     reschedule();
 #else

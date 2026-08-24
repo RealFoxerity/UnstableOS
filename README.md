@@ -21,7 +21,7 @@ It is not meant as a production OS, there is no testing, there is no fuzzing. I 
 - DEC VT102 inspired framebuffer console
 - Lame and lacking custom libc
 - Custom (lame and lacking) shell
-- Partial pthread.h 
+- pthread.h 
 
 List of defined syscalls can be found in [<UnstableOS/syscalls.h>](./libc/src/include/UnstableOS/syscalls.h)
 
@@ -94,7 +94,7 @@ see [caveats.md](./caveats.md) for info
 - [ ] sockets and named pipes
 - [ ] symlinks
 - [x] signals
-- [ ] proper (linked) `ucontext_t`
+- [x] proper (linked) `ucontext_t`
 - [ ] signal alternative stacks
 - [ ] implement priority for realtime signals 
 - [x] `waitid()`, `waitpid()`
@@ -118,4 +118,4 @@ see [caveats.md](./caveats.md) for info
 - [ ] auxiliary vector (for elf interpreters)
 - [x] Thread-Local Storage + proper errno
 - [ ] Core utils
-- [ ] pthread.h see [pthread_progress.md](./pthread_progress.md) for more info
+- [x] pthread.h see [pthread_progress.md](./pthread_progress.md) for more info

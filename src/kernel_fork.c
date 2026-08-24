@@ -230,7 +230,7 @@ static PAGE_DIRECTORY_TYPE * fork_dup_address_space() {
     return page_directory_phys;
 }
 
-pid_t sys_fork(mcontext_t * ctx) {
+pid_t sys_fork(__gregcontext_t * ctx) {
     kassert(current_process->ring != 0); // i really don't want to deal with the kernel forking
 
     spinlock_acquire(&address_spaces_lock); // we need scheduler to reschedule if lockee
@@ -308,7 +308,7 @@ pid_t sys_fork(mcontext_t * ctx) {
                                 current_thread->kernel_stack_size;
     kassert(new_thread->kernel_stack);
 
-    memcpy(&new_thread->context, ctx, sizeof(mcontext_t));
+    memcpy(&new_thread->context, ctx, sizeof(__gregcontext_t));
     new_thread->context.eax = 0; // returning 0 from the fork
 
     // see kernel_sched.c for description of how we handle context switching

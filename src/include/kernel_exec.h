@@ -13,7 +13,7 @@ int sys_execve(const char * path, char * const* argv, char * const* envp);
 int sys_spawn(const char * path, char * const* argv, char * const* envp);
 
 char fork_cow_page(void * fault_address); // return 0 = not writable, 1 = writable and remapped
-pid_t sys_fork(mcontext_t * ctx);
+pid_t sys_fork(__gregcontext_t * ctx);
 pid_t sys_waitpid(pid_t pid, int * wstatus, int options);
 
 #include <sys/types.h>

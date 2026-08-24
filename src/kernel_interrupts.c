@@ -108,7 +108,7 @@ void print_interr_frame(struct interr_frame * interr_frame) {
     kprintf("\n");
 }
 
-void divide_error_handler(mcontext_t * ctx) {
+void divide_error_handler(__gregcontext_t * ctx) {
     kprintf("\n\e[0m\e[41m\n#### ISR: FPE caught! ####\n\n");
     print_interr_frame(&ctx->iret_frame);
     unwind_stack_vaddr(*(void**)__builtin_frame_address(0));
@@ -118,13 +118,24 @@ void divide_error_handler(mcontext_t * ctx) {
         __builtin_unreachable();
     }
 
-    memcpy(&current_thread->context, ctx, sizeof(mcontext_t) - (ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *));
+    if (fxsave_available)
+        asm volatile(
+            "fxsave %0"
+            ::"m"(current_thread->fpu_context)
+        );
+    else
+        asm volatile(
+            "fnsave %0"
+            ::"m"(current_thread->fpu_context)
+        );
+
+    memcpy(&current_thread->context, ctx, sizeof(__gregcontext_t) - (ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *));
     signal_thread(current_process, current_thread, &(siginfo_t){
         .si_signo = SIGFPE,
         // TODO: add si_code
     });
     signal_dispatch_sa(current_process, current_thread);
-    memcpy(ctx, &current_thread->context, sizeof(mcontext_t) - (ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *));
+    memcpy(ctx, &current_thread->context, sizeof(__gregcontext_t) - (ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *));
 }
 
 // when doing v86, the segments are wrong for normal protected (32bit) mode
@@ -206,7 +217,7 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_bound_r
     kprintf("\n\n\e[0m\e[41m#### ISR: Bound index outside of range! ####\e[0m\n\n");
 }
 
-void invalid_opcode_handler(mcontext_t * ctx) {
+void invalid_opcode_handler(__gregcontext_t * ctx) {
     kprintf("\n\e[0m\e[41m\n#### ISR: Tried to execute invalid opcode ####\n");
     print_interr_frame(&ctx->iret_frame);
 
@@ -217,14 +228,25 @@ void invalid_opcode_handler(mcontext_t * ctx) {
         __builtin_unreachable();
     }
 
-    memcpy(&current_thread->context, ctx, sizeof(mcontext_t) - (ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *));
+    if (fxsave_available)
+        asm volatile(
+            "fxsave %0"
+            ::"m"(current_thread->fpu_context)
+        );
+    else
+        asm volatile(
+            "fnsave %0"
+            ::"m"(current_thread->fpu_context)
+        );
+
+    memcpy(&current_thread->context, ctx, sizeof(__gregcontext_t) - (ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *));
     signal_thread(current_process, current_thread, &(siginfo_t){
         .si_signo = SIGILL,
         .si_addr  = ctx->iret_frame.ip,
         // TODO: add si_code
     });
     signal_dispatch_sa(current_process, current_thread);
-    memcpy(ctx, &current_thread->context, sizeof(mcontext_t) - (ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *));
+    memcpy(ctx, &current_thread->context, sizeof(__gregcontext_t) - (ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *));
     kprintf("\e[0m\n\n");
 }
 __attribute__((naked, no_caller_saved_registers)) static void interr_invalid_opcode(struct interr_frame * interrupt_frame) {
@@ -316,19 +338,30 @@ __attribute__((no_caller_saved_registers)) void gp_print_info(struct interr_fram
     unwind_stack_vaddr(*(void**)__builtin_frame_address(0));
 }
 
-void general_protection_handler(mcontext_t * ctx) {
+void general_protection_handler(__gregcontext_t * ctx) {
     if (!(ctx->iret_frame.cs & 3)) {
         panic("Kernel task cannot be recovered from a segmentation fault");
         __builtin_unreachable();
     }
 
-    memcpy(&current_thread->context, ctx, sizeof(mcontext_t) - (ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *));
+    if (fxsave_available)
+        asm volatile(
+            "fxsave %0"
+            ::"m"(current_thread->fpu_context)
+        );
+    else
+        asm volatile(
+            "fnsave %0"
+            ::"m"(current_thread->fpu_context)
+        );
+
+    memcpy(&current_thread->context, ctx, sizeof(__gregcontext_t) - (ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *));
     signal_thread(current_process, current_thread, &(siginfo_t){
         .si_signo = SIGSEGV,
         .si_code  = SEGV_ACCERR
     });
     signal_dispatch_sa(current_process, current_thread);
-    memcpy(ctx, &current_thread->context, sizeof(mcontext_t) - (ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *));
+    memcpy(ctx, &current_thread->context, sizeof(__gregcontext_t) - (ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *));
 }
 
 #include "v8086.h"
@@ -366,14 +399,11 @@ __attribute__((naked, no_caller_saved_registers)) static void interr_general_pro
         "call v86_monitor;"
         "addl $0x8, %esp;" // get rid of arguments
         "popa;"
+        "andl $0xFFFF, 0xC(%esp);" // readjust the task's esp so that it's in bounds and doesn't cause GP
         "iret;"
     );
 }
-/*
-__attribute__((interrupt, no_caller_saved_registers)) static void interr_x87_float_error(struct interr_frame * interrupt_frame, unsigned long error) {
-    kprintf("\n\n\e[0m\e[41m#### ISR: x87 FPE! ####\e[0m\n\n");
-}
-*/
+
 __attribute__((interrupt, no_caller_saved_registers)) static void interr_alignment_check(struct interr_frame * interrupt_frame, unsigned long error) {
     fix_segments();
     kprintf("\n\n\e[0m\e[41m#### ISR: Caught unaligned memory access! ####\n");
@@ -391,7 +421,6 @@ __attribute__((interrupt, no_caller_saved_registers)) static void interr_machine
     panic(CHECK_MACHINE_ERROR);
     __builtin_unreachable();
 }
-//__attribute__((interrupt, no_caller_saved_registers)) void interr_simd_fpe(struct interr_frame * interrupt_frame);
 //__attribute__((interrupt, no_caller_saved_registers)) void interr_virtualization_exception(struct interr_frame * interrupt_frame);
 //__attribute__((interrupt, no_caller_saved_registers)) void interr_control_prot_exception(struct interr_frame * interrupt_frame);
 //__attribute__((interrupt, no_caller_saved_registers)) void interr_hypervisor_injection_exception(struct interr_frame * interrupt_frame);

@@ -69,12 +69,12 @@ thread_t * kernel_create_thread(process_t * parent_process, thread_t * calling_t
     new->context.iret_frame.ip = entry_point;
 
     if (calling_thread != NULL)
-        memcpy(new->fpu_context, calling_thread->fpu_context, sizeof(calling_thread->fpu_context));
+        memcpy(&new->fpu_context, &calling_thread->fpu_context, sizeof(calling_thread->fpu_context));
     else {
         if (fxsave_available)
-            memcpy(new->fpu_context, default_fx_context, sizeof(default_fx_context));
+            memcpy(&new->fpu_context, default_fx_context, sizeof(default_fx_context));
         else
-            memcpy(new->fpu_context, default_fn_context, sizeof(default_fn_context));
+            memcpy(&new->fpu_context, default_fn_context, sizeof(default_fn_context));
     }
     new->cr3_state = parent_process->address_space_paddr;
 
