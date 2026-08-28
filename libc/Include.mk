@@ -19,8 +19,10 @@ endif
 
 ifeq ($(MAKE_ROOT),$(LIBC_ROOT))
 LIBC_BUILD_DIR := $(MAKE_ROOT)/build
+SYSROOT        := $(MAKE_ROOT)/build/sysroot
 else
 LIBC_BUILD_DIR := $(MAKE_ROOT)/build/libc
+SYSROOT        := $(MAKE_ROOT)/sysroot
 endif
 
 LIBC_CFLAGS := $(CFLAGS) -ffreestanding -nostdlib -nodefaultlibs -std=gnu99 -I$(LIBC_ROOT)/src/include -MMD -MP -fPIC -Wno-prio-ctor-dtor
@@ -32,26 +34,38 @@ else
 endif
 
 LIBC_LIB := $(LIBC_BUILD_DIR)/libc.a
+LIBC_SO_LIB := $(LIBC_BUILD_DIR)/libc.so.1
 LIBC_INCLUDES := -I$(LIBC_ROOT)/src/include
 LIBC_HEADERS := $(shell find $(LIBC_ROOT)/src/include -type f)
 
-LIBC_CRTBEGIN := $(shell $(CC) $(LIBC_CFLAGS) -print-file-name=crtbegin.o)
-LIBC_CRTEND := $(shell $(CC) $(LIBC_CFLAGS) -print-file-name=crtend.o)
 LIBC_CRT1  := $(LIBC_BUILD_DIR)/src/crt1.s.o
 LIBC_SCRT1 := $(LIBC_BUILD_DIR)/src/Scrt1.s.o
-LIBC_CRTI  := $(LIBC_BUILD_DIR)/src/crti.s.o
-LIBC_CRTN  := $(LIBC_BUILD_DIR)/src/crtn.s.o
 
 LIBC_SRCS_ALL := $(shell find $(LIBC_ROOT)/src/ -type f -name "*.[cs]")
-LIBC_SRCS_CRT := $(filter $(LIBC_ROOT)/src/crt%s, $(LIBC_SRCS_ALL))
-LIBC_SRCS := $(filter-out $(LIBC_ROOT)/src/crt%s, $(LIBC_SRCS_ALL))
+LIBC_SRCS_CRT := $(LIBC_ROOT)/src/crt1.s $(LIBC_ROOT)/src/Scrt1.s
+LIBC_SRCS := $(filter-out $(LIBC_SRCS_CRT), $(LIBC_SRCS_ALL))
 LIBC_OBJS := $(patsubst $(LIBC_ROOT)/%, $(LIBC_BUILD_DIR)/%.o, $(LIBC_SRCS))
 LIBC_OBJS_CRT := $(patsubst $(LIBC_ROOT)/%, $(LIBC_BUILD_DIR)/%.o, $(LIBC_SRCS_CRT))
+
+$(SYSROOT): $(LIBC_LIB) $(LIBC_SO_LIB) $(LIBC_OBJS_CRT)
+	@$(PROGRESS_LABEL) Creating sysroot
+	# sorry adrian, i really don't know what to do here, you're the makefile magician
+	@mkdir -p $@/usr/lib
+	@cp -rv $(LIBC_ROOT)/src/include $(SYSROOT)/usr/
+	@cp -v $(LIBC_LIB) $(SYSROOT)/usr/lib/
+	@cp -v $(LIBC_SO_LIB) $(SYSROOT)/usr/lib/
+	@cp -v $(LIBC_BUILD_DIR)/src/crt1.s.o $(SYSROOT)/usr/lib/crt1.o
+	@cp -v $(LIBC_BUILD_DIR)/src/Scrt1.s.o $(SYSROOT)/usr/lib/Scrt1.o
 
 $(LIBC_LIB): $(LIBC_OBJS)
 	@$(PROGRESS_LABEL) Linking $(patsubst $(MAKE_ROOT)/%,%,$(abspath $@))
 	@mkdir -p $(dir $@)
 	@$(AR) rsc $@ $^
+
+$(LIBC_SO_LIB): $(LIBC_OBJS)
+	@$(PROGRESS_LABEL) Linking $(patsubst $(MAKE_ROOT)/%,%,$(abspath $@))
+	@mkdir -p $(dir $@)
+	@$(CC) -fPIC -nostdlib -shared $^ -o $@
 
 $(LIBC_BUILD_DIR)/%.c.o: $(LIBC_ROOT)/%.c
 	@$(PROGRESS_LABEL) Compiling $(patsubst $(MAKE_ROOT)/%,%,$(abspath $@))
@@ -65,6 +79,7 @@ $(LIBC_BUILD_DIR)/%.s.o: $(LIBC_ROOT)/%.s
 
 clean::
 	@rm -rf $(LIBC_ROOT)/build
+	@rm -rf $(SYSROOT)
 
 .PHONY: clean
 

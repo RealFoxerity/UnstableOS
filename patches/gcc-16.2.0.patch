@@ -1,0 +1,101 @@
+--- _gcc-16.2.0/config.sub	2026-08-07 09:46:05.304676553 +0200
++++ gcc-16.2.0/config.sub	2026-08-20 04:46:49.244186349 +0200
+@@ -1718,6 +1718,7 @@
+ 	# Now accept the basic system types.
+ 	# The portable systems comes first.
+ 	# Each alternative MUST end in a * to match a version number.
++        unstableos* | \
+ 	gnu* | android* | bsd* | mach* | minix* | genix* | ultrix* | irix* \
+ 	     | *vms* | esix* | aix* | cnk* | sunos | sunos[34]* \
+ 	     | hpux* | unos* | osf* | luna* | dgux* | auroraux* | solaris* \
+--- _gcc-16.2.0/gcc/config.gcc	2026-08-07 09:46:05.819684556 +0200
++++ gcc-16.2.0/gcc/config.gcc	2026-08-20 05:09:39.482160465 +0200
+@@ -776,6 +776,14 @@
+ 
+ # Common parts for widely ported systems.
+ case ${target} in
++*-*-unstableos*)
++  extra_options="$extra_options gnu-user.opt"
++  gas=yes
++  gnu_ld=yes
++  default_use_cxa_atexit=yes
++  use_gcc_stdint=provide
++  ;;
++
+ *-*-darwin*)
+   tmake_file="t-darwin "
+   tm_file="${tm_file} darwin.h"
+@@ -1236,6 +1244,9 @@
+ esac
+ 
+ case ${target} in
++i[34567]86-*-unstableos*)
++	tm_file="${tm_file} i386/unix.h i386/att.h elfos.h glibc-stdint.h i386/i386elf.h unstableos.h gnu-user.h"
++	;;
+ aarch64*-*-elf | aarch64*-*-fuchsia* | aarch64*-*-rtems*)
+ 	tm_file="${tm_file} elfos.h newlib-stdint.h"
+ 	tm_file="${tm_file} aarch64/aarch64-elf.h aarch64/aarch64-errata.h aarch64/aarch64-elf-raw.h"
+--- /dev/null	2026-08-19 10:18:10.398883596 +0200
++++ gcc-16.2.0/gcc/config/unstableos.h	2026-08-20 05:18:29.142094080 +0200
+@@ -0,0 +1,22 @@
++#undef LIB_SPEC
++#define LIB_SPEC "-lc"
++
++#undef STARTFILE_SPEC
++#define STARTFILE_SPEC "crt1.o%s crti.o%s crtbegin.o%s"
++
++#undef ENDFILE_SPEC
++#define ENDFILE_SPEC "crtend.o%s crtn.o%s"
++
++#undef TARGET_OS_CPP_BUILTINS
++#define TARGET_OS_CPP_BUILTINS()	    \
++  do {					    \
++    builtin_define ("__unstableos__");      \
++    builtin_define ("__unix__");	    \
++    builtin_assert ("system=unstableos");   \
++    builtin_assert ("system=unix");	    \
++    builtin_assert ("system=posix");	    \
++  } while(0);
++
++#undef LINK_SPEC
++#define LINK_SPEC "%{shared:-shared} %{static:-static} %{!shared: %{!static: %{rdynamic:-export-dynamic}}} %{!dynamic-linker:-dynamic-linker /usr/lib/rtld.so} -z max-page-size=4096"
++
+--- _gcc-16.2.0/libstdc++-v3/crossconfig.m4	2026-08-07 09:46:10.784761713 +0200
++++ gcc-16.2.0/libstdc++-v3/crossconfig.m4	2026-08-20 05:23:28.485230583 +0200
+@@ -5,6 +5,12 @@
+ AC_DEFUN([GLIBCXX_CROSSCONFIG],[
+ # Base decisions on target environment.
+ case "${host}" in
++  *-unstableos*)
++    GLIBCXX_CHECK_COMPILER_FEATURES
++    GLIBCXX_CHECK_LINKER_FEATURES
++    GLIBCXX_CHECK_MATH_SUPPORT
++    GLIBCXX_CHECK_STDLIB_SUPPORT
++    ;;
+   arm*-*-symbianelf*)
+     # This is a freestanding configuration; there is nothing to do here.
+     ;;
+--- _gcc-16.2.0/libgcc/config.host	2026-08-07 09:46:09.988749343 +0200
++++ gcc-16.2.0/libgcc/config.host	2026-08-20 05:33:06.778638917 +0200
+@@ -389,6 +389,10 @@
+ esac
+ 
+ case ${host} in
++i[34567]86-*-unstableos*)
++	extra_parts="$extra_parts crti.o crtbegin.o crtbeginS.o crtbeginT.o crtend.o crtendS.o crtn.o"
++	tmake_file="$tmake_file i386/t-crtstuff t-crtstuff-pic t-libgcc-pic"
++	;;
+ aarch64*-*-elf | aarch64*-*-rtems*)
+ 	extra_parts="$extra_parts crtbegin.o crtend.o crti.o crtn.o"
+ 	extra_parts="$extra_parts crtfastmath.o"
+--- _gcc-16.2.0/fixincludes/mkfixinc.sh	2026-08-07 09:46:05.348677236 +0200
++++ gcc-16.2.0/fixincludes/mkfixinc.sh	2026-08-20 05:35:26.680198713 +0200
+@@ -11,6 +11,8 @@
+ 
+ # Check for special fix rules for particular targets
+ case $machine in
++    *-unstableos* | \
++    *-*-unstableos* | \
+     i?86-*-cygwin* | \
+     *-mingw32* | \
+     powerpc-*-eabisim* | \

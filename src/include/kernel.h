@@ -106,9 +106,6 @@ if not selected, reschedule only happens on cleanup and non-running thread state
 #define BGA_MAX_ALLOWABLE_XRES 1920
 #define BGA_MAX_ALLOWABLE_YRES 1080
 
-// if defined, reading/writing to /dev/fb calls current_video_funcs->read/write
-// if not defined, raw reading from the mapped framebuffer
-//#define FB_ACCESS_CALLS_GFX_API
 
 /* POSIX wants EINVAL on invalid request of any kind, and
  * ENOTTY for non-STREAMS based devices

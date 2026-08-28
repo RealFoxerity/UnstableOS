@@ -6,4 +6,8 @@
 build/*
 */build/*
 */*/build/*
+gcc-16.2.0
+binutils-2.47
+sysroot
+toolchain
 .clangd

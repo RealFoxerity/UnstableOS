@@ -19,7 +19,7 @@ default: all
 
 include Include.mk
 
-all: $(LIBC_LIB) $(LIBC_OBJS_CRT)
+all: $(SYSROOT)
 
 .PHONY: default all
 

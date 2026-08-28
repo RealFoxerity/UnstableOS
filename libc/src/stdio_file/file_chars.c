@@ -118,6 +118,9 @@ int fgetc(FILE *stream) {
     pthread_mutex_unlock(&stream->mutex);
     return ret;
 }
+int getc(FILE *stream) {
+    return fgetc(stream);
+}
 char *fgets(char *restrict s, int n, FILE *restrict stream) {
     if (!(stream->mode & O_RDONLY)) {
         ___set_errno(EBADF);
@@ -198,6 +201,9 @@ int fputc(int c, FILE *stream) {
     pthread_mutex_unlock(&stream->mutex);
     return ret;
 }
+int putc(int c, FILE *stream) {
+    return fputc(c, stream);
+}
 int fputs(const char *restrict s, FILE *restrict stream) {
     if (!(stream->mode & O_WRONLY)) {
         ___set_errno(EBADF);
@@ -237,6 +243,12 @@ int fputs(const char *restrict s, FILE *restrict stream) {
 
     pthread_mutex_unlock(&stream->mutex);
     return ret;
+}
+int puts(const char * s) {
+    int ret = fputs(s, stdout);
+    if (ret == -1)
+        return -1;
+    return fputc('\n', stdout);
 }
 
 int ungetc(int c, FILE *stream) {

@@ -76,7 +76,7 @@ int main(int argc, char ** argv) {
             show_help();
         } else if (strcmp("sync", input_buf) == 0) {
             sync();
-        } else if (strcmp("exit ", input_buf) == 0) {
+        } else if (strncmp("exit", input_buf, 4) == 0) {
             long exitcode;
             if (sscanf(input_buf, "exit %lu", &exitcode) != 1) {
                 printf("Bad argument!\n");

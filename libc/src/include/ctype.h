@@ -1,16 +1,16 @@
 #ifndef _CTYPE_H
 #define _CTYPE_H
 
-char isprint(char c);
-char isalpha(char c);
-char isdigit(char c);
-char isalnum(char c);
-char isspace(char c);
+int isprint(int c);
+int isalpha(int c);
+int isdigit(int c);
+int isalnum(int c);
+int isspace(int c);
 
-char tolower(char c);
-char islower(char c);
-char toupper(char c);
-char isupper(char c);
+int tolower(int c);
+int islower(int c);
+int toupper(int c);
+int isupper(int c);
 
 
 #endif

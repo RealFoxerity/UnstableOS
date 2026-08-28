@@ -1,0 +1,72 @@
+diff --git a/bfd/config.bfd b/bfd/config.bfd
+index 02a1a68525e..255aa00d900 100644
+--- a/bfd/config.bfd
++++ b/bfd/config.bfd
+@@ -242,6 +242,9 @@ esac
+ 
+ case "${targ}" in
+ # START OF targmatch.h
++  i[3-7]86-*-unstableos*)
++    targ_defvec=i386_elf32_vec
++    ;;
+ #ifdef BFD64
+   aarch64-*-darwin*)
+     targ_defvec=aarch64_mach_o_vec
+diff --git a/config.sub b/config.sub
+index 3d35cde174d..e4663f3bb48 100755
+--- a/config.sub
++++ b/config.sub
+@@ -1970,6 +1970,7 @@ case $os in
+ 	# Now accept the basic system types.
+ 	# Each alternative MUST end in a * to match a version number.
+ 	  abug \
++        | unstableos* \
+ 	| aix* \
+ 	| amdhsa* \
+ 	| amigados* \
+diff --git a/gas/configure.tgt b/gas/configure.tgt
+index 7a5645fd9ae..fd9e351b2ca 100644
+--- a/gas/configure.tgt
++++ b/gas/configure.tgt
+@@ -126,6 +126,7 @@ esac
+ generic_target=${cpu_type}-$vendor-$os
+ # Note: This table is alpha-sorted, please try to keep it that way.
+ case ${generic_target} in
++  i386-*-unstableos*)			fmt=elf;;
+   aarch64*-*-elf*)			fmt=elf;;
+   aarch64*-*-fuchsia*)			fmt=elf;;
+   aarch64*-*-haiku*)			fmt=elf em=haiku ;;
+diff --git a/ld/Makefile.am b/ld/Makefile.am
+index 3ae3d7f14f6..31cc6679401 100644
+--- a/ld/Makefile.am
++++ b/ld/Makefile.am
+@@ -153,6 +153,7 @@ endif
+ 
+ # These all start with e so 'make clean' can find them.
+ ALL_EMULATION_SOURCES = \
++	eelf_i386_unstableos.c \
+ 	eaix5ppc.c \
+ 	eaix5rs6.c \
+ 	eaixppc.c \
+diff --git a/ld/configure.tgt b/ld/configure.tgt
+index 60b62e69c08..493767f5f11 100644
+--- a/ld/configure.tgt
++++ b/ld/configure.tgt
+@@ -82,6 +82,9 @@ fi
+ # Please try to keep this table more or less in alphabetic order - it
+ # makes it much easier to lookup a specific archictecture.
+ case "${targ}" in
++i[3-7]86-*-unstableos*) targ_emul=elf_i386_unstableos
++			targ_extra_emuls=elf_i386
++			;;
+ aarch64_be-*-elf)	targ_emul=aarch64elfb
+ 			targ_extra_emuls="aarch64elf aarch64elf32 aarch64elf32b armelfb armelf"
+ 			;;
+diff --git a/ld/emulparams/elf_i386_unstableos.sh b/ld/emulparams/elf_i386_unstableos.sh
+new file mode 100644
+index 00000000..a26c1592
+--- /dev/null
++++ b/ld/emulparams/elf_i386_unstableos.sh
+@@ -0,0 +1,2 @@
++source_sh ${srcdir}/emulparams/elf_i386.sh
++

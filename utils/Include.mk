@@ -19,21 +19,20 @@ endif
 UTILS := cat clear echo ls mkdir mount pwd rename rm rmdir setsid sleep stty umount xxd ysh dd zrezset
 UTILS_BINS = $(patsubst %, $(UTILS_BUILD_DIR)/%, $(UTILS))
 
-UTILS_CFLAGS := $(CFLAGS) -ffreestanding -Ofast -g $(LIBC_INCLUDES) -MMD -MP -fPIE -pie -Wl,--no-dynamic-linker
-UTILS_LDFLAGS := -nostdlib -nodefaultlibs
-UTILS_LDLIBS := $(LIBC_LIB) -lgcc
+UTILS_CFLAGS := $(CFLAGS) -Ofast -g $(LIBC_INCLUDES) -MMD -MP -fPIE -pie -Wl,--no-dynamic-linker
+UTILS_LDFLAGS :=
+UTILS_LDLIBS := -lgcc
 
 define DEFINE_UTIL_RULE
 UTILS_SRCS_$(1) := $$(shell find $(UTILS_ROOT)/$(1)/src/ -type f -name "*.[cs]" 2>/dev/null)
 
-$(UTILS_BUILD_DIR)/$(1): $$(UTILS_SRCS_$(1)) $(LIBC_LIB) $(LIBC_SCRT1) $(LIBC_CRTI) $(LIBC_CRTN)
+$(UTILS_BUILD_DIR)/$(1): $$(UTILS_SRCS_$(1)) $(SYSROOT)
 	@$$(PROGRESS_LABEL) Building $$(patsubst $$(MAKE_ROOT)/%,%,$$(abspath $$@))
 	@mkdir -p $$(dir $$@)
 	@$$(CC) $(UTILS_CFLAGS) -I$(UTILS_ROOT)/$(1)/src/include \
 		$(UTILS_LDFLAGS) \
-		$(LIBC_SCRT1) $(LIBC_CRTI) $(LIBC_CRTBEGIN) \
 		$$(UTILS_SRCS_$(1)) \
-		$(UTILS_LDLIBS) $(LIBC_CRTEND) $(LIBC_CRTN) \
+		$(UTILS_LDLIBS) \
 		-o $$@
 endef
 

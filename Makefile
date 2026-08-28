@@ -1,5 +1,5 @@
-AR := i686-elf-ar
-CC := i686-elf-gcc
+AR := toolchain/bin/i686-unstableos-ar
+CC := toolchain/bin/i686-unstableos-gcc
 
 UNAME := $(shell uname)
 
@@ -47,7 +47,7 @@ include utils/Include.mk
 KERNEL_CFLAGS := $(CFLAGS) 	-ffreestanding -nostdlib -nodefaultlibs \
 	-nostartfiles -std=gnu99 -Isrc/include $(LIBC_INCLUDES) \
 	-Wall -Wno-unknown-pragmas -fno-strict-aliasing -fstack-protector -march=i486 \
-	-MMD -MP #-DUSE_LEGACY_PFA
+	-MMD -MP -static -fno-pie -fno-pic #-DUSE_LEGACY_PFA
 
 KERNEL_LDFLAGS := -T src/linker.ld $(LIBC_LIB) -lgcc
 
@@ -65,6 +65,7 @@ iso: build/UnstableOS.iso
 
 clean::
 	@rm -rf build
+	@rm -rf sysroot
 
 run-kernel: kernel memdisk hdimg
 	qemu-system-i386 $(QEMUFLAGS) -hda build/hda.dd -kernel build/UnstableOS.bin -initrd build/memdisk.tar
@@ -98,14 +99,11 @@ build/UnstableOS.iso: build/UnstableOS.bin build/memdisk.tar
 		-o build/UnstableOS.iso build/iso \
 		2> /dev/null
 
-	@limine bios-install build/UnstableOS.iso 2> /dev/null
-
 build/memdisk.tar: $(LIBC_HEADERS) $(UTILS_BINS)
 	@$(PROGRESS_LABEL) Generating $@
-	@mkdir -p build/initmd/bin build/initmd/dev build/initmd/usr/include
-	@cp -r libc/src/include build/initmd/usr/
-	@cp $(UTILS_BINS) build/initmd/bin/
-	@tar -C build/initmd --format ustar -cf $@ bin dev usr
+	@mkdir -p sysroot/dev sysroot/bin
+	@cp $(UTILS_BINS) sysroot/bin/
+	@tar -C sysroot --format ustar -cf $@ bin dev usr
 
 build/hda.dd:
 	@$(PROGRESS_LABEL) Generating $@
