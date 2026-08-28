@@ -747,11 +747,235 @@ long sys_ioctl(int fd, unsigned long request, void * arg) {
     return ret;
 }
 
+static struct flock_entry * fcntl_lock_get_lock(const file_descriptor_t * file, struct flock target, int is_ofd) {
+    const struct flock_info * fi = file->inode->flocks;
+    kassert(fi);
+
+    for (struct flock_entry * block = fi->flocks; block; block = block->next) {
+        if (!is_ofd && !block->ofd && block->flock.l_pid == target.l_pid)
+            continue;
+        if (is_ofd && block->ofd == file)
+            continue;
+        if (block->flock.l_type == F_RDLCK && target.l_type == F_RDLCK)
+            continue;
+
+        if (block->flock.l_start == target.l_start)
+            return block;
+
+        if (block->flock.l_start > target.l_start &&
+            (target.l_len == 0 || block->flock.l_start < target.l_start + target.l_len))
+                return block;
+        if (block->flock.l_start < target.l_start &&
+            (block->flock.l_len == 0 || target.l_start < block->flock.l_start + block->flock.l_len))
+                return block;
+    }
+    return NULL;
+}
+
+static long fcntl_lock_add_lock(const file_descriptor_t * file, struct flock target, int is_ofd) {
+    if (fcntl_lock_get_lock(file, target, is_ofd))
+        return -EAGAIN;
+
+    const struct flock_info * fi = file->inode->flocks;
+    kassert(fi);
+    struct flock_entry * fe = NULL;
+
+    if (target.l_type != F_UNLCK) {
+        fe = kalloc(sizeof(struct flock_entry));
+        if (!fe)
+            return -ENOMEM;
+        fe->ofd = is_ofd ? file : NULL;
+        fe->flock = target;
+    }
+
+    for (struct flock_entry *block = fi->flocks, *prev = NULL; block; prev = block, block = block->next) {
+        iter:
+
+        // it's possible to do F_UNLCK on only your (F_RDLCK) lock, so we need to filter out the others
+        if (!is_ofd && block->ofd)
+            continue;
+        if (!is_ofd && block->flock.l_pid != target.l_pid)
+            continue;
+        if (is_ofd && block->ofd != file)
+            continue;
+
+        if (block->flock.l_start >= target.l_start &&
+            (target.l_len == 0 || block->flock.l_start < target.l_start + target.l_len)
+        ) {
+            if (target.l_len == 0 || block->flock.l_start + block->flock.l_len <= target.l_start + target.l_len) {
+                struct flock_entry * next = block->next;
+                kfree(block);
+                if (prev)
+                    prev->next = next;
+                else
+                    file->inode->flocks->flocks = next;
+                block = next;
+                if (block == NULL)
+                    break;
+                goto iter;
+            }
+
+            if (block->flock.l_len)
+                block->flock.l_len -= target.l_start + target.l_len - block->flock.l_start;
+            block->flock.l_start = target.l_start + target.l_len;
+            continue;
+        }
+
+        if (block->flock.l_start < target.l_start &&
+            (block->flock.l_len == 0 || block->flock.l_start + block->flock.l_len > target.l_start)
+        ) {
+            // trim from the right
+            if (target.l_len == 0 || block->flock.l_start + block->flock.l_len <= target.l_start + target.l_len) {
+                block->flock.l_len = target.l_start - block->flock.l_start;
+                continue;
+            }
+
+            // actually split
+            struct flock_entry * new = kalloc(sizeof(struct flock_entry));
+            if (!new) {
+                kprintf("Warning: OOM on partially overwritten fcntl locks, inconsistent lock state!\n");
+                kfree(fe);
+                return -ENOMEM;
+            }
+
+            *new = *block;
+            if (new->flock.l_len)
+                new->flock.l_len -= target.l_start + target.l_len - block->flock.l_start;
+            block->flock.l_len = target.l_start - block->flock.l_start;
+            new->flock.l_start = target.l_start + target.l_len;
+            new->next = file->inode->flocks->flocks;
+            file->inode->flocks->flocks = new;
+        }
+    }
+
+    if (target.l_type == F_UNLCK) return 0;
+
+    fe->next = file->inode->flocks->flocks;
+    file->inode->flocks->flocks = fe;
+    return 0;
+}
+
+static long fcntl_lock_file(file_descriptor_t * file, int cmd, struct flock * flock) {
+    if (!S_ISREG(file->inode->mode) && !S_ISBLK(file->inode->mode))
+        return -EBADF;
+
+    struct flock fl = *flock; // local copy to not do some random racy shit
+    switch (fl.l_whence) {
+        case SEEK_SET:
+            break;
+        case SEEK_CUR:
+            fl.l_start += file->off;
+            break;
+        case SEEK_END:
+            fl.l_start += file->inode->size;
+            break;
+        default:
+            return -EINVAL;
+    }
+    switch (fl.l_type) {
+        case F_UNLCK:
+        case F_RDLCK:
+        case F_WRLCK:
+            break;
+        default:
+            return -EINVAL;
+    }
+
+    if (fl.l_type == F_RDLCK && !(file->flags & O_RDONLY))
+        return -EBADF;
+    if (fl.l_type == F_WRLCK && !(file->flags & O_WRONLY))
+        return -EBADF;
+
+    if (__builtin_add_overflow_p(fl.l_start, fl.l_len, (off_t)0))
+        return -EOVERFLOW;
+
+    if (fl.l_start < 0 || fl.l_start + fl.l_len < 0)
+        return -EINVAL;
+
+    // not strictly POSIX compliant (I think, not sure), but will greatly simplify checks
+    if (fl.l_len < 0) {
+        fl.l_start += fl.l_len;
+        fl.l_len *= -1;
+    }
+
+    fl.l_pid = current_process->pid;
+
+    struct flock_info * fi = __atomic_load_n(&file->inode->flocks, __ATOMIC_ACQUIRE);
+    if (fi == NULL) {
+        struct flock_info * new = kalloc(sizeof(struct flock_info));
+        if (!new)
+            return -ENOMEM;
+        memset(new, 0, sizeof(struct flock_info));
+
+        // raced on another initialization
+        if (!__atomic_compare_exchange_n(
+            &file->inode->flocks, &fi, new, 0,
+            __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+                kfree(new);
+        else
+            fi = new;
+    }
+    struct flock_entry * fe = NULL;
+    long ret = 0;
+    switch (cmd) {
+        case F_GETLK:
+        case F_OFD_GETLK:
+            rw_spinlock_acquire_read(&fi->flock_lock);
+            fe = fcntl_lock_get_lock(file, fl, cmd == F_OFD_GETLK);
+            rw_spinlock_release_read(&fi->flock_lock);
+            if (fe == NULL)
+                flock->l_type = F_UNLCK;
+            else {
+                *flock = fe->flock;
+                flock->l_pid = -1; // no clue, ask POSIX
+            }
+            return 0;
+
+        case F_SETLK:
+        case F_OFD_SETLK:
+            rw_spinlock_acquire_write(&fi->flock_lock);
+            ret = fcntl_lock_add_lock(file, fl, cmd == F_OFD_SETLK);
+            thread_queue_unblock_all_nonreentrant(&file->inode->flocks->flock_setlkw_queue);
+            rw_spinlock_release_write(&fi->flock_lock);
+            return ret;
+        case F_SETLKW:
+        case F_OFD_SETLKW:
+            while (1) {
+                if (check_eintr())
+                    return -EINTR;
+
+                rw_spinlock_acquire_write(&fi->flock_lock);
+                ret = fcntl_lock_add_lock(file, fl, cmd == F_OFD_SETLKW);
+                asm volatile ("cli");
+                if (ret == -EAGAIN) {
+                    thread_queue_add_nonreentrant(&file->inode->flocks->flock_setlkw_queue, current_process, current_thread);
+                    current_thread->status = SCHED_INTERR_SLEEP;
+                    rw_spinlock_release_write(&fi->flock_lock);
+                    reschedule();
+                } else {
+                    rw_spinlock_release_write(&fi->flock_lock);
+                    return ret;
+                }
+            }
+        default: return -EINVAL;
+    }
+}
+
 long fcntl_file(file_descriptor_t * file, int cmd, long arg) {
     int test = check_file(file);
     if (test != 0) return test;
     if (cmd < 0) return -EINVAL;
-    if (arg < 0) return -EINVAL;
+
+    switch (cmd) {
+        case F_DUPFD:
+        case F_DUPFD_CLOEXEC:
+        case F_DUPFD_CLOFORK:
+        case F_SETFL:
+            if (arg < 0)
+                return -EINVAL;
+        default:
+            break;
+    }
 
     long ret = 0;
     rw_spinlock_acquire_write(&file->access_lock);
@@ -773,6 +997,21 @@ long fcntl_file(file_descriptor_t * file, int cmd, long arg) {
             file->flags &= ~(O_SYNC | O_APPEND);
             file->flags |= arg & (O_SYNC | O_APPEND);
             break;
+        case F_GETLK:
+        case F_OFD_GETLK:
+            rw_spinlock_release_write(&file->access_lock);
+            if (!paging_check_address_range((struct flock*)arg, sizeof(struct flock), 1, 0))
+                return -EFAULT;
+            goto flock;
+        case F_SETLK:
+        case F_SETLKW:
+        case F_OFD_SETLK:
+        case F_OFD_SETLKW:
+            rw_spinlock_release_write(&file->access_lock);
+            if (!paging_check_address_range((struct flock*)arg, sizeof(struct flock), 0, 0))
+                return -EFAULT;
+            flock:
+            return fcntl_lock_file(file, cmd, (struct flock*)arg);
         default: ret = -EINVAL;
     }
 
@@ -794,7 +1033,7 @@ long sys_fcntl(int fd, int cmd, long arg) {
     spinlock_release(&current_process->lock);
 
     if (test != 0) return test;
-
+    long ret = 0;
     switch (cmd) {
         case F_GETFD:
             close_file(file);
@@ -807,7 +1046,7 @@ long sys_fcntl(int fd, int cmd, long arg) {
             close_file(file);
             return 0;
         default:
-            long ret = fcntl_file(file, cmd, arg);
+            ret = fcntl_file(file, cmd, arg);
             close_file(file);
             return ret;
     }
@@ -935,5 +1174,82 @@ int sys_utimensat(int fd, const char *path, const struct timespec times[2], int 
 
     ret = utimes_inode(new, times[0], times[1], (struct timespec){.tv_nsec = UTIME_OMIT});
     close_inode(new);
+    return ret;
+}
+
+int inode_check_perm(inode_t * inode, int amode, int flag) {
+    kassert(inode);
+    kassert(inode != (inode_t*)AT_FDCWD);
+    amode &= R_OK | W_OK | X_OK;
+
+    uid_t target_uid = flag & AT_EACCESS ? current_process->euid : current_process->uid;
+    gid_t target_gid = flag & AT_EACCESS ? current_process->egid : current_process->gid;
+
+    amode <<= 6; // bump up to the user perms
+    if (inode->uid == target_uid)
+        if ((inode->mode & S_IRWXU) == amode)
+            return 0;
+
+    amode >>= 3;
+    if (inode->gid == target_gid)
+        if ((inode->mode & S_IRWXG) == amode)
+            return 0;
+
+    amode >>= 3;
+    if ((inode->mode & S_IRWXO) == amode)
+        return 0;
+    return -EACCES;
+}
+
+int sys_faccessat(int fd, const char *path, int amode, int flag) {
+    flag &= AT_EACCESS;
+    amode &= R_OK | W_OK | X_OK;
+    if (amode == 0)
+        flag |= O_PATH;
+    if (amode & R_OK)
+        flag |= O_RDONLY;
+    if (amode & W_OK)
+        flag |= O_WRONLY;
+    if (amode & X_OK)
+        flag |= O_EXEC;
+
+    inode_t * base = NULL;
+    inode_t * new = NULL;
+
+    if (fd == AT_FDCWD)
+        base = (inode_t*)AT_FDCWD;
+    else {
+        if (fd < 0 || fd >= FD_LIMIT_PROCESS) return -EBADF;
+        spinlock_acquire(&current_process->lock);
+        int test = check_file(current_process->fds[fd]);
+        file_descriptor_t * file = current_process->fds[fd];
+        if (test == 0) {
+            base = file->inode;
+            __atomic_add_fetch(&base->instances, 1, __ATOMIC_ACQUIRE);
+        }
+        spinlock_release(&current_process->lock);
+        if (test < 0) return test;
+    }
+
+    int ret = 0;
+    if (path) {
+        ret = openat_inode(base, path, flag, 0, &new, 0);
+        if (base != (inode_t*)AT_FDCWD)
+            close_inode(base);
+        if (ret < 0) return ret;
+        close_inode(new);
+        // the fact we managed to open it means the access succeeded
+        return 0;
+    }
+
+
+    if (base == (inode_t*)AT_FDCWD) {
+        spinlock_acquire(&current_process->lock);
+        base = current_process->pwd;
+        __atomic_add_fetch(&base->instances, 1, __ATOMIC_ACQUIRE);
+        spinlock_release(&current_process->lock);
+    }
+    ret = inode_check_perm(base, amode, flag);
+    close_inode(base);
     return ret;
 }

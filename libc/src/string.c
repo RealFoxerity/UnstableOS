@@ -111,9 +111,15 @@ void i64toax(uint64_t i, char * out) {
 
 
 size_t strlen(const char * s) {
-    size_t len = 0;
-    while (s[len++] != '\0');
-    return len-1; // don't count the null byte
+    const char * end = s;
+    unsigned long n = (unsigned long)-1;
+    asm volatile (
+        "repnz scasb"
+        : "+D"(end), "+c"(n)
+        : "a"(0)
+        : "memory"
+    );
+    return end - s - 1;
 }
 
 size_t strnlen(const char * s, size_t n) {
@@ -121,6 +127,34 @@ size_t strnlen(const char * s, size_t n) {
         if (s[i] == '\0') return i;
     }
     return n;
+}
+void *memchr(const void *s, int c, size_t n) {
+    const unsigned char * _s = s;
+    for (size_t i = 0; i < n; i++) {
+        if (_s[i] == (unsigned char)c)
+            return (void*)s + i;
+    }
+    return NULL;
+}
+
+// really lazy implementation because couldn't be bothered
+void * memmem(const void *haystack, size_t haystacklen, const void *needle, size_t needlelen) {
+    if (needlelen == 0)
+        return (void*)haystack;
+    if (haystacklen < needlelen)
+        return NULL;
+    const unsigned char * _hs = haystack;
+    const unsigned char * _ne = needle;
+    for (size_t i = 0; i < haystacklen - needlelen; i++) {
+        for (size_t j = 0; j < needlelen; j++) {
+            if (_hs[i + j] != _ne[j])
+                goto next;
+        }
+        return (void*)haystack + i;
+        next:
+        continue;
+    }
+    return NULL;
 }
 /*
 void * memcpy(void *__restrict dest, const void *__restrict src, size_t n) {
@@ -176,6 +210,19 @@ void* memfrob(void* s, size_t n)
     return s;
 }
 
+char * strstr(const char *s1, const char *s2) {
+    if (!*s2) return (char*)s1;
+    if (!*s1) return NULL;
+
+    for (const char * _hs = s1; *_hs != '\0'; _hs++) {
+        for (const char *_ne = s2, *_hs2 = _hs; *_ne == *_hs2 || !*_ne || !*_hs; _ne++, _hs2++) {
+            if (!*_ne) return (char*)_hs;
+            if (!*_hs2) return NULL;
+        }
+    }
+    return NULL;
+}
+
 char * strncpy(char *__restrict dest, const char *__restrict src, size_t dsize) {
     size_t i = 0;
     for (i = 0; i < dsize && src[i] != '\0'; i++) {
@@ -197,7 +244,7 @@ char * stpcpy(char * __restrict dest, const char * __restrict src) {
     return strcpy(dest, src) + strlen(src) + 1;
 }
 
-
+/*
 char memcmp(const void *s1, const void *s2, size_t n) {
     for (size_t i = 0; i < n; i++) {
         if (((char*)s1)[i] != ((char*)s2)[i]) {
@@ -206,23 +253,23 @@ char memcmp(const void *s1, const void *s2, size_t n) {
         }
     }
     return 0;
-}
+}*/
 
-char strcmp(const char * s1, const char * s2) {
+int strcmp(const char * s1, const char * s2) {
     for (size_t i = 0; s1[i] != '\0' || s2[i] != '\0'; i++) {
         if (((char*)s1)[i] != ((char*)s2)[i]) {
             if (((char*)s1)[i] < ((char*)s2)[i]) return -1;
-            else return 1;
+            return 1;
         }
     }
     return 0;
 }
 
-char strncmp(const char * s1, const char * s2, size_t n) {
+int strncmp(const char * s1, const char * s2, size_t n) {
     for (size_t i = 0; i < n && (s1[i] != '\0' || s2[i] != '\0'); i++) {
         if (((char*)s1)[i] != ((char*)s2)[i]) {
             if (((char*)s1)[i] < ((char*)s2)[i]) return -1;
-            else return 1;
+            return 1;
         }
     }
     return 0;
@@ -248,6 +295,15 @@ char * strrchr(const char * s, int c) {
     return NULL;
 }
 
+
+size_t strspn(const char *s1, const char *s2) {
+    unsigned char bm[256/8] = {0};
+    for (; *s2; s2++) bm[*s2/8] |= 1 << (*s2 % 8);
+    size_t n = 0;
+    for (; *s1; s1++) if (bm[*s1/8] & (1 << (*s1 % 8))) n++;
+    return n;
+}
+
 char * strndup(const char * s, size_t n) {
     // POSIX allows both, strnlen is slower
     //char * new = malloc(strnlen(s, n) + 1);
@@ -258,10 +314,14 @@ char * strndup(const char * s, size_t n) {
     return new;
 }
 
+char *strcat(char *restrict s1, const char *restrict s2) {
+    strcpy(s1 + strlen(s1), s2);
+    return s1;
+}
+
 char * strdup(const char * s) {
     return strndup(s, strlen(s));
 }
-
 
 char * strtok_r(char * __restrict src, const char * __restrict delim, char ** __restrict saveptr) {
     if (src != NULL) *saveptr = src;

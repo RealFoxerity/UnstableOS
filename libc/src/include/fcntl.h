@@ -39,6 +39,7 @@
 // when passed to openat_inode, won't resolve the final mountpoint
 #define O_NOXDEV    0x8000
 
+#define AT_EACCESS 0x10000
 #define AT_FDCWD (-1)
 #define AT_REMOVEDIR 1
 #include "sys/types.h"
@@ -61,14 +62,27 @@ int mkdirat(int fd, const char *path, mode_t mode);
 #define F_GETOWN_EX     10 // not implemented - no sockets
 #define F_SETOWN_EX     11 // not implemented - no sockets
 
-#define F_GETLK         12 // not implemented - no locks
-#define F_SETLK         13 // not implemented - no locks
-#define F_SETLKW        14 // not implemented - no locks
-#define F_OFD_GETLK     15 // not implemented - no locks
-#define F_OFD_SETLKW    16 // not implemented - no locks
+#define F_GETLK         12
+#define F_SETLK         13
+#define F_SETLKW        14
+#define F_OFD_GETLK     15
+#define F_OFD_SETLK     16
+#define F_OFD_SETLKW    17
 
 #define FD_CLOEXEC O_CLOEXEC
 #define FD_CLOFORK O_CLOFORK
+
+#define F_UNLCK 0
+#define F_RDLCK 1
+#define F_WRLCK 2
+
+struct flock {
+    short l_type;
+    short l_whence;
+    off_t l_start;
+    off_t l_len;
+    pid_t l_pid;
+};
 
 int fcntl(int fildes, int cmd, ...);
 

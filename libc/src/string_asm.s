@@ -64,7 +64,6 @@ memset:
     ret
 
 
-.section .text
 .global memcpy
 .type memcpy, @function
 /* void * memcpy(void *__restrict dest, const void *__restrict src, size_t n) */
@@ -80,6 +79,36 @@ memcpy:
 
     rep movsb
 
+    pop %esi
+    pop %edi
+    pop %ebp
+    ret
+
+.global memcmp
+.type memcmp, @function
+/* int memcmp(const void *s1, const void *s2, size_t n) */
+memcmp:
+    push %ebp
+    movl %esp, %ebp
+    push %edi
+    push %esi
+
+    movl 0x08(%ebp), %edi /* s1 */
+    movl 0x0C(%ebp), %esi /* s2 */
+    movl 0x10(%ebp), %ecx /* n */
+
+    xorl %eax, %eax
+
+    cmpl $0, %ecx
+    jz .zero
+
+    repe cmpsb
+
+    movzxb -0x1(%edi), %eax
+    movzxb -0x1(%esi), %edi
+    subl %edi, %eax
+
+.zero:
     pop %esi
     pop %edi
     pop %ebp

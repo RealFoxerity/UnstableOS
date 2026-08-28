@@ -704,7 +704,8 @@ int sys_sigsuspend(const sigset_t * set) {
 
     asm volatile ("sti;");
 
-    while (!check_eintr()) reschedule();
+    current_thread->status = SCHED_INTERR_SLEEP;
+    reschedule();
 
     current_thread->sa_mask = old_set;
     return -EINTR;

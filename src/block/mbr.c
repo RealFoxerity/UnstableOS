@@ -120,7 +120,7 @@ long mbr_parse_table(dev_t drive) {
                                         .start = ext_part_start + extended_table.partitions[0].start_lba * drive_file->inode->io_block_size,
                                         .size = extended_table.partitions[0].sector_count * drive_file->inode->io_block_size,
                                     }) != 0) {
-                                    kprintf("mbr: Warning: can't add extended partition %d (lba %llu, sector count %lu) of dev %hx\n",
+                                    kprintf("mbr: Warning: can't add extended partition %d (lba %llu, sector count %u) of dev %hx\n",
                                         i + 1, (ext_part_start + drive_file->inode->io_block_size - 1)/drive_file->inode->io_block_size + extended_table.partitions[0].start_lba,
                                         extended_table.partitions[0].sector_count, drive);
                                 }
@@ -161,10 +161,10 @@ long mbr_parse_table(dev_t drive) {
                 {
                     char device_name[32];
                     if (dev2string(drive, device_name) == NULL) {
-                        kprintf("mbr: Warning: can't add partition %d (lba %lu, sector count %lu) of dev %hx\n",
+                        kprintf("mbr: Warning: can't add partition %d (lba %u, sector count %u) of dev %hx\n",
                             i + 1, table.partitions[i].start_lba, table.partitions[i].sector_count, drive);
                     } else {
-                        kprintf("mbr: Warning: can't add partition %s (lba %lu, sector count %lu)\n",
+                        kprintf("mbr: Warning: can't add partition %s (lba %u, sector count %u)\n",
                             device_name, table.partitions[i].start_lba, table.partitions[i].sector_count);
                     }
 

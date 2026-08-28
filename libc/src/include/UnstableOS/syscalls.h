@@ -7,6 +7,7 @@ enum syscalls {
     SYSCALL_EXIT = 0,
     SYSCALL_ABORT = 1,
     SYSCALL_BRK, // same as linux, returns the current end on error
+    SYSCALL_FACCESSAT,
     SYSCALL_OPENAT,
     SYSCALL_CLOSE,
     SYSCALL_FCNTL,

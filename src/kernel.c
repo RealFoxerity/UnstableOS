@@ -245,7 +245,7 @@ void kernel_print_cpu_info() {
 extern struct tss_segment tss;
 extern struct idt_gate * idt_descriptor_entries;
 
-uintptr_t boot_mem_top = 0; // the top of taken memory (either &_kernel_top, or the highest multiboot module)
+unsigned long boot_mem_top = 0; // the top of taken memory (either &_kernel_top, or the highest multiboot module)
 void * kernel_mem_top = NULL; // the top of all kernel memory (identity map, heap, page frame table)
 
 time_t system_time_sec = 0;

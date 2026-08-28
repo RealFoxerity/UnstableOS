@@ -15,8 +15,9 @@
 #include <unistd.h> // for off_t, and seek modes
 #include <fcntl.h> // for O_* and I_* macros
 
-
+struct thread_queue;
 struct pipe;
+struct flock_info;
 
 struct mmap_page_cache {
     rbtree_t node;
@@ -42,6 +43,8 @@ struct inode_t {
 
     off_t size;
     blksize_t io_block_size;
+
+    struct flock_info * flocks;
 
     struct superblock_t * backing_superblock; // used to lookup functions to use for i/o operations, same as next for "/"
 
@@ -112,6 +115,17 @@ extern superblock_t ** kernel_superblocks;
 #include <limits.h>
 #include "../kernel_sched_queues.h"
 
+struct flock_entry {
+    const file_descriptor_t * ofd; // if set, uses the file_descriptor_t * instead of pid (ofd locks logic)
+    struct flock flock;
+    struct flock_entry *next;
+};
+struct flock_info {
+    struct flock_entry * flocks;
+    rw_spinlock_t flock_lock;
+    struct thread_queue flock_setlkw_queue;
+};
+
 struct pipe {
     spinlock_t pipe_lock;
     struct thread_queue read_queue, write_queue;
@@ -159,7 +173,8 @@ int get_fd_from_inode(inode_t * inode, unsigned short flags);
 
 int sys_openat(int fd, const char * path, unsigned short flags, mode_t mode);
 // the kernel function itself
-int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t mode, inode_t ** out, char trusted_path);
+// pass AT_EACCESS to flags to use euid
+int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t mode, inode_t ** out, char trusted_path);
 
 int sys_chdir(const char * path);
 int sys_chroot(const char * path);
@@ -225,5 +240,9 @@ off_t generic_seek(file_descriptor_t *file, off_t off, int whence, off_t max_off
 
 int utimes_inode(inode_t * inode, struct timespec atime, struct timespec mtime, struct timespec ctime);
 int sys_utimensat(int fd, const char *path, const struct timespec times[2], int flag);
+
+// same as access()
+int inode_check_perm(inode_t * inode, int amode, int flag);
+int sys_faccessat(int fd, const char *path, int amode, int flag);
 
 #endif

@@ -87,4 +87,13 @@ extern char * optarg;
 extern int opterr, optind, optopt;
 
 int getopt(int argc, char * const argv[], const char *optstring);
+
+#define F_OK 0
+#define R_OK 4
+#define W_OK 2
+#define X_OK 1
+
+int access(const char *path, int amode);
+int faccessat(int fd, const char *path, int amode, int flag);
+
 #endif

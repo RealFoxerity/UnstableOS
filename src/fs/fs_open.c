@@ -118,6 +118,7 @@ int sys_openat(int fd, const char * path, unsigned short flags, mode_t mode) {
     kassert(ino->instances > (ino->is_mountpoint ? 1 : 0));
 
     inode_t * new = NULL;
+    flags &= ~AT_EACCESS;
     int ret = openat_inode(ino, path, flags, mode, &new, 0);
     if (ret < 0) return ret;
     ret = get_fd_from_inode(new, flags);
@@ -151,7 +152,8 @@ static size_t cleanup_path(char * dup_path, size_t pathlen) {
     return pathlen;
 }
 
-int openat_inode(inode_t * base, const char * path, unsigned short flags, mode_t mode, inode_t ** out, char trusted_path) {
+// pass AT_EACCESS to flags to use euid
+int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t mode, inode_t ** out, char trusted_path) {
     if (base == NULL) {
         kprintf("\e[0m\e[41mWarning: called openat with NULL base inode!\e[0m\n");
         return -EINVAL;

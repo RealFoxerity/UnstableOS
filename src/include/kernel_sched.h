@@ -143,6 +143,8 @@ struct rt_siginfo_ll {
     siginfo_t info;
     struct rt_siginfo_ll * next;
 };
+struct file_descriptor_t;
+
 struct process_t {
     unsigned char ring; // so that drivers and kernel can have their own processes
     struct process_t * parent;
@@ -160,7 +162,7 @@ struct process_t {
 
     char after_exec; // some functions (like setpgid) throw EACCESS on child processes that underwent exec*()
 
-    unsigned long uid, gid;
+    unsigned long uid, gid, euid, egid;
     PAGE_DIRECTORY_TYPE * address_space_paddr;
 
     void * program_break;
@@ -238,6 +240,8 @@ void thread_queue_unblock_nonreentrant(thread_queue_t * thread_queue);
 void thread_queue_unblock_all_nonreentrant(thread_queue_t * thread_queue);
 
 void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, enum pstatus_t new_status);
+// same as above, but the caller is required to set new status and reschedule
+void thread_queue_add_nonreentrant(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread);
 // always "interruptible sleep" because we internally reuse sys_clock_nanosleep
 // returns 1 if exited due to timer running out
 char thread_queue_add_with_timeout(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, struct timespec ts);

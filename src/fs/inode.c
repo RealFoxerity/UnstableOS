@@ -1,10 +1,10 @@
 #include "dev_ops.h"
 #include "errno.h"
-#include "../include/fs/fs.h"
-#include "../include/fs/vfs.h"
-#include "../include/mm/kernel_memory.h"
-#include "../include/kernel.h"
-#include "../../libc/src/include/string.h"
+#include "fs/fs.h"
+#include "fs/vfs.h"
+#include "mm/kernel_memory.h"
+#include "kernel.h"
+#include <string.h>
 
 inode_t ** kernel_inodes;
 
@@ -166,6 +166,17 @@ void close_inode(inode_t *inode) {
         if (S_ISFIFO(inode->mode)) kfree(inode->pipe);
         if (S_ISCHR(inode->mode) || S_ISBLK(inode->mode))
             if (inode->dev_opened) close_dev(inode);
+        if (inode->flocks) {
+            kassert(!inode->flocks->flock_setlkw_queue.queue.parent_process);
+
+            struct flock_entry * fe = inode->flocks->flocks;
+            while (fe) {
+                struct flock_entry * next = fe->next;
+                kfree(fe);
+                fe = next;
+            }
+            kfree(inode->flocks);
+        }
     }
     spinlock_release(&kernel_inode_lock);
 }

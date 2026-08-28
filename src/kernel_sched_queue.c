@@ -83,6 +83,12 @@ void __thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, thr
     thread_queue->queue.prev->thread = thread;
     thread_queue->queue.prev->magic_queue_value = thread->magic_queue_value;
 }
+
+void thread_queue_add_nonreentrant(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread) {
+    spinlock_acquire(&thread_queue->queue_lock);
+    __thread_queue_add(thread_queue, pprocess, thread);
+    spinlock_release(&thread_queue->queue_lock);
+}
 void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, enum pstatus_t new_status) {
     spinlock_acquire(&thread_queue->queue_lock);
 

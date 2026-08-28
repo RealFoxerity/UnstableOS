@@ -337,7 +337,7 @@ int utimensat(int fd, const char *path, const struct timespec times[2], int flag
         ___set_errno(EFAULT);
         return -1;
     }
-    int ret = syscall(SYSCALL_UNLINKAT, fd, path, times, flag);
+    int ret = syscall(SYSCALL_UTIMESAT, fd, path, times, flag);
     if (ret < 0) {
         ___set_errno(-ret);
         return -1;
@@ -345,7 +345,19 @@ int utimensat(int fd, const char *path, const struct timespec times[2], int flag
     return ret;
 }
 int futimens(int fd, const struct timespec times[2]) {
-    int ret = syscall(SYSCALL_UNLINKAT, fd, NULL, times, 0);
+    int ret = syscall(SYSCALL_UTIMESAT, fd, NULL, times, 0);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return ret;
+}
+
+int access(const char *path, int amode) {
+    return faccessat(AT_FDCWD, path, amode, 0);
+}
+int faccessat(int fd, const char *path, int amode, int flag) {
+    int ret = syscall(SYSCALL_FACCESSAT, fd, path, amode, flag);
     if (ret < 0) {
         ___set_errno(-ret);
         return -1;

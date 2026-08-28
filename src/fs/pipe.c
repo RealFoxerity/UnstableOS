@@ -71,10 +71,12 @@ static int pipe_put_ch(struct pipe * pq, const unsigned char c) {
     while (FULL(pq)) {
         spinlock_release(&pq->pipe_lock);
         asm volatile("cli"); // avoid thread queue races, TODO: change when adding atomic queues
-        thread_queue_unblock_nonreentrant(&pq->read_queue); // force reading, below release so we don't waste a timeslice
 
-        thread_queue_add(&pq->write_queue, current_process, current_thread, SCHED_INTERR_SLEEP);
+        thread_queue_add_nonreentrant(&pq->write_queue, current_process, current_thread);
+        current_thread->status = SCHED_INTERR_SLEEP;
+        thread_queue_unblock_nonreentrant(&pq->read_queue); // force reading, below release so we don't waste a timeslice
         asm volatile("sti");
+        reschedule();
 
         if (__atomic_load_n(&pq->readers, __ATOMIC_ACQUIRE) == 0) {
             thread_queue_unblock_all(&pq->write_queue); // force SIGPIPE to all
