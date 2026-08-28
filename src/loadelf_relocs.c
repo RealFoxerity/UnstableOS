@@ -64,9 +64,10 @@ char load_elf_relocate(file_descriptor_t * file,
         case ELF_RELT_386_NONE:
             break;
         case ELF_RELT_386_32:
-            final_value = symbol_value + relocation.addend;
+            final_value = rela_offset + symbol_value + relocation.addend;
             break;
         case ELF_RELT_386_PC32:
+            // the rela_offset here cancels out
             final_value = symbol_value + relocation.addend - relocation.offset;
             break;
         //case ELF_RELT_386_GOT32:
@@ -75,7 +76,7 @@ char load_elf_relocate(file_descriptor_t * file,
             break; // huh?
         case ELF_RELT_386_GLOB_DAT:
         case ELF_RELT_386_JMP_SLOT:
-            final_value = symbol_value;
+            final_value = rela_offset + symbol_value;
             break;
         case ELF_RELT_386_RELATIVE:
             final_value = rela_offset + relocation.addend;
