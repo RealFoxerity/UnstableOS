@@ -32,6 +32,7 @@ static const rbtree_t * bstree_successor(const rbtree_t *tree, const rbtree_t *n
 static void bstree_rotate(rbtree_t **tree, rbtree_t *node, int dir) {
     rbtree_t *parent = (void*)(node->parent & ~1);
     rbtree_t *root   = node->nodes[!dir];
+    if (root == NULL) return;
     rbtree_t *child  = root->nodes[dir];
 
     node->nodes[!dir] = child;
@@ -117,6 +118,7 @@ void rbtree_add(rbtree_t **tree, rbtree_t *node) {
         }
 
         idx = prev == gp->nodes[0] ? 0 : 1;
+        kassert(gp->nodes[idx] == prev);
         rbtree_t * unc = gp->nodes[!idx];
         if (!unc || !(unc->parent & 1)) {
             if (node == prev->nodes[!idx]) {
@@ -167,6 +169,9 @@ void rbtree_remove(rbtree_t **tree, const rbtree_t *node) {
         succp->nodes[1] = replacement->nodes[1];
     replacement->nodes[0] = node->nodes[0];
     replacement->nodes[1] = node->nodes[1];
+
+    node->nodes[0]->parent = (uintptr_t)replacement | (node->nodes[0]->parent & 1);
+    node->nodes[1]->parent = (uintptr_t)replacement | (node->nodes[1]->parent & 1);
 
     relink:
     if (replacement)

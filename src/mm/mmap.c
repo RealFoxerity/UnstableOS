@@ -286,14 +286,15 @@ void *mmap_to_vmr(struct vm_record ** vmr, void *addr, size_t len, int prot, int
 }
 void *mmap_file(void *addr, size_t len, int prot, int flags, file_descriptor_t * file, off_t off) {
     rw_spinlock_acquire_write(&current_process->vm_lock);
-    munmap_to_vmr(&current_process->vm, addr, len, 1, 0);
+    if (flags & MAP_FIXED)
+        munmap_to_vmr(&current_process->vm, addr, len, 1, 0);
     void * ret = mmap_to_vmr(&current_process->vm, addr, len, prot, flags, file, off);
     rw_spinlock_release_write(&current_process->vm_lock);
     return ret;
 }
 
 void *sys_mmap(void * addr, size_t len, int prot, int flags, int fd, off_t off) {
-    if (fd < 0 || fd >= FD_LIMIT_PROCESS) return (void*)-EBADF;
+    if (!(flags & MAP_ANONYMOUS) && (fd < 0 || fd >= FD_LIMIT_PROCESS)) return (void*)-EBADF;
 
     file_descriptor_t * file = NULL;
 
@@ -457,8 +458,10 @@ int munmap_to_vmr(struct vm_record ** vmr_tree, void *addr, size_t len, char ign
             (struct vm_record *)rbtree_search_lte((rbtree_t*)*vmr_tree, (uintptr_t)addr + i*PAGE_SIZE);
 
         if (!vmr || vmr->node.ptr + vmr->len < addr) {
-            if (ignore_missing)
+            if (ignore_missing) {
                 i++;
+                continue;
+            }
             return -ENOMEM;
         }
 
