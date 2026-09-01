@@ -457,7 +457,7 @@ int munmap_to_vmr(struct vm_record ** vmr_tree, void *addr, size_t len, char ign
         struct vm_record * vmr =
             (struct vm_record *)rbtree_search_lte((rbtree_t*)*vmr_tree, (uintptr_t)addr + i*PAGE_SIZE);
 
-        if (!vmr || vmr->node.ptr + vmr->len < addr) {
+        if (!vmr || vmr->node.ptr + vmr->len < addr + i*PAGE_SIZE) {
             if (ignore_missing) {
                 i++;
                 continue;
