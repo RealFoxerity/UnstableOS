@@ -22,6 +22,7 @@ It is not meant as a production OS, there is no testing, there is no fuzzing. I 
 - All of <pthread.h>
 - All of <sys/mman.h>
 - Almost all of <signal.h>
+- Dynamic linker
 
 List of defined syscalls can be found in [<UnstableOS/syscalls.h>](./libc/src/include/UnstableOS/syscalls.h)
 
@@ -120,7 +121,7 @@ see [caveats.md](./caveats.md) for info
 - [x] ioctls for framebuffer devices
 - [ ] SMP - multicore support
 - [x] argv, argc, envp/environ, execve
-- [ ] auxiliary vector (for elf interpreters)
+- [x] auxiliary vector (for elf interpreters)
 - [x] Thread-Local Storage + proper errno
 - [ ] Core utils
 - [x] pthread.h see [pthread_progress.md](./pthread_progress.md) for more info

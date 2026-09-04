@@ -7,6 +7,7 @@ __stack_chk_fail_local:
 
 .global _start
 .type _start, @function
+.type __libc_init, %function
 
 _start:
     xorl %ebp, %ebp
@@ -17,13 +18,12 @@ _start:
     call 1f
 1:
     popl %ebx
+    addl $_GLOBAL_OFFSET_TABLE_+[.-1b], %ebx
 
     pushl %ebp      # argv
     addl $0xC, (%esp)
 
     pushl 0x8(%ebp) # argc
 
-    addl $_GLOBAL_OFFSET_TABLE_+[.-1b], %ebx
-    push main@GOT(%ebx)
-
+    pushl %edx # rtld fini
     call __libc_init@plt

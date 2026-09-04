@@ -446,6 +446,24 @@ int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t m
     return ret;
 }
 
+int openat_file(inode_t * base, const char * path, unsigned int flags, mode_t mode, file_descriptor_t ** out, char trusted_path) {
+    kassert(out);
+    file_descriptor_t * file = get_free_fd();
+    if (!file)
+        return -ENFILE;
+
+    inode_t * inode = NULL;
+    int file_status = openat_inode(base, path, flags, mode, &inode, trusted_path);
+    if (file_status < 0 || inode == NULL) {
+        file->instances = 0;
+        return file_status;
+    }
+    file->inode = inode;
+    file->flags = flags;
+    *out = file;
+    return 0;
+}
+
 int sys_chdir(const char * path) {
     inode_t * new = NULL;
     spinlock_acquire(&current_process->lock);

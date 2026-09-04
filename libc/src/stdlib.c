@@ -78,9 +78,11 @@ static void __call_atexit() {
     }
 }
 
-extern void (*__fini_array_start[])();
-extern void (*__fini_array_end[])();
-extern void _fini();
+extern void __attribute__((weak)) (*__fini_array_start[])();
+extern void __attribute__((weak)) (*__fini_array_end[])();
+extern void __attribute__((weak)) _fini();
+
+extern __attribute__((visibility("hidden"))) char __is_rtld;
 
 void exit(long exit_code) {
     static char is_exiting = 0;
@@ -92,10 +94,14 @@ void exit(long exit_code) {
 
     __call_atexit();
 
+    if (__is_rtld)
+        _exit(exit_code);
+
     for (int i = __fini_array_end - __fini_array_start - 1; i >= 0; i--)
         __fini_array_start[i]();
 
-    _fini();
+    if (_fini)
+        _fini();
     _exit(exit_code);
 }
 

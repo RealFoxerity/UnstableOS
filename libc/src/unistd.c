@@ -70,7 +70,7 @@ ssize_t write(int fd, const void * buf, size_t count) {
 }
 
 ssize_t pread (int fd, void * buf, size_t count, off_t offset) {
-    ssize_t ret = syscall(SYSCALL_READ, fd, buf, count, offset);
+    ssize_t ret = syscall(SYSCALL_PREAD, fd, buf, count, offset);
     if (ret < 0) {
         ___set_errno(-ret);
         return -1;
@@ -78,7 +78,7 @@ ssize_t pread (int fd, void * buf, size_t count, off_t offset) {
     return ret;
 }
 ssize_t pwrite(int fd, const void * buf, size_t count, off_t offset) {
-    ssize_t ret = syscall(SYSCALL_WRITE, fd, buf, count, offset);
+    ssize_t ret = syscall(SYSCALL_PWRITE, fd, buf, count, offset);
     if (ret < 0) {
         ___set_errno(-ret);
         return -1;

@@ -17,6 +17,8 @@
 #error "Realtime signal ranges larger than realtime signal count!"
 #endif
 
+// if changing any of these defines, change rtld/src/tls.h
+
 #define PROGRAM_STACK_SIZE (1<<20) // 1MiB please keep a multiple of page size
 #define PROGRAM_STACK_START_SIZE (1<<15)
 #define PROGRAM_STACK_GUARD_MAX ((1<<20) - PAGE_SIZE)
@@ -27,8 +29,8 @@
 #define ___PROGRAM_STACK_VADDR (0xD0000000) // top, need this as an integer for the #if to work
 #define PROGRAM_STACK_VADDR ((void*)___PROGRAM_STACK_VADDR) // top
 
-#define GET_STACK_IDX_FROM_ADDR(vaddr) ((PROGRAM_STACK_VADDR - vaddr)/PROGRAM_STACK_SIZE) // returns the index to the stack bitmap for process
-#define GET_STACK_ADDR_FROM_IDX(index) (PROGRAM_STACK_VADDR - index*PROGRAM_STACK_SIZE) // gets the top
+#define GET_STACK_IDX_FROM_ADDR(vaddr) ((PROGRAM_STACK_VADDR - (vaddr))/PROGRAM_STACK_SIZE) // returns the index to the stack bitmap for process
+#define GET_STACK_ADDR_FROM_IDX(index) (PROGRAM_STACK_VADDR - (index)*PROGRAM_STACK_SIZE) // gets the top
 
 #define ___PROGRAM_HEAP_VADDR (0x80000000) // base
 #define PROGRAM_HEAP_VADDR ((void*)___PROGRAM_HEAP_VADDR) // base
@@ -221,11 +223,12 @@ struct process_t {
 void munmap_all(process_t * process);
 
 struct program {
+    file_descriptor_t * main_executable;
     PAGE_DIRECTORY_TYPE * pd_vaddr;
     struct vm_record * vm;
     void * start;
-    void * stack;
-    void * heap;
+    void * stack_image;
+    size_t stack_size;
 };
 
 

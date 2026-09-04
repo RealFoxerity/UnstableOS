@@ -46,8 +46,8 @@ include utils/Include.mk
 
 KERNEL_CFLAGS := $(CFLAGS) 	-ffreestanding -nostdlib -nodefaultlibs \
 	-nostartfiles -std=gnu99 -Isrc/include $(LIBC_INCLUDES) \
-	-Wall -Wno-unknown-pragmas -fno-strict-aliasing -fstack-protector -march=i486 \
-	-MMD -MP -static -fno-pie -fno-pic #-DUSE_LEGACY_PFA
+	-Wall -Wno-unknown-pragmas -fno-strict-aliasing -fstack-protector -fno-delete-null-pointer-checks \
+	-march=i486 -MMD -MP -static -fno-pie -fno-pic #-DUSE_LEGACY_PFA
 
 KERNEL_LDFLAGS := -T src/linker.ld $(LIBC_LIB) -lgcc
 
@@ -99,7 +99,7 @@ build/UnstableOS.iso: build/UnstableOS.bin build/memdisk.tar
 		-o build/UnstableOS.iso build/iso \
 		2> /dev/null
 
-build/memdisk.tar: $(LIBC_HEADERS) $(UTILS_BINS)
+build/memdisk.tar: $(LIBC_HEADERS) $(UTILS_BINS) $(SYSROOT)
 	@$(PROGRESS_LABEL) Generating $@
 	@mkdir -p sysroot/dev sysroot/bin
 	@cp $(UTILS_BINS) sysroot/bin/

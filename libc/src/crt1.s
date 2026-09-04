@@ -1,7 +1,6 @@
 .section .text
 .global _start
 .type _start, @function
-.type main, @function
 
 _start:
     # end of stack frame
@@ -15,5 +14,5 @@ _start:
     addl $0xC, (%esp)
 
     pushl 0x8(%ebp) # argc
-    pushl main
+    pushl $0 # rtld fini
     call __libc_init

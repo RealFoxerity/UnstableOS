@@ -1,9 +1,10 @@
-#include "include/kernel.h"
-#include "include/kernel_exec.h"
-#include "include/kernel_sched.h"
-#include "include/mm/kernel_memory.h"
-#include "../libc/src/include/string.h"
-#include "../libc/src/include/errno.h"
+#include "kernel.h"
+#include "kernel_exec.h"
+#include "kernel_sched.h"
+#include "mm/kernel_memory.h"
+#include <string.h>
+#include <errno.h>
+#include <UnstableOS/elf.h>
 #include <stddef.h>
 
 static char check_address(const void * address) {
@@ -48,46 +49,20 @@ static ssize_t vector_check(char * const* vec, size_t vec_size, size_t * count_o
     return vec_size;
 }
 
-struct {
-    int type;
-    union {
-        long val;
-        void * ptr;
-        void (*fcn)();
-    } un;
-} typedef auxv_t;
-
-enum auxv_types {
-    AT_NULL,
-    AT_IGNORE,
-    AT_EXECFD,
-    AT_PHDR,
-    AT_PHENT,
-    AT_PHNUM,
-    AT_PAGESZ,
-    AT_BASE,
-    AT_FLAGS,
-    AT_ENTRY,
-    AT_LIBPATH,
-    AT_FPHW,
-    AT_INTP_DEVICE,
-    AT_INTP_INODE
-};
-
-ssize_t exec_safe_argv_dup(char * const* argv, char * const* envp, void * stack_top_addr, char ** stack_out) {
+ssize_t exec_safe_argv_dup(char * const* argv, char * const* envp, void * stack_top_addr, int elf_fd, char ** stack_out, auxv_t ** execfd_auxv_out) {
     if (argv == NULL) return -EFAULT;
     if (envp == NULL) return -EFAULT;
     if (!check_address(argv)) return -EFAULT;
     if (!check_address(envp)) return -EFAULT;
 
     kassert(stack_out);
-
+    kassert(execfd_auxv_out);
     ssize_t argv_size = sizeof(unsigned long); // argc, null pointers are counted by vector_check
-    argv_size += sizeof(auxv_t); // NULL auxv entry - we don't yet support any others
+    argv_size += 2 * sizeof(auxv_t); // AT_EXECFD + AT_NULL auxv entries
 
     size_t argc = 0;
     size_t envc = 0;
-    size_t auxc = 0;
+    size_t auxc = 1;
 
     argv_size = vector_check(argv, argv_size, &argc);
     if (argv_size < 0) return argv_size;
@@ -104,7 +79,10 @@ ssize_t exec_safe_argv_dup(char * const* argv, char * const* envp, void * stack_
     ((char**)stack_state)[1 + argc] = NULL;
     ((char**)stack_state)[1 + argc + 1 + envc] = NULL;
     */
-    ((auxv_t *)(((char **)stack_state)[1 + argc + 1 + envc + 1]))[auxc] = (auxv_t) {.type = AT_NULL};
+    ((auxv_t *)&((char **)stack_state)[1 + argc + 1 + envc + 1])[0] = (auxv_t) {.type = AT_EXECFD, .un.val = elf_fd};
+    ((auxv_t *)&((char **)stack_state)[1 + argc + 1 + envc + 1])[auxc] = (auxv_t) {.type = AT_NULL};
+
+    *execfd_auxv_out = (auxv_t*)((char **)stack_state)[1 + argc + 1 + envc + 1];
 
     size_t end_off = 0;
 

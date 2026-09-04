@@ -1,5 +1,10 @@
 .vscode/*
 .idea/*
+*/.idea/*
+*/*/.idea/*
+*.so
+*/*.so
+*/*/*.so
 *.o
 */*.o
 */*/*.o

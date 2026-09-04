@@ -12,8 +12,10 @@ __attribute__ ((__regparm__ (1))) void * ___tls_get_addr (tls_index *ti) {
     struct thread_control_block * tcb =
         (struct thread_control_block *)*tcb_addr;
 
-    unsigned long ** dvt = tcb->dtv_ptr;
+    unsigned long * dvt = tcb->dtv_ptr;
     if (!ti) return NULL;
     if (ti->ti_module + 1 > MAX_DTV_ENTRIES) return NULL;
-    return dvt[ti->ti_module] + ti->ti_offset;
+    //return dvt[ti->ti_module] + ti->ti_offset;
+    // dirty to trick to not need to copy DVTs, TODO: fix when introducing dynamic TLS blocks
+    return (void*)tcb - dvt[ti->ti_module] + ti->ti_offset;
 }

@@ -51,7 +51,7 @@ char load_elf_relocate(file_descriptor_t * file,
         relocation.addend = *(int32_t*)(rela_offset + relocation.offset);
 
     struct symbol_table_entry ste = {0};
-    if (ELF32_R_SYM(relocation.info) != ELF_STN_UNDEF) {
+    if (ELF32_R_SYM(relocation.info) != STN_UNDEF) {
         if (pread_file(file,
             &ste, sizeof(struct symbol_table_entry),
             symtab + ELF32_R_SYM(relocation.info) * syment) != sizeof(struct symbol_table_entry))
@@ -61,24 +61,24 @@ char load_elf_relocate(file_descriptor_t * file,
     uintptr_t symbol_value = ste.value;
     uint32_t final_value = 0;
     switch (ELF32_R_TYPE(relocation.info)) {
-        case ELF_RELT_386_NONE:
+        case R_386_NONE:
             break;
-        case ELF_RELT_386_32:
+        case R_386_32:
             final_value = rela_offset + symbol_value + relocation.addend;
             break;
-        case ELF_RELT_386_PC32:
+        case R_386_PC32:
             // the rela_offset here cancels out
             final_value = symbol_value + relocation.addend - relocation.offset;
             break;
         //case ELF_RELT_386_GOT32:
         //case ELF_RELT_386_PLT32:
-        case ELF_RELT_386_COPY:
+        case R_386_COPY:
             break; // huh?
-        case ELF_RELT_386_GLOB_DAT:
-        case ELF_RELT_386_JMP_SLOT:
+        case R_386_GLOB_DAT:
+        case R_386_JUMP_SLOT:
             final_value = rela_offset + symbol_value;
             break;
-        case ELF_RELT_386_RELATIVE:
+        case R_386_RELATIVE:
             final_value = rela_offset + relocation.addend;
             break;
         //case ELF_RELT_386_GOTOFF:

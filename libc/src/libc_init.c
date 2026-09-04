@@ -5,18 +5,29 @@
 
 char ** environ = NULL;
 
-extern void (* __init_array_start[])();
-extern void (* __init_array_end[])();
-extern void (* __preinit_array_start[])();
-extern void (* __preinit_array_end[])();
+__attribute__((visibility("hidden"))) char __is_rtld = 0;
 
-extern void _init();
-void __libc_init(int (*main)(int argc, char **argv, char **envp), int argc, char ** argv) {
+extern void __attribute__((weak)) (* __init_array_start[])();
+extern void __attribute__((weak)) (* __init_array_end[])();
+extern void __attribute__((weak)) (* __preinit_array_start[])();
+extern void __attribute__((weak)) (* __preinit_array_end[])();
+
+extern void __attribute__((weak)) _init();
+extern int __attribute__((weak)) main(int argc, char **argv, char **envp);
+
+void __libc_init(void (*rtld_fini)(), int argc, char ** argv) {
     environ = argv + argc + 1;
-    _init();
+    if (rtld_fini) {
+        atexit(rtld_fini);
+        __is_rtld = 1;
+        goto skip;
+    }
+    if (_init)
+        _init();
     for (size_t i = 0; __preinit_array_start + i < __preinit_array_end; i++)
         __preinit_array_start[i]();
     for (size_t i = 0; __init_array_start + i < __init_array_end; i++)
         __init_array_start[i]();
+    skip:
     exit(main(argc, argv, environ));
 }

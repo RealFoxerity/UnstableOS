@@ -19,9 +19,7 @@ endif
 UTILS := cat clear echo ls mkdir mount pwd rename rm rmdir setsid sleep stty umount xxd ysh dd zrezset
 UTILS_BINS = $(patsubst %, $(UTILS_BUILD_DIR)/%, $(UTILS))
 
-UTILS_CFLAGS := $(CFLAGS) -Ofast -g $(LIBC_INCLUDES) -MMD -MP -fPIE -pie -Wl,--no-dynamic-linker
-UTILS_LDFLAGS :=
-UTILS_LDLIBS := -lgcc
+UTILS_CFLAGS := $(CFLAGS) -Ofast -g -MMD -MP
 
 define DEFINE_UTIL_RULE
 UTILS_SRCS_$(1) := $$(shell find $(UTILS_ROOT)/$(1)/src/ -type f -name "*.[cs]" 2>/dev/null)
@@ -30,9 +28,7 @@ $(UTILS_BUILD_DIR)/$(1): $$(UTILS_SRCS_$(1)) $(SYSROOT)
 	@$$(PROGRESS_LABEL) Building $$(patsubst $$(MAKE_ROOT)/%,%,$$(abspath $$@))
 	@mkdir -p $$(dir $$@)
 	@$$(CC) $(UTILS_CFLAGS) -I$(UTILS_ROOT)/$(1)/src/include \
-		$(UTILS_LDFLAGS) \
 		$$(UTILS_SRCS_$(1)) \
-		$(UTILS_LDLIBS) \
 		-o $$@
 endef
 

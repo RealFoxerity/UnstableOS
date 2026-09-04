@@ -11,51 +11,40 @@
 #include <string.h>
 #include <fcntl.h>
 
-
-extern ssize_t exec_safe_argv_dup(char * const* argv, char * const* envp, void * stack_top_addr, char ** stack_out);
-
 int sys_execve(const char * path, char * const* argv, char * const* envp) {
     kassert(current_process);
     kassert(current_process->pid != 0 && current_process->ring != 0); // technically we could replace the kernel, but i'd rather not
 
-    char * stack_state = NULL;
-    // the exec_safe_argv_dup isn't thread safe (primarily because of strcpy)
-    // this is a bandaid fix for it
-    // shouldn't be that bad performance-wise considering we only copy at max 16K
-    // though I assume we skip at least 2 ticks like this
-    // TODO: FIX!
-    spinlock_acquire(&scheduler_lock);
-    ssize_t stack_state_sz = exec_safe_argv_dup(argv, envp, PROGRAM_STACK_VADDR, &stack_state);
-    spinlock_release(&scheduler_lock);
+    // idea here is to avoid races, so find the fd now, and replace it with the correct value later
+    // all races on execve are UB anyway
+    int free_fd = -1;
+    spinlock_acquire(&current_process->lock);
+    for (int i = 0; i < FD_LIMIT_PROCESS; i++) {
+        if (!current_process->fds[i]) {
+            free_fd = i;
+            break;
+        }
+    }
+    spinlock_release(&current_process->lock);
 
-    if (stack_state_sz < 0) return stack_state_sz;
-
-    file_descriptor_t * file = get_free_fd();
-    if (!file) {
-        kfree(stack_state);
-        return -ENOMEM;
+    if (free_fd == -1) {
+        // we could roll the dice and hope that the target elf is statically linked
+        // but rather not
+        return -EMFILE;
     }
 
-    inode_t * inode = NULL;
-    int status = openat_inode((void*)AT_FDCWD, path, O_RDONLY, 0, &inode, 0);
-    if (status < 0 || inode == NULL) return status;
-    if (S_ISDIR(inode->mode)) {
-        close_inode(inode);
-        kfree(stack_state);
-        return -EISDIR;
-    }
+    int status = 0;
+    struct program new_prog = load_elf(&status, path, argv, envp, free_fd);
 
-
-    file->inode = inode;
-    file->flags = O_RDONLY;
-
-    struct program new_prog = load_elf(file);
-    close_file(file);
     if (new_prog.pd_vaddr == NULL) {
-        kprintf("Exec format error on attempted exec() by pid %lu tid %lu!\n", current_process->pid, current_thread->tid);
-        kfree(stack_state);
-        return -ENOEXEC;
+        char error[64];
+        strerror_r(-status, error, 64);
+        kprintf("%s on attempted exec() by pid %lu tid %lu!\n", error, current_process->pid, current_thread->tid);
+        return status;
     }
+
+    char * stack_state = new_prog.stack_image;
+    size_t stack_state_sz = new_prog.stack_size;
 
     CRIT_SEC_START
 
@@ -66,10 +55,12 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
     }
 
     for (int i = 0; i < FD_LIMIT_PROCESS; i++) {
-        if (current_process->fds[i] && current_process->fd_flags[i] & (O_CLOEXEC >> 12)) {
-            sys_close(i);
+        if (current_process->fds[i] &&
+            (current_process->fd_flags[i] & (O_CLOEXEC >> 12) || i == free_fd)) {
+                sys_close(i);
         }
     }
+    current_process->fds[free_fd] = new_prog.main_executable;
 
     munmap_all(current_process);
 
@@ -175,38 +166,31 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
 int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     kassert(current_process);
 
-    spinlock_acquire(&scheduler_lock);
-    char * stack_state = NULL;
-    ssize_t stack_state_sz = exec_safe_argv_dup(argv, envp, PROGRAM_STACK_VADDR, &stack_state);
-    spinlock_release(&scheduler_lock);
-    if (stack_state_sz < 0) return stack_state_sz;
-
-    file_descriptor_t * file = get_free_fd();
-    if (!file) {
-        kfree(stack_state);
-        return -ENOMEM;
+    int free_fd = -1;
+    spinlock_acquire(&current_process->lock);
+    for (int i = 0; i < FD_LIMIT_PROCESS; i++) {
+        if (!current_process->fds[i]) {
+            free_fd = i;
+            break;
+        }
     }
+    spinlock_release(&current_process->lock);
 
-    inode_t * inode = NULL;
-    int status = openat_inode((void*)AT_FDCWD, path, O_RDONLY, 0, &inode, 0);
-    if (status < 0 || inode == NULL) return status;
-    if (S_ISDIR(inode->mode)) {
-        close_inode(inode);
-        kfree(stack_state);
-        return -EISDIR;
-    }
+    if (free_fd == -1)
+        return -EMFILE;
 
+    int status = 0;
+    struct program new_prog = load_elf(&status, path, argv, envp, free_fd);
 
-    file->inode = inode;
-    file->flags = O_RDONLY;
-
-    struct program new_prog = load_elf(file);
-    close_file(file);
     if (new_prog.pd_vaddr == NULL) {
-        kprintf("Exec format error on attempted spawn() by pid %lu tid %lu!\n", current_process->pid, current_thread->tid);
-        kfree(stack_state);
-        return -ENOEXEC;
+        char error[64];
+        strerror_r(-status, error, 64);
+        kprintf("%s on attempted spawn() by pid %lu tid %lu!\n", error, current_process->pid, current_thread->tid);
+        return status;
     }
+
+    char * stack_state = new_prog.stack_image;
+    size_t stack_state_sz = new_prog.stack_size;
 
     spinlock_acquire(&scheduler_lock);
     process_t * proc = kalloc(sizeof(process_t));
@@ -267,9 +251,14 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
         memcpy(proc->fds, current_process->fds, FD_LIMIT_PROCESS * sizeof(file_descriptor_t *));
 
     for (int i = 0; i < FD_LIMIT_PROCESS; i++)
-        if (proc->fds[i] && !(proc->fd_flags[i] & (O_CLOEXEC >> 12)) && !(proc->fd_flags[i] & (O_CLOFORK >> 12)))
-            __atomic_add_fetch(&proc->fds[i]->instances, 1, __ATOMIC_ACQUIRE);
+        if (proc->fds[i] &&
+            !(proc->fd_flags[i] & (O_CLOEXEC >> 12)) &&
+            !(proc->fd_flags[i] & (O_CLOFORK >> 12)) &&
+            i != free_fd)
+                __atomic_add_fetch(&proc->fds[i]->instances, 1, __ATOMIC_ACQUIRE);
         else proc->fds[i] = NULL;
+
+    proc->fds[free_fd] = new_prog.main_executable;
 
     __atomic_add_fetch(&proc->pwd->instances, 1, __ATOMIC_ACQUIRE);
     __atomic_add_fetch(&proc->root->instances, 1, __ATOMIC_ACQUIRE);

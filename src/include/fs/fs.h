@@ -175,6 +175,7 @@ int sys_openat(int fd, const char * path, unsigned short flags, mode_t mode);
 // the kernel function itself
 // pass AT_EACCESS to flags to use euid
 int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t mode, inode_t ** out, char trusted_path);
+int openat_file(inode_t * base, const char * path, unsigned int flags, mode_t mode, file_descriptor_t ** out, char trusted_path);
 
 int sys_chdir(const char * path);
 int sys_chroot(const char * path);
