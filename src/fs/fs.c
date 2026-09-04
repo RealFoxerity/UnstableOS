@@ -1000,18 +1000,26 @@ long fcntl_file(file_descriptor_t * file, int cmd, long arg) {
         case F_GETLK:
         case F_OFD_GETLK:
             rw_spinlock_release_write(&file->access_lock);
-            if (!paging_check_address_range((struct flock*)arg, sizeof(struct flock), 1, 0))
+            VM_LOCK(arg);
+            if (!paging_check_address_range((struct flock*)arg, sizeof(struct flock), 1, 0)) {
+                VM_UNLOCK(arg);
                 return -EFAULT;
+            }
             goto flock;
         case F_SETLK:
         case F_SETLKW:
         case F_OFD_SETLK:
         case F_OFD_SETLKW:
             rw_spinlock_release_write(&file->access_lock);
-            if (!paging_check_address_range((struct flock*)arg, sizeof(struct flock), 0, 0))
+            VM_LOCK(arg);
+            if (!paging_check_address_range((struct flock*)arg, sizeof(struct flock), 0, 0)) {
+                VM_UNLOCK(arg);
                 return -EFAULT;
+            }
             flock:
-            return fcntl_lock_file(file, cmd, (struct flock*)arg);
+            ret = fcntl_lock_file(file, cmd, (struct flock*)arg);
+            VM_UNLOCK(arg);
+            return ret;
         default: ret = -EINVAL;
     }
 

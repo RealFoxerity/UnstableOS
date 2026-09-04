@@ -572,7 +572,7 @@ void schedule(__gregcontext_t * context) {
                         checked_process->pending_sigchld_info = exited_child_status;
                         checked_process->pending_waiting      = 1;
 
-                        signal_process(checked_process->parent, &exited_child_status);
+                        __signal_process(checked_process->parent, &exited_child_status);
                         goto cleanup_process;
                     }
                     goto scheduler_start;

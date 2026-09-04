@@ -45,8 +45,10 @@ long futex_wait(const uint32_t * wait_addr, uint32_t expected, pid_t owner, stru
     // (aka with correct usage the race condition doesn't exist)
     if (*wait_addr != expected) {
         spinlock_release(&futex_lock);
+        VM_UNLOCK(wait_addr);
         return -EAGAIN;
     }
+    VM_UNLOCK(wait_addr);
 
     current_thread->owner_dead = 0;
     current_thread->futex_owner = owner;
@@ -114,15 +116,20 @@ long sys_futex(const uint32_t * wait_addr, int op, uint32_t val, pid_t owner, st
     if ((long)wait_addr % 4)
         return -EINVAL;
     char is_kernel = current_process->pid == 0;
-    if (!paging_check_address_range(wait_addr, sizeof(uint32_t), 0, is_kernel))
+    VM_LOCK(wait_addr);
+    if (!paging_check_address_range(wait_addr, sizeof(uint32_t), 0, is_kernel)) {
+        VM_UNLOCK(wait_addr);
         return -EFAULT;
+    }
 
     switch (op) {
         case FUTEX_WAIT:
             return futex_wait(wait_addr, val, owner, timeout, clockid);
         case FUTEX_WAKE:
+            VM_UNLOCK(wait_addr);
             return futex_wake(wait_addr, val);
         default:
+            VM_UNLOCK(wait_addr);
             return -EINVAL;
     }
 }

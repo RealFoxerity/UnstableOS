@@ -82,12 +82,13 @@ static char check_page(const char * addr) {
 static char * secure_strdup(const char * path, size_t max_len, size_t *len_out) {
     if (path == NULL) return NULL;
 
+    VM_LOCK(path);
     size_t path_len;
     for (path_len = 0; path_len < max_len; path_len++) {
-        if (!check_page(path + path_len)) return NULL;
+        if (!check_page(path + path_len)) goto error;
         if (path[path_len] == '\0') break;
     }
-    if (path_len == 0) return NULL;
+    if (path_len == 0) goto error;
 
     char * duped = kalloc(path_len+1); // +1 for the null byte we need to copy
     kassert(duped);
@@ -95,7 +96,12 @@ static char * secure_strdup(const char * path, size_t max_len, size_t *len_out) 
     memcpy(duped, path, path_len+1);
     duped[path_len] = '\0';
     *len_out = path_len;
+    VM_UNLOCK(path);
     return duped;
+
+    error:
+    VM_UNLOCK(path);
+    return NULL;
 }
 
 

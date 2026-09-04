@@ -346,4 +346,18 @@ int check_eintr();
 // is valid for the duration of a syscall (as the end of a syscall forces counter to 0)
 #define CRIT_SEC_START {__atomic_add_fetch(&current_thread->in_critical_section, 1, __ATOMIC_ACQUIRE);}
 #define CRIT_SEC_END {__atomic_sub_fetch(&current_thread->in_critical_section, 1, __ATOMIC_RELEASE);}
+
+// because anything under 0x08000000 is not user accessible anyway,
+//  it will fail earlier than any possible munmap race
+#define VM_LOCK(ptr) do {                                           \
+    if ((void*)(ptr) >= (void*)0x08000000 &&                        \
+        (void*)(ptr) < (void*)PROGRAM_PCB_VADDR)                    \
+            rw_spinlock_acquire_read(&current_process->vm_lock);    \
+} while(0)
+
+#define VM_UNLOCK(ptr) do {                                         \
+    if ((void*)(ptr) >= (void*)0x08000000 &&                        \
+        (void*)(ptr) < (void*)PROGRAM_PCB_VADDR)                    \
+            rw_spinlock_release_read(&current_process->vm_lock);    \
+} while(0)
 #endif

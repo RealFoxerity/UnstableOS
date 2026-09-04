@@ -75,8 +75,7 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
     #endif
     siginfo_t exited_child_status;
 
-    rw_spinlock_acquire_read(&current_process->vm_lock);
-    asm volatile ("sti;"); // should be already marked as such by the rw spinlock, but to be sure
+    asm volatile ("sti;");
 
     switch (syscall_number) {
         case SYSCALL_YIELD:
@@ -94,7 +93,6 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
             spinlock_release(&scheduler_lock);
             break;
         case SYSCALL_EXIT_THREAD:
-            rw_spinlock_release_read(&current_process->vm_lock);
             #ifndef EXIT_AFFECTS_SYSCALLS
             CRIT_SEC_END
             #endif
@@ -105,7 +103,6 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
         case SYSCALL_EXIT:
         case SYSCALL_ABORT:
             asm volatile("cli");
-            rw_spinlock_release_read(&current_process->vm_lock);
             if (syscall_number == SYSCALL_ABORT) {
                 // so that we can keep the fall-through for syscall_exit
                 kprintf("Thread %lu of process %lu called abort()!\n", current_thread->tid, current_process->pid);
@@ -161,39 +158,55 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
             break;
 
         case SYSCALL_READ:
+            VM_LOCK(arg2);
             if (!paging_check_address_range((void*)arg2, (size_t)arg3, 1, in_kernel)) {
                 return_value = -EFAULT;
+                VM_UNLOCK(arg2);
                 break;
             }
             return_value = sys_read(arg1, (void*)arg2, (size_t)arg3);
+            VM_UNLOCK(arg2);
             break;
         case SYSCALL_WRITE:
+            VM_LOCK(arg2);
             if (!paging_check_address_range((const void*)arg2, (size_t)arg3, 0, in_kernel)) {
                 return_value = -EFAULT;
+                VM_UNLOCK(arg2);
                 break;
             }
             return_value =  sys_write(arg1, (const void*)arg2, (size_t)arg3);
+            VM_UNLOCK(arg2);
             break;
         case SYSCALL_PREAD:
+            VM_LOCK(arg2);
             if (!paging_check_address_range((void*)arg2, (size_t)arg3, 1, in_kernel)) {
                 return_value = -EFAULT;
+                VM_UNLOCK(arg2);
                 break;
             }
             return_value = sys_pread(arg1, (void*)arg2, (size_t)arg3, arg4);
+            VM_UNLOCK(arg2);
             break;
         case SYSCALL_PWRITE:
+            VM_LOCK(arg2);
             if (!paging_check_address_range((const void*)arg2, (size_t)arg3, 0, in_kernel)) {
                 return_value = -EFAULT;
+                VM_UNLOCK(arg2);
                 break;
             }
-            return_value = sys_pwrite(arg1, (const void*)arg2, arg3, arg4);
+            return_value = sys_pwrite(arg1, (const void*)arg2, (size_t)arg3, arg4);
+            VM_UNLOCK(arg2);
             break;
         case SYSCALL_TRUNC:
+            VM_LOCK(arg2);
             if (!paging_check_address_range((const void*)arg2, sizeof(off_t), 0, in_kernel)) {
                 return_value = -EFAULT;
+                VM_UNLOCK(arg2);
                 break;
             }
-            return_value = sys_trunc(arg1, *(off_t*)arg2);
+            off_t new_size = *(off_t*)arg2;
+            VM_UNLOCK(arg2);
+            return_value = sys_trunc(arg1, new_size);
             break;
         case SYSCALL_FCNTL:
             return_value = sys_fcntl(arg1, arg2, arg3);
@@ -204,11 +217,14 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
             hd_cache_flush();
             break;
         case SYSCALL_PIPE2:
+            VM_LOCK(arg1);
             if (!paging_check_address_range((int *)arg1, 2*sizeof(int), 1, in_kernel)) {
                 return_value = -EFAULT;
+                VM_UNLOCK(arg1);
                 break;
             }
             return_value = sys_pipe((int *)arg1, arg2);
+            VM_UNLOCK(arg1);
             break;
         case SYSCALL_DUP:
             return_value = sys_dup(arg1);
@@ -223,29 +239,40 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
             return_value = sys_unlinkat(arg1, (const char *)arg2, arg3);
             break;
         case SYSCALL_SEEK:
+            VM_LOCK(arg2);
+            VM_LOCK(arg4);
             if (!paging_check_address_range((off_t*)arg2, sizeof(off_t), 0, in_kernel)) {
                 return_value = -EFAULT;
+                VM_UNLOCK(arg2);
+                VM_UNLOCK(arg4);
                 break;
             }
             if (!paging_check_address_range((off_t*)arg4, sizeof(off_t), 1, in_kernel)) {
                 return_value = -EFAULT;
+                VM_UNLOCK(arg2);
+                VM_UNLOCK(arg4);
                 break;
             }
-
-            off_t out = sys_seek(arg1, *(off_t*)arg2, arg3);
+            off_t in = *(off_t*) arg2;
+            VM_UNLOCK(arg2);
+            off_t out = sys_seek(arg1, in, arg3);
             if (out >= 0) {
                 *(off_t*)arg4 = out;
                 return_value = 0;
             } else {
                 return_value = (long)out; // negative errors
             }
+            VM_UNLOCK(arg4);
             break;
         case SYSCALL_READDIR:
+            VM_LOCK(arg2);
             if (!paging_check_address_range((void*)arg2, arg3, 1, in_kernel)) {
                 return_value = -EFAULT;
+                VM_UNLOCK(arg2);
                 break;
             }
             return_value = sys_readdir(arg1, (void*)arg2, arg3);
+            VM_UNLOCK(arg2);
             break;
         case SYSCALL_SEM_INIT:
             asm volatile("cli"); // TODO: rewrite to be thread safe
@@ -370,61 +397,84 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
             return_value = sys_chroot((const char *)arg1);
             break;
         case SYSCALL_EXEC:
+            rw_spinlock_acquire_read(&current_process->vm_lock);
             return_value = sys_execve((const char *)arg1, (char * const*)arg2, (char * const*)arg3);
+            rw_spinlock_release_read(&current_process->vm_lock);
             break;
         case SYSCALL_SPAWN:
+            rw_spinlock_acquire_read(&current_process->vm_lock);
             return_value = sys_spawn((const char *)arg1, (char * const*)arg2, (char * const*)arg3);
+            rw_spinlock_release_read(&current_process->vm_lock);
             break;
         case SYSCALL_FORK:
+            rw_spinlock_acquire_read(&current_process->vm_lock);
             return_value = sys_fork(ctx);
+            rw_spinlock_release_read(&current_process->vm_lock);
             break;
         case SYSCALL_WAITPID:
+            VM_LOCK(arg2);
             if ((int*)arg2 != NULL) {
                 if (!paging_check_address_range((int*)arg2, sizeof(int), 1, in_kernel)) {
                     return_value = -EFAULT;
+                    VM_UNLOCK(arg2);
                     break;
                 }
             }
             return_value = sys_waitpid(arg1, (int*)arg2, arg3);
+            VM_UNLOCK(arg2);
             break;
         case SYSCALL_WAITID:
+            VM_LOCK(arg3);
             if (!paging_check_address_range((siginfo_t*)arg3, sizeof(siginfo_t), 1, in_kernel)) {
                 return_value = -EFAULT;
+                VM_UNLOCK(arg3);
                 break;
             }
             return_value = sys_waitid(arg1, arg2, (siginfo_t*)arg3, arg4);
+            VM_UNLOCK(arg3);
             break;
         case SYSCALL_FSTAT:
+            VM_LOCK(arg2);
             if (!paging_check_address_range((void*)arg2, sizeof(struct stat), 1, in_kernel)) {
                 return_value = -EFAULT;
+                VM_UNLOCK(arg2);
                 break;
             }
             return_value = sys_fstat(arg1, (struct stat *)arg2);
+            VM_UNLOCK(arg2);
             break;
 
         case SYSCALL_FSTATAT:
-            if (!paging_check_address_range((void*)arg2, sizeof(struct stat), 0, in_kernel)) {
+            VM_LOCK(arg3);
+            if (!paging_check_address_range((void*)arg3, sizeof(struct stat), 0, in_kernel)) {
                 return_value = -EFAULT;
+                VM_UNLOCK(arg3);
                 break;
             }
             return_value = sys_fstatat(arg1, (const char*) arg2, (struct stat *)arg3, arg4);
+            VM_UNLOCK(arg3);
             break;
 
         case SYSCALL_ALARM:
             return_value = (long)sys_alarm((unsigned)arg1);
             break;
         case SYSCALL_TIME:
+            VM_LOCK(arg1);
             if (!paging_check_address_range((void*)arg1, sizeof(time_t), 1, in_kernel)) {
                 return_value = -EFAULT;
+                VM_UNLOCK(arg1);
                 break;
             }
             *(time_t*)arg1 = system_time_sec;
             return_value = 0;
+            VM_UNLOCK(arg1);
             break;
 
         case SYSCALL_CLOCK_GETRES:
+            VM_LOCK(arg2);
             if ((void*)arg2 != NULL && !paging_check_address_range((void*)arg2, sizeof(struct timespec), 1, in_kernel)) {
                 return_value = -EFAULT;
+                VM_UNLOCK(arg2);
                 break;
             }
             switch (arg1) {
@@ -439,10 +489,13 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
                 default:
                     return_value = -EINVAL;
             }
+            VM_UNLOCK(arg2);
             break;
         case SYSCALL_CLOCK_GETTIME:
+            VM_LOCK(arg2);
             if (!paging_check_address_range((void*)arg2, sizeof(struct timespec), 1, in_kernel)) {
                 return_value = -EFAULT;
+                VM_UNLOCK(arg2);
                 break;
             }
             struct timespec * ts = (struct timespec *) arg2;
@@ -460,10 +513,13 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
                 default:
                     return_value = -EINVAL;
             }
+            VM_UNLOCK(arg2);
             break;
         case SYSCALL_CLOCK_SETTIME:
+            VM_LOCK(arg2);
             if (!paging_check_address_range((void*)arg2, sizeof(struct timespec), 0, in_kernel)) {
                 return_value = -EFAULT;
+                VM_UNLOCK(arg2);
                 break;
             }
             extern void rtc_set_time(time_t epoch);
@@ -477,35 +533,53 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
                 default:
                     return_value = -EINVAL;
             }
+            VM_UNLOCK(arg2);
             break;
         case SYSCALL_CLOCK_NANOSLEEP:
+            VM_LOCK(arg3);
+            VM_LOCK(arg4);
             if (!paging_check_address_range((void*)arg3, sizeof(struct timespec), 0, in_kernel)) {
                 return_value = -EFAULT;
+                VM_UNLOCK(arg3);
+                VM_UNLOCK(arg4);
                 break;
             }
             if ((struct timespec *)arg4 != NULL && !paging_check_address_range((void*)arg4, sizeof(struct timespec), 1, in_kernel)) {
                 return_value = -EFAULT;
+                VM_UNLOCK(arg3);
+                VM_UNLOCK(arg4);
                 break;
             }
             return_value = sys_clock_nanosleep(current_process, current_thread, (clockid_t)arg1, arg2, *(struct timespec*)arg3, (struct timespec*)arg4);
+            VM_UNLOCK(arg3);
+            VM_UNLOCK(arg4);
             break;
 
         case SYSCALL_TIMES:
+            VM_LOCK(arg1);
+            VM_LOCK(arg2);
+
             if (!paging_check_address_range((void*)arg1, sizeof(struct tms), 1, in_kernel)) {
                 return_value = -EFAULT;
+                VM_UNLOCK(arg1);
+                VM_UNLOCK(arg2);
                 break;
             }
             if (!paging_check_address_range((void*)arg2, sizeof(clock_t), 1, in_kernel)) {
                 return_value = -EFAULT;
+                VM_UNLOCK(arg1);
+                VM_UNLOCK(arg2);
                 break;
             }
             *(struct tms*)arg1 = (struct tms) {
                 .tms_utime = current_process->user_clicks,
                 .tms_stime = current_process->system_clicks,
                 .tms_cutime = current_process->dead_user_clicks,
-                .tms_cstime = current_process->dead_system_clicks
+                .tms_cstime = current_process->dead_system_clicks,
             };
             *(clock_t *)arg2 = uptime_clicks;
+            VM_UNLOCK(arg1);
+            VM_UNLOCK(arg2);
             break;
         case SYSCALL_KILL:
             return_value = sys_kill(arg1, (int)arg2);
@@ -514,50 +588,77 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
             return_value = sys_tgkill(arg1, arg2, arg3);
             break;
         case SYSCALL_SIGACTION:
+            VM_LOCK(arg2);
+            VM_LOCK(arg3);
+
             if (!paging_check_address_range((void*)arg2, sizeof(struct sigaction), 0, in_kernel)) {
                 return_value = -EFAULT;
+                VM_UNLOCK(arg3);
+                VM_UNLOCK(arg2);
                 break;
             }
+
             if ((struct sigaction *)arg3 != NULL && !paging_check_address_range((void*)arg3, sizeof(struct sigaction), 1, in_kernel)) {
                 return_value = -EFAULT;
+                VM_UNLOCK(arg3);
+                VM_UNLOCK(arg2);
                 break;
             }
             return_value = sys_sigaction(arg1, (struct sigaction *)arg2, (struct sigaction *)arg3);
+            VM_UNLOCK(arg3);
+            VM_UNLOCK(arg2);
             break;
         case SYSCALL_SIGRETURN:
+            VM_LOCK(ctx);
             sys_sigreturn(ctx);
+            VM_UNLOCK(ctx);
             break;
         case SYSCALL_SIGPROCMASK:
+            VM_LOCK(arg2);
             if (!paging_check_address_range((void*)arg2, sizeof(sigset_t), 0, in_kernel)) {
                 return_value = -EFAULT;
+                VM_UNLOCK(arg2);
                 break;
             }
+            VM_LOCK(arg3);
             if ((struct sigaction *)arg3 != NULL && !paging_check_address_range((void*)arg3, sizeof(sigset_t), 1, in_kernel)) {
                 return_value = -EFAULT;
+                VM_UNLOCK(arg3);
+                VM_UNLOCK(arg2);
                 break;
             }
             return_value = sys_sigprocmask(arg1, (const sigset_t *)arg2, (sigset_t *)arg3);
+            VM_UNLOCK(arg3);
+            VM_UNLOCK(arg2);
             break;
         case SYSCALL_SIGPENDING:
+            VM_LOCK(arg1);
             if (!paging_check_address_range((void*)arg1, sizeof(sigset_t), 1, in_kernel)) {
                 return_value = -EFAULT;
+                VM_UNLOCK(arg1);
                 break;
             }
             *(sigset_t *)arg1 = current_process->sa_pending;
             return_value = 0;
+            VM_UNLOCK(arg1);
             break;
         case SYSCALL_SIGSUSPEND:
+            VM_LOCK(arg1);
             if (!paging_check_address_range((void*)arg1, sizeof(sigset_t), 1, in_kernel)) {
                 return_value = -EFAULT;
+                VM_UNLOCK(arg1);
                 break;
             }
             return_value = sys_sigsuspend((const sigset_t *)arg1);
+            VM_UNLOCK(arg1);
             break;
         case SYSCALL_SIGQUEUE:
             return_value = sys_sigqueue(arg1, arg2, (union sigval){arg3});
             break;
         case SYSCALL_IOCTL:
+            rw_spinlock_acquire_read(&current_process->vm_lock);
             return_value = sys_ioctl(arg1, arg2, (void *)arg3);
+            rw_spinlock_release_read(&current_process->vm_lock);
             break;
 
 
@@ -567,17 +668,14 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
                 return_value = -EFAULT;
                 break;
             }
-            rw_spinlock_release_read(&current_process->vm_lock);
             return_value = (long)sys_mmap((void*)arg1, arg2, arg3, arg4, arg5, *(off_t*)arg6);
-            goto syscall_exit_no_vm;
+            break;
         case SYSCALL_MUNMAP:
-            rw_spinlock_release_read(&current_process->vm_lock);
             return_value = sys_munmap((void*)arg1, arg2);
-            goto syscall_exit_no_vm;
+            break;
         case SYSCALL_MPROTECT:
-            rw_spinlock_release_read(&current_process->vm_lock);
             return_value = sys_mprotect((void*)arg1, arg2, arg3);
-            goto syscall_exit_no_vm;
+            break;
 
         default:
             return_value = -ENOSYS;
@@ -586,8 +684,6 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
 
 
     syscall_exit:
-    rw_spinlock_release_read(&current_process->vm_lock);
-    syscall_exit_no_vm:
     #ifndef EXIT_AFFECTS_SYSCALLS
     CRIT_SEC_END
     #endif

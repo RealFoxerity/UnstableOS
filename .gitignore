@@ -8,6 +8,7 @@
 *.o
 */*.o
 */*/*.o
+libc/rtld/test
 build/*
 */build/*
 */*/build/*
