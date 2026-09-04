@@ -41,7 +41,10 @@ unsigned      long strtoul (const char * __restrict start, char ** __restrict en
               long strtol  (const char * __restrict start, char ** __restrict end_out, int base);
 
 char * getenv(const char * name);
-
+char * secure_getenv(const char *name);
+int unsetenv(const char *name);
+int putenv(char *string);
+int setenv(const char *envname, const char *envval, int overwrite);
 
 int getsubopt(char **restrict optionp, char * const *restrict keylistp, char **restrict valuep);
 #endif

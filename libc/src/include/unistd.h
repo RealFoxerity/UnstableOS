@@ -64,6 +64,14 @@ int execl(const char * path, const char * arg0, ...);
 int execle(const char * path, const char * arg0, ...);
 int execlp(const char * file, const char * arg0, ...);
 
+uid_t getuid();
+uid_t geteuid();
+int getresuid(uid_t *restrict ruid, uid_t *restrict euid, uid_t *restrict suid);
+
+gid_t getgid();
+gid_t getegid();
+int getresgid(uid_t *restrict rgid, uid_t *restrict egid, uid_t *restrict sgid);
+
 pid_t getpid();
 pid_t gettid();
 pid_t getppid();

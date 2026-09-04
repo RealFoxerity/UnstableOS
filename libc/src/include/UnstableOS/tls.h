@@ -8,8 +8,8 @@ struct process_control_block {
     pid_t ppid;
     pid_t pgid;
     pid_t sid;
-    uid_t uid;
-    gid_t gid;
+    uid_t uid, euid, suid;
+    gid_t gid, egid, sgid;
 
     // a way to keep track of available address ranges, 1 = used
     // PROGRAM_STACK_VADDR - i*PROGRAM_STACK_SIZE

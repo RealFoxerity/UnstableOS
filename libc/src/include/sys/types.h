@@ -17,6 +17,7 @@ typedef ssize_t suseconds_t;
 typedef ssize_t pid_t;
 typedef ssize_t blksize_t;
 
+// keep these 2 32 bit for syscalls to not require vm locks :p
 typedef id_t gid_t;
 typedef id_t uid_t;
 // unsigned short would be enough, however stdarg has undefined behavior for lesser types

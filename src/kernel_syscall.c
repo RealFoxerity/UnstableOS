@@ -677,6 +677,25 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
             return_value = sys_mprotect((void*)arg1, arg2, arg3);
             break;
 
+
+        case SYSCALL_GETUID:
+            return_value = (long)current_process->uid;
+            break;
+        case SYSCALL_GETEUID:
+            return_value = (long)current_process->euid;
+            break;
+        case SYSCALL_GETSUID:
+            return_value = (long)current_process->suid;
+            break;
+        case SYSCALL_GETGID:
+            return_value = (long)current_process->gid;
+            break;
+        case SYSCALL_GETEGID:
+            return_value = (long)current_process->egid;
+            break;
+        case SYSCALL_GETSGID:
+            return_value = (long)current_process->sgid;
+            break;
         default:
             return_value = -ENOSYS;
             break;

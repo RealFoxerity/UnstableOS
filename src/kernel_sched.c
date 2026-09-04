@@ -261,7 +261,11 @@ void reload_pcb(const process_t * pprocess) {
     pcb->pgid = pprocess->pgrp;
     pcb->sid = pprocess->session;
     pcb->uid = pprocess->uid;
+    pcb->euid = pprocess->euid;
+    pcb->suid = pprocess->suid;
     pcb->gid = pprocess->gid;
+    pcb->egid = pprocess->egid;
+    pcb->sgid = pprocess->sgid;
 }
 
 static void inline switch_context(process_t * pprocess, thread_t * thread, __gregcontext_t * context) {

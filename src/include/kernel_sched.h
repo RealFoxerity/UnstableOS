@@ -164,7 +164,9 @@ struct process_t {
 
     char after_exec; // some functions (like setpgid) throw EACCESS on child processes that underwent exec*()
 
-    unsigned long uid, gid, euid, egid;
+    uid_t uid, euid, suid;
+    gid_t gid, egid, sgid;
+
     PAGE_DIRECTORY_TYPE * address_space_paddr;
 
     void * program_break;

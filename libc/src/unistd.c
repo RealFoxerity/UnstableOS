@@ -198,6 +198,59 @@ pid_t spawn(const char * path, char * const* argv, char * const* envp) {
     return ret;
 }
 
+uid_t getuid() {
+    //return syscall(SYSCALL_GETUID);
+    return __tls_get_tcb()->pcb->uid;
+}
+
+uid_t geteuid() {
+    //return syscall(SYSCALL_GETEUID);
+    return __tls_get_tcb()->pcb->euid;
+}
+
+static uid_t getsuid() {
+    //return syscall(SYSCALL_GETSUID);
+    return __tls_get_tcb()->pcb->suid;
+}
+
+
+int getresuid(uid_t *restrict ruid, uid_t *restrict euid, uid_t *restrict suid) {
+    if (ruid)
+        *ruid = getuid();
+    if (euid)
+        *euid = geteuid();
+    if (suid)
+        *suid = getsuid();
+    return 0;
+}
+
+gid_t getgid() {
+    //return syscall(SYSCALL_GETGID);
+    return __tls_get_tcb()->pcb->gid;
+}
+
+gid_t getegid() {
+    //return syscall(SYSCALL_GETEGID);
+    return __tls_get_tcb()->pcb->egid;
+}
+
+static gid_t getsgid() {
+    //return syscall(SYSCALL_GETSGID);
+    return __tls_get_tcb()->pcb->sgid;
+}
+
+int getresgid(uid_t *restrict rgid, uid_t *restrict egid, uid_t *restrict sgid) {
+    if (rgid)
+        *rgid = getgid();
+    if (egid)
+        *egid = getegid();
+    if (sgid)
+        *sgid = getsgid();
+    return 0;
+}
+
+
+
 pid_t getpid() {
     //return syscall(SYSCALL_GETPID);
     return __tls_get_tcb()->pcb->pid;

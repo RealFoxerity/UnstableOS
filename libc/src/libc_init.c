@@ -4,7 +4,7 @@
 #include <UnstableOS/syscalls.h>
 
 char ** environ = NULL;
-
+__attribute__((visibility("hidden"))) char __is_secure = 1;
 __attribute__((visibility("hidden"))) char __is_rtld = 0;
 
 extern void __attribute__((weak)) (* __init_array_start[])();
@@ -29,5 +29,9 @@ void __libc_init(void (*rtld_fini)(), int argc, char ** argv) {
     for (size_t i = 0; __init_array_start + i < __init_array_end; i++)
         __init_array_start[i]();
     skip:
+    if (geteuid() != getuid() ||
+        getegid() != getgid())
+            __is_secure = 0;
+
     exit(main(argc, argv, environ));
 }

@@ -138,13 +138,154 @@ int waitid(idtype_t idtype, id_t id, siginfo_t * infop, int options) {
     }
     return ret;
 }
+
+#include <assert.h>
+
 extern char ** environ;
+
 char * getenv(const char * name) {
+    size_t name_len = strchrnul(name, '=') - name;
+    if (!name_len || name[name_len])
+        return NULL;
+
     for (int i = 0; environ[i] != NULL; i++) {
-        char * equals = strchrnul(environ[i], '=');
-        if (strncmp(name, environ[i], equals - environ[i]) == 0) {
-            return equals + 1;
+        if (strncmp(name, environ[i], name_len) == 0 && environ[i][name_len] == '=') {
+            return environ[i] + name_len + 1;
         }
     }
     return NULL;
+}
+extern __attribute__((visibility("hidden"))) char __is_secure;
+
+char *secure_getenv(const char *name) {
+    if (!__is_secure)
+        return NULL;
+    return getenv(name);
+}
+
+// I could either leak everything as in glibc
+// or keep track of allocations like in musl
+// I chose the musl approach
+
+static void change_env_ptr(const char * old, const char * new) {
+    if (!old && !new)
+        return;
+
+    static const char ** alloced_ptrs = NULL;
+    static size_t alloced_ptrs_size = 0;
+
+    if (!alloced_ptrs || !old) {
+        extend:
+        const char ** vec = realloc(alloced_ptrs, ++alloced_ptrs_size * sizeof(char*));
+        if (!vec)
+            return; // gg rip we'll leak this one
+        alloced_ptrs = vec;
+        alloced_ptrs[alloced_ptrs_size - 1] = new;
+        return;
+    }
+
+    for (size_t i = 0; i < alloced_ptrs_size; i++) {
+        if (alloced_ptrs[i] == old) {
+            free((void*)old);
+            alloced_ptrs[i] = new;
+            return;
+        }
+        if (!alloced_ptrs[i]) {
+            alloced_ptrs[i] = new;
+            new = NULL;
+        }
+    }
+    if (new)
+        goto extend;
+}
+
+int unsetenv(const char *name) {
+    if (!name || !*name) {
+        ___set_errno(EINVAL);
+        return -1;
+    }
+    size_t name_len = strchrnul(name, '=') - name;
+    if (name[name_len]) {
+        ___set_errno(EINVAL);
+        return -1;
+    }
+
+    int shift_start = -1;
+    int i = 0;
+    for (i = 0; environ[i] != NULL; i++) {
+        if (shift_start == -1 && strncmp(name, environ[i], name_len) == 0 && environ[i][name_len] == '=') {
+            change_env_ptr(environ[i], NULL);
+            shift_start = i;
+        }
+    }
+    if (shift_start == -1)
+        return 0;
+    memcpy(environ + shift_start, environ + shift_start + 1, (i - shift_start) * sizeof(char*));
+    return 0;
+}
+
+static int __putenv(char * string, char alloced) {
+    static int environ_alloced = 0; // allocated by us
+
+    size_t name_len = strchrnul(string, '=') - string;
+
+    int i = 0;
+    for (i = 0; environ[i] != NULL; i++) {
+        if (strncmp(string, environ[i], name_len) == 0 && environ[i][name_len] == '=') {
+            change_env_ptr(environ[i], alloced ? string : NULL);
+            environ[i] = string;
+            return 0;
+        }
+    }
+
+    char ** new_environ = realloc(environ_alloced ? environ : NULL, (i+1) * sizeof(char*));
+    if (!new_environ) {
+        if (alloced)
+            free(string);
+        ___set_errno(ENOMEM);
+        return -1;
+    }
+    if (!environ_alloced)
+        memcpy(new_environ, environ, i * sizeof(char*));
+    environ_alloced = 1;
+    new_environ[i] = string;
+    environ = new_environ;
+    if (alloced)
+        change_env_ptr(NULL, string);
+    return 0;
+}
+
+int putenv(char *string) {
+    if (!string || !*string) {
+        ___set_errno(EINVAL);
+        return -1;
+    }
+    if (!*strchrnul(string, '='))
+        return unsetenv(string);
+    return __putenv(string, 0);
+}
+
+int setenv(const char *envname, const char *envval, int overwrite) {
+    if (!envname || !*envname || *strchrnul(envname, '=')) {
+        ___set_errno(EINVAL);
+        return -1;
+    }
+
+    if (!overwrite && getenv(envname))
+        return 0;
+    size_t env_len = strlen(envname);
+    size_t total = env_len + 1 + 1;
+    if (envval)
+        total += strlen(envval);
+
+    char * new_var = malloc(total);
+    if (!new_var) {
+        ___set_errno(ENOMEM);
+        return -1;
+    }
+
+    strcpy(new_var, envname);
+    new_var[env_len] = '=';
+    strcpy(new_var + env_len + 1, envval);
+    return __putenv(new_var, 1);
 }

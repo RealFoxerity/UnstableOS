@@ -56,6 +56,13 @@ enum syscalls {
     SYSCALL_GETPGID, // getpgid(pid_t target_pid)
     SYSCALL_SETPGID, // setpgid(pid_t target_pid, pid_t target_pgid)
 
+    SYSCALL_GETUID,
+    SYSCALL_GETEUID,
+    SYSCALL_GETSUID,
+    SYSCALL_GETGID,
+    SYSCALL_GETEGID,
+    SYSCALL_GETSGID,
+
     SYSCALL_KILL,
     SYSCALL_TGKILL,
 
