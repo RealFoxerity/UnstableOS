@@ -88,7 +88,7 @@ int sigaddset(sigset_t *set, int signo) {
         return -1;
     }
 
-    *set &= ~GET_SIG_MASK(signo);
+    *set |= GET_SIG_MASK(signo);
     return 0;
 }
 
@@ -102,7 +102,7 @@ int sigdelset(sigset_t *set, int signo) {
         return -1;
     }
 
-    *set |= GET_SIG_MASK(signo);
+    *set &= ~GET_SIG_MASK(signo);
     return 0;
 }
 
@@ -111,7 +111,7 @@ int sigemptyset(sigset_t *set) {
         ___set_errno(EFAULT);
         return -1;
     }
-    *set = (sigset_t)-1;
+    *set = (sigset_t)0;
     return 0;
 }
 
@@ -120,7 +120,7 @@ int sigfillset(sigset_t *set) {
         ___set_errno(EFAULT);
         return -1;
     }
-    *set = 0;
+    *set = (sigset_t)-1;
     return 0;
 }
 
@@ -134,7 +134,7 @@ int sigismember(const sigset_t *set, int signo) {
         return -1;
     }
 
-    return (*set & GET_SIG_MASK(signo)) == 0;
+    return (*set & GET_SIG_MASK(signo)) != 0;
 }
 
 int sigpending(sigset_t *set) {

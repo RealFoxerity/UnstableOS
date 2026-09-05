@@ -131,4 +131,25 @@ typedef unsigned int pthread_once_t;
 
 typedef unsigned int pthread_key_t;
 
+
+// nonstandard but some glibc software wants it
+typedef char bits8_t;
+typedef unsigned char u_bits8_t;
+
+typedef short bits16_t;
+typedef unsigned short u_bits16_t;
+
+typedef int bits32_t;
+typedef unsigned int u_bits32_t;
+
+typedef unsigned long long bits64_t;
+
+typedef unsigned char u_char;
+
+typedef unsigned short u_short;
+
+typedef unsigned int u_int;
+
+typedef unsigned long u_long;
+
 #endif

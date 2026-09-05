@@ -615,7 +615,7 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
             break;
         case SYSCALL_SIGPROCMASK:
             VM_LOCK(arg2);
-            if (!paging_check_address_range((void*)arg2, sizeof(sigset_t), 0, in_kernel)) {
+            if ((struct sigaction *)arg2 != NULL && !paging_check_address_range((void*)arg2, sizeof(sigset_t), 0, in_kernel)) {
                 return_value = -EFAULT;
                 VM_UNLOCK(arg2);
                 break;
