@@ -154,7 +154,6 @@ static struct devfs_node devfs_files[] = {
 // no need for others since we give out raw devices and they bypass the superblock vfs system
 const struct vfs_ops devfs_op = {
     .lookup = devfs_lookup,
-    .seek = devfs_seek,
     .readdir = devfs_readdir
 };
 
@@ -190,14 +189,12 @@ int devfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode
     return status;
 }
 
-// only for readdir
-off_t devfs_seek(file_descriptor_t * fd, off_t off, int whence) {
-    return generic_seek(fd, off, whence, sizeof(devfs_files)/sizeof(struct devfs_node) + 2);
-}
 ssize_t devfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_size, off_t offset) {
     kassert(dent);
     kassert(fd);
 
+    if (offset < 0)
+        return -ENOENT;
     if (offset >= sizeof(devfs_files)/sizeof(struct devfs_node) + 2) return 0;
 
     switch (offset) {

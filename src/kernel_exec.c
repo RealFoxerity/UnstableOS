@@ -37,9 +37,9 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
     struct program new_prog = load_elf(&status, path, argv, envp, free_fd);
 
     if (new_prog.pd_vaddr == NULL) {
-        char error[64];
-        strerror_r(-status, error, 64);
-        kprintf("%s on attempted exec() by pid %lu tid %lu!\n", error, current_process->pid, current_thread->tid);
+        //char error[64];
+        //strerror_r(-status, error, 64);
+        //kprintf("%s on attempted exec() by pid %lu tid %lu!\n", error, current_process->pid, current_thread->tid);
         return status;
     }
 
@@ -183,9 +183,9 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     struct program new_prog = load_elf(&status, path, argv, envp, free_fd);
 
     if (new_prog.pd_vaddr == NULL) {
-        char error[64];
-        strerror_r(-status, error, 64);
-        kprintf("%s on attempted spawn() by pid %lu tid %lu!\n", error, current_process->pid, current_thread->tid);
+        //char error[64];
+        //strerror_r(-status, error, 64);
+        //kprintf("%s on attempted spawn() by pid %lu tid %lu!\n", error, current_process->pid, current_thread->tid);
         return status;
     }
 

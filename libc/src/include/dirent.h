@@ -6,15 +6,13 @@
 #define IFTODT(mode) (mode >> 12)
 #define DTTOIF(dirtype) (dirtype << 12)
 #define DT_UNKNOWN 0
-#define DT_REG IFTODT(__ITMODE_REG)
-#define DT_DIR IFTODT(__ITMODE_DIR)
-#define DT_BLK IFTODT(__ITMODE_BLK)
-#define DT_CHR IFTODT(__ITMODE_CHAR)
-/*
-#define DT_FIFO 4
-#define DT_LNK 5
-#define DT_SOCK 6
-*/
+#define DT_REG IFTODT(S_IFREG)
+#define DT_DIR IFTODT(S_IFDIR)
+#define DT_BLK IFTODT(S_IFBLK)
+#define DT_CHR IFTODT(S_IFCHR)
+#define DT_FIFO IFTODT(S_IFFIFO)
+#define DT_LNK IFTODT(S_IFLNK)
+#define DT_SOCK IFTODT(S_IFSOCK)
 
 struct dirent {
     ino_t d_ino;

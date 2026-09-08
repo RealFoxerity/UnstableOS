@@ -170,6 +170,8 @@ ssize_t fat_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_si
 
     if (!dent)
         return -EFAULT;
+    if (offset < 0)
+        return -ENOENT;
     // it would be better to check for exact files
     // however userspace passing this small of a struct is bs and we don't yet support LFNs
     // 13 for short name + . + \0
@@ -180,11 +182,9 @@ ssize_t fat_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_si
     superblock_t * sb = fd->inode->backing_superblock;
 
     struct fat_dir_entry dentry_buf = {0};
-    sigset_t mask = PAUSE_SIGNALS();
-    if (check_eintr()) {
-        RESTORE_SIGNALS(mask);
+    if (check_eintr())
         return -EINTR;
-    }
+    sigset_t mask = PAUSE_SIGNALS();
     switch (offset) {
         case 0: // .
             *dent = (struct dirent) {
@@ -337,13 +337,6 @@ ssize_t fat_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_si
     return dent->d_reclen;
 }
 
-off_t fat_seek(file_descriptor_t * fd, off_t off, int whence) {
-    kassert(fd);
-    kassert(fd->inode);
-
-    return generic_seek(fd, off, whence, fd->inode->size);
-}
-
 ssize_t fat_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) {
     kassert(fd);
     kassert(fd->inode);
@@ -367,11 +360,9 @@ ssize_t fat_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) {
     if (offset >= (off_t)1<<32)
         return EOVERFLOW;
 
-    sigset_t mask = PAUSE_SIGNALS();
-    if (check_eintr()) {
-        RESTORE_SIGNALS(mask);
+    if (check_eintr())
         return -EINTR;
-    }
+    sigset_t mask = PAUSE_SIGNALS();
 
     struct fat_info * fi = sb->data;
     ssize_t read_bytes = 0;
@@ -681,12 +672,9 @@ ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t off
 
     struct fat_info * fi = sb->data;
     ssize_t written = 0;
-
-    sigset_t mask = PAUSE_SIGNALS();
-    if (check_eintr()) {
-        RESTORE_SIGNALS(mask);
+    if (check_eintr())
         return -EINTR;
-    }
+    sigset_t mask = PAUSE_SIGNALS();
 
     // write as we're going to be editing the FAT
     rw_spinlock_acquire_write(&fi->fs_lock);
@@ -921,11 +909,9 @@ int fat_unlink(inode_t * file) {
     if (file->instances > 1)
         return -EBUSY;
 
-    sigset_t mask = PAUSE_SIGNALS();
-    if (check_eintr()) {
-        RESTORE_SIGNALS(mask);
+    if (check_eintr())
         return -EINTR;
-    }
+    sigset_t mask = PAUSE_SIGNALS();
     rw_spinlock_acquire_write(&fi->fs_lock);
     int ret = __fat_unlink(file);
     if (ret == 0)
@@ -1239,22 +1225,18 @@ static int __fat_creat(inode_t * parent, const char * pathname, mode_t mode, ino
 
 
 int fat_creat(inode_t * parent, const char * pathname, mode_t mode, inode_t ** inode_out) {
-    sigset_t mask = PAUSE_SIGNALS();
-    if (check_eintr()) {
-        RESTORE_SIGNALS(mask);
+    if (check_eintr())
         return -EINTR;
-    }
+    sigset_t mask = PAUSE_SIGNALS();
     int ret = __fat_creat(parent, pathname, mode, inode_out, 0);
     RESTORE_SIGNALS(mask);
     return ret;
 }
 
 int fat_mkdir(inode_t * parent, const char * pathname, mode_t mode, inode_t ** inode_out) {
-    sigset_t mask = PAUSE_SIGNALS();
-    if (check_eintr()) {
-        RESTORE_SIGNALS(mask);
+    if (check_eintr())
         return -EINTR;
-    }
+    sigset_t mask = PAUSE_SIGNALS();
     int ret = __fat_creat(parent, pathname, mode, inode_out, 1);
     RESTORE_SIGNALS(mask);
     return ret;
@@ -1267,11 +1249,9 @@ int fat_rename(inode_t * old, inode_t * new, const char * name) {
     superblock_t * sb = old->backing_superblock;
     struct fat_info * fi = sb->data;
 
-    sigset_t mask = PAUSE_SIGNALS();
-    if (check_eintr()) {
-        RESTORE_SIGNALS(mask);
+    if (check_eintr())
         return -EINTR;
-    }
+    sigset_t mask = PAUSE_SIGNALS();
 
     int ret = 0;
     struct fat_dir_entry old_file = {0};
@@ -1372,11 +1352,10 @@ int fat_trunc(inode_t * file, off_t length) {
     superblock_t * sb = file->backing_superblock;
     struct fat_info * fi = sb->data;
 
-    sigset_t mask = PAUSE_SIGNALS();
-    if (check_eintr()) {
-        RESTORE_SIGNALS(mask);
+    if (check_eintr())
         return -EINTR;
-    }
+
+    sigset_t mask = PAUSE_SIGNALS();
 
     rw_spinlock_acquire_write(&fi->fs_lock);
 
@@ -1401,8 +1380,6 @@ int fat_release(inode_t * file) {
 
     rw_spinlock_acquire_write(&fi->fs_lock);
     sigset_t mask = PAUSE_SIGNALS();
-    int old_sig = current_thread->sa_to_be_handled;
-    current_thread->sa_to_be_handled = 0;
 
     struct fat_dir_entry dentry_buf = {0};
 
@@ -1431,7 +1408,6 @@ int fat_release(inode_t * file) {
     }
 
     err:
-    current_thread->sa_to_be_handled = old_sig;
     RESTORE_SIGNALS(mask);
     rw_spinlock_release_write(&fi->fs_lock);
     return ret;
@@ -1442,7 +1418,6 @@ const struct vfs_ops fat_op = {
     .fs_deinit = fat_deinit,
     .lookup    = fat_lookup,
     .readdir   = fat_readdir,
-    .seek      = fat_seek,
     .pread     = fat_pread,
     .pwrite    = fat_pwrite,
     .unlink    = fat_unlink,
@@ -1453,6 +1428,11 @@ const struct vfs_ops fat_op = {
     .release   = fat_release,
 
     .utimes_supported = 1,
+
+    .atime_supported = 1,
+    .mtime_supported = 1,
+    .ctime_supported = 1,
+
     .min_atime = 315532800, // 01/01/1980 00:00:00
     .min_mtime = 315532800,
     .min_ctime = 315532800,

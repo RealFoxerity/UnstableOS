@@ -22,7 +22,6 @@ const struct vfs_ops tar_op = {
     .fs_init = tar_load_fs,
     .fs_deinit = tar_unload_fs,
     .lookup = tarfs_lookup,
-    .seek = tarfs_seek,
     .pread = tarfs_pread,
     .readdir = tarfs_readdir,
 };
@@ -206,6 +205,7 @@ static void tar_free_node(struct tar_node * node) {
 }
 
 int tar_load_fs(superblock_t * sb) {
+    sb->mount_options |= MOUNT_RDONLY;
     const char * root_path = "/";
     sb->data = create_new_node(root_path, root_path+1, 0, 0, 0, 0, S_IFDIR | S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH, 0, 0);
     ((struct tar_node*)sb->data)->upper = sb->data;
@@ -359,7 +359,7 @@ int tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode
         new_inode.pipe = ????
     }*/
 
-    return register_inode(&new_inode, inode_out, 0);
+    return register_inode(&new_inode, inode_out, flags);
 }
 
 ssize_t tarfs_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) {
@@ -402,15 +402,11 @@ ssize_t tarfs_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) 
     return read;
 }
 
-off_t tarfs_seek(file_descriptor_t * fd, off_t off, int whence) {
-    kassert(fd);
-    kassert(fd->inode);
-
-    return generic_seek(fd, off, whence, fd->inode->size);
-}
-
 ssize_t tarfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_size, off_t offset) {
-    kassert(dent);
+    if (!dent)
+        return -EFAULT;
+    if (offset < 0)
+        return -ENOENT;
 
     kassert(fd);
     kassert(fd->inode);

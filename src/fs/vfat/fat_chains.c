@@ -16,7 +16,6 @@ size_t fat_next_in_chain(size_t last_cluster, const superblock_t * sb) {
     uint16_t next;
 
     sigset_t mask = PAUSE_SIGNALS();
-    int old_sig = current_thread->sa_to_be_handled;
 
     switch (fi->type) {
         case FAT12:
@@ -27,7 +26,6 @@ size_t fat_next_in_chain(size_t last_cluster, const superblock_t * sb) {
                 sizeof(uint16_t),
                 fi->fat_start_sector * fi->bytes_per_sector + fat_offset
             ) != sizeof(uint16_t)) {
-                current_thread->sa_to_be_handled = old_sig;
                 RESTORE_SIGNALS(mask);
                 return -1;
             }
@@ -37,7 +35,6 @@ size_t fat_next_in_chain(size_t last_cluster, const superblock_t * sb) {
                 next &= 0x0FFF;
             if (next > FAT_CLUSTER_END_FAT12)
                 next &= ~0x000F; // we want -1 to be an error value
-            current_thread->sa_to_be_handled = old_sig;
             RESTORE_SIGNALS(mask);
             return next;
         case FAT16:
@@ -48,13 +45,11 @@ size_t fat_next_in_chain(size_t last_cluster, const superblock_t * sb) {
                 fi->fat_start_sector * fi->bytes_per_sector + sizeof(uint16_t) * last_cluster
                 ) != sizeof(uint16_t)
             ) {
-                current_thread->sa_to_be_handled = old_sig;
                 RESTORE_SIGNALS(mask);
                 return -1;
             }
             if (next > FAT_CLUSTER_END_FAT16)
                 next &= ~0x000F;
-            current_thread->sa_to_be_handled = old_sig;
             RESTORE_SIGNALS(mask);
             return next;
         case FAT32:
@@ -66,18 +61,15 @@ size_t fat_next_in_chain(size_t last_cluster, const superblock_t * sb) {
                 fi->fat_start_sector * fi->bytes_per_sector + sizeof(uint32_t) * last_cluster
                 ) != sizeof(uint32_t)
             ) {
-                current_thread->sa_to_be_handled = old_sig;
                 RESTORE_SIGNALS(mask);
                 return -1;
             }
             next_32 &= ~0xF0000000; // reserved bits
             if (next_32 > FAT_CLUSTER_END_FAT32)
                 next_32 &= ~0x000F;
-            current_thread->sa_to_be_handled = old_sig;
             RESTORE_SIGNALS(mask);
             return next_32;
     }
-    current_thread->sa_to_be_handled = old_sig;
     RESTORE_SIGNALS(mask);
     return -1;
 }
@@ -95,7 +87,6 @@ int fat_set_chain(size_t last_cluster, size_t next, const superblock_t * sb) {
         fi->last_free_cluster = last_cluster;
 
     sigset_t mask = PAUSE_SIGNALS();
-    int old_sig = current_thread->sa_to_be_handled;
 
     for (size_t i = 0; i < fi->fat_copies; i++) {
         switch (fi->type) {
@@ -111,7 +102,6 @@ int fat_set_chain(size_t last_cluster, size_t next, const superblock_t * sb) {
                     (fi->fat_start_sector + i*fi->sectors_per_fat)*fi->bytes_per_sector + fat_offset
                     ) != sizeof(uint16_t)
                 ) {
-                    current_thread->sa_to_be_handled = old_sig;
                     RESTORE_SIGNALS(mask);
                     return -EIO;
                 }
@@ -129,7 +119,6 @@ int fat_set_chain(size_t last_cluster, size_t next, const superblock_t * sb) {
                     (fi->fat_start_sector + i*fi->sectors_per_fat)*fi->bytes_per_sector + fat_offset
                     ) != sizeof(uint16_t)
                 ) {
-                    current_thread->sa_to_be_handled = old_sig;
                     RESTORE_SIGNALS(mask);
                     return -EIO;
                 }
@@ -142,7 +131,6 @@ int fat_set_chain(size_t last_cluster, size_t next, const superblock_t * sb) {
                     (fi->fat_start_sector + i*fi->sectors_per_fat)*fi->bytes_per_sector + sizeof(uint16_t) * last_cluster
                     ) != sizeof(uint16_t)
                 ) {
-                    current_thread->sa_to_be_handled = old_sig;
                     RESTORE_SIGNALS(mask);
                     return -EIO;
                 }
@@ -155,13 +143,11 @@ int fat_set_chain(size_t last_cluster, size_t next, const superblock_t * sb) {
                     (fi->fat_start_sector + i*fi->sectors_per_fat)*fi->bytes_per_sector + sizeof(uint32_t) * last_cluster
                     ) != sizeof(uint32_t)
                 ) {
-                    current_thread->sa_to_be_handled = old_sig;
                     RESTORE_SIGNALS(mask);
                     return -EIO;
                 }
         }
     }
-    current_thread->sa_to_be_handled = old_sig;
     RESTORE_SIGNALS(mask);
     return 0;
 }

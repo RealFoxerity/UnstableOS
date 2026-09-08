@@ -116,29 +116,25 @@ long register_inode(const inode_t * inode, inode_t ** inode_out, unsigned short 
         goto ret;
     }
 
-    // can't do a memcpy in case we found the old one, and it's mounted, or has a different instance count...
-    new_inode->id = inode->id;
-    new_inode->mode = inode->mode;
-    new_inode->nlink = inode->nlink;
-    new_inode->uid  = inode->uid;
-    new_inode->gid  = inode->gid;
-    new_inode->btime = inode->btime;
-    new_inode->mtime = inode->mtime;
-    new_inode->atime = inode->atime;
-    new_inode->size = inode->size;
-    new_inode->io_block_size = inode->io_block_size;
+    memcpy(new_inode, inode, sizeof(inode_t));
+    // cleanup fields that could potentially be catastrophic
+    new_inode->lock = (spinlock_t){0};
+    new_inode->mmap_pc_lock = (rw_spinlock_t){0};
+    new_inode->flocks = NULL;
+    new_inode->mmap_page_cache = NULL;
+    new_inode->next_superblock = NULL; // is set by mount, any value here is wrong
+    new_inode->is_mountpoint = 0; // same reason
+    new_inode->mmaped_instances = 0;
+    new_inode->instances = 1;
 
-    new_inode->backing_superblock = inode->backing_superblock;
-    if (S_ISCHR(inode->mode) || S_ISBLK(inode->mode))
-        new_inode->device = inode->device;
-    else if S_ISFIFO(inode->mode)
-        new_inode->pipe   = inode->pipe;
-
-    if (S_ISCHR(inode->mode) || S_ISBLK(inode->mode))
-        if ((status = open_dev(new_inode, dev_flags)) < 0) {
-            new_inode->instances = 0; // "free" the inode
-            new_inode = NULL;
-        }
+     if (S_ISCHR(inode->mode) || S_ISBLK(inode->mode)) {
+         new_inode->dev_opened = 0;
+         if ((status = open_dev(new_inode, dev_flags)) < 0) {
+             new_inode->instances = 0; // "free" the inode
+             new_inode = NULL;
+         }
+     } else
+         new_inode->pipe = NULL; // is a union so sets the whole thing as 0
 
     if (new_inode && new_inode->backing_superblock)
         __atomic_add_fetch(&new_inode->backing_superblock->instances, 1, __ATOMIC_ACQUIRE);

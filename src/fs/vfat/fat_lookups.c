@@ -219,11 +219,9 @@ int fat_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t
     }
 
 
-    sigset_t mask = PAUSE_SIGNALS();
-    if (check_eintr()) {
-        RESTORE_SIGNALS(mask);
+    if (check_eintr())
         return -EINTR;
-    }
+    sigset_t mask = PAUSE_SIGNALS();
     if (strcmp(pathname, "..") == 0) {
         if (!last || last->id == 0) {
             RESTORE_SIGNALS(mask);
@@ -304,5 +302,5 @@ int fat_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t
         .atime = fat_time_to_epoch((struct fat_time){0}, dentry_buf.adate),
         .mode = 0777 | (dentry_buf.attr & FAT_DENTRY_ATTR_SUBDIR ? S_IFDIR : S_IFREG)
     };
-    return register_inode(&file, inode_out, 0);
+    return register_inode(&file, inode_out, flags);
 }

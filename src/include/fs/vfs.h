@@ -47,7 +47,9 @@ struct vfs_ops {
 
     ssize_t (*pread) (file_descriptor_t * fd, void * buf, size_t n, off_t offset);
     ssize_t (*pwrite)(file_descriptor_t * fd, const void * buf, size_t n, off_t offset);
-    off_t (*seek)    (file_descriptor_t * fd, off_t off, int whence);
+
+    // if the fs requires special handling outside of just generic seeking, will default to generic_seek if NULL
+    off_t   (*seek)  (file_descriptor_t * fd, off_t off, int whence);
 
 
     // doubles as rmdir if file is a directory
@@ -73,17 +75,24 @@ struct vfs_ops {
     //void(*rewinddir)(file_descriptor_t * fd);
 
     // the following are just 0/1 if supported, the vfs layer sets stuff in the inode_t struct, see release()
+    // read-only filesystems don't need to set any of these
     char utimes_supported;
     char chmod_supported;
     char chown_supported;
     char chgrp_supported;
 
+    // for utimesat, stat will return these anyway
+    char btime_supported; // only ext2
+    char ctime_supported;
+    char mtime_supported;
+    char atime_supported;
+
     // constants for chown/chgrp
     uid_t uid_max;
     gid_t gid_max;
 
-    time_t max_ctime, max_mtime, max_atime;
-    time_t min_ctime, min_mtime, min_atime;
+    time_t max_btime, max_ctime, max_mtime, max_atime;
+    time_t min_btime, min_ctime, min_mtime, min_atime;
 };
 
 #include <UnstableOS/mount.h>

@@ -25,10 +25,11 @@ struct mmap_page_cache {
     char dirty;
     void * page;
 };
-
+// warning: all pointers except backing_superblock and data are set to NULL on creation
+// note: data is not checked against in register_inode and if the inode exists, will leak it!
 struct inode_t {
     ino_t id; // unique identifier *for a given filesystem*
-
+    void * data; // for internal structures
     mode_t mode; // __I*
 
     uid_t uid;

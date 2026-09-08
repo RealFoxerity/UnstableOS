@@ -30,7 +30,7 @@ List of defined syscalls can be found in [<UnstableOS/syscalls.h>](./libc/src/in
 ---
 - PS/2 keyboards and mice
 - RS/232 (serial)
-- Tar as a filesystem, FAT
+- Tar as a filesystem, FAT, ext2 (read-only currently)
 - mountable devtmpfs
 - RTC
 - VGA, VBE, BGA

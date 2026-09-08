@@ -282,7 +282,7 @@ char * strchrnul(const char * s, int c) {
 
 char * strchr(const char * s, int c) {
     char * n = strchrnul(s, c);
-    if (*n == '\0')
+    if (*n == '\0' && c != '\0')
         return NULL;
     return n;
 }

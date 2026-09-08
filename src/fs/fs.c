@@ -320,7 +320,7 @@ off_t seek_file(file_descriptor_t * file, off_t off, int whence) {
         kassert(file->inode->backing_superblock);
         kassert(file->inode->backing_superblock->funcs);
         if (file->inode->backing_superblock->funcs->seek == NULL)
-            ret = -EINVAL;
+            ret = generic_seek(file, off, whence, file->inode->size);
         else
             ret = file->inode->backing_superblock->funcs->seek(file, off, whence);
     } else if (S_ISBLK(file->inode->mode) || S_ISCHR(file->inode->mode)) {
@@ -1139,11 +1139,14 @@ int utimes_inode(inode_t * inode, const struct timespec atime, const struct time
 
 
     spinlock_acquire(&inode->lock);
-    if (atime.tv_nsec != UTIME_OMIT)
+    if (atime.tv_nsec != UTIME_OMIT &&
+        inode->backing_superblock->funcs->atime_supported)
         inode->atime = target_asec;
-    if (mtime.tv_nsec != UTIME_OMIT)
+    if (mtime.tv_nsec != UTIME_OMIT &&
+        inode->backing_superblock->funcs->mtime_supported)
         inode->mtime = target_msec;
-    if (ctime.tv_nsec != UTIME_OMIT)
+    if (ctime.tv_nsec != UTIME_OMIT &&
+        inode->backing_superblock->funcs->ctime_supported)
         inode->ctime = target_csec;
     spinlock_release(&inode->lock);
     return 0;
