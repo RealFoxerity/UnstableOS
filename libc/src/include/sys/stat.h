@@ -65,6 +65,9 @@ int fstatat(int fd, const char * __restrict path, struct stat * __restrict buf, 
 mode_t umask(mode_t mask);
 
 int mkdir(const char *path, mode_t mode);
+int mkdirat(int fd, const char *path, mode_t mode);
+int mknod(const char *path, mode_t mode, dev_t dev);
+int mknodat(int fd, const char *path, mode_t mode, dev_t dev);
 
 #define UTIME_NOW  (-1)
 #define UTIME_OMIT (-2)

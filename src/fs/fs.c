@@ -154,7 +154,7 @@ ssize_t pread_file(file_descriptor_t *file, void *buf, size_t count, off_t offse
     if (file->flags & (O_SEARCH | O_PATH)) return -EBADF;
 
     if (S_ISDIR(file->inode->mode)) return -EISDIR;
-    if (!(file->flags & O_RDONLY)) return -EINVAL;
+    if (!(file->flags & O_RDONLY)) return -EBADF;
     if (count == 0) return 0;
 
 #ifdef E2BIG_ON_2G
@@ -225,7 +225,7 @@ ssize_t pwrite_file(file_descriptor_t *file, const void *buf, size_t count, off_
 
     if (S_ISDIR(file->inode->mode)) return -EISDIR;
     if (!(file->flags & O_WRONLY))
-        return -EINVAL;
+        return -EBADF;
 
 #ifdef E2BIG_ON_2G
     if (count > SSIZE_MAX) return -E2BIG;
@@ -664,8 +664,10 @@ int stat_inode(inode_t * inode, struct stat * buf) {
         .st_mtime = inode->mtime,
         .st_ctime = inode->ctime,
         .st_blksize = inode->io_block_size,
+        .st_blocks = inode->block_count,
     };
-    if (inode->io_block_size != 0)
+    if (inode->io_block_size != 0 &&
+        (!inode->backing_superblock->funcs || !inode->backing_superblock->funcs->block_count_supported))
         buf->st_blocks = (inode->size + inode->io_block_size - 1) / inode->io_block_size;
 
     return 0;
@@ -1195,6 +1197,12 @@ int inode_check_perm(inode_t * inode, int amode, int flag) {
 
     uid_t target_uid = flag & AT_EACCESS ? current_process->euid : current_process->uid;
     gid_t target_gid = flag & AT_EACCESS ? current_process->egid : current_process->gid;
+
+    if (target_uid == 0) {
+        if (amode & X_OK && (inode->mode & 0111) == 0 && !S_ISDIR(inode->mode))
+            return -EACCES;
+        return 0;
+    }
 
     amode <<= 6; // bump up to the user perms
     if (inode->uid == target_uid)

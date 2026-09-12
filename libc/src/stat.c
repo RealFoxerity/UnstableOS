@@ -43,3 +43,22 @@ mode_t umask(mode_t mask) {
 int mkdir(const char *path, mode_t mode) {
     return mkdirat(AT_FDCWD, path, mode);
 }
+int mkdirat(int fd, const char *path, mode_t mode) {
+    int ret = open(path, O_CREAT | O_DIRECTORY, mode);
+    if (ret < 0)
+        return ret;
+    close(ret);
+    return 0;
+}
+
+int mknod(const char *path, mode_t mode, dev_t dev) {
+    return mknodat(AT_FDCWD, path, mode, dev);
+}
+int mknodat(int fd, const char *path, mode_t mode, dev_t dev) {
+    int ret = syscall(SYSCALL_MKNODAT, fd, path, mode, dev);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return ret;
+}

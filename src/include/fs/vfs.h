@@ -22,6 +22,7 @@ so
 #include <dirent.h>
 #include <time.h>
 struct vfs_ops {
+    // implementations need to do their own PAUSE_SIGNALS and RESTORE_SIGNALS
     // implementations need to set the new file->size on change
     // implementations need to set the new btime on creat()
     // mtime and atime are handled by the vfs layer
@@ -43,7 +44,7 @@ struct vfs_ops {
 
     // closing of the very last instance of an inode
     // also should sync (if supported) timestamps, mode, and uid/gid
-    int (*release)   (inode_t *);
+    int (*release)   (inode_t * inode);
 
     ssize_t (*pread) (file_descriptor_t * fd, void * buf, size_t n, off_t offset);
     ssize_t (*pwrite)(file_descriptor_t * fd, const void * buf, size_t n, off_t offset);
@@ -58,8 +59,12 @@ struct vfs_ops {
     int (*unlink)    (inode_t * file);
     int (*trunc)     (inode_t * file, off_t length);
 
+    // all creating functions are required to check whether the file already exists or not
+    // keep mode clear of format type
     int (*creat)     (inode_t * parent, const char * pathname, mode_t mode, inode_t ** inode_out);
     int (*mkdir)     (inode_t * parent, const char * pathname, mode_t mode, inode_t ** inode_out);
+    // only for the device mknod, put S_IFBLK or S_IFCHR into mode
+    int (*mknod)     (inode_t * parent, const char * pathname, mode_t mode, dev_t dev);
 
     // if name == NULL, then new is the target, otherwise new is the parent directory
     // implementations should double-check that no race leading to name existing happened
@@ -80,6 +85,7 @@ struct vfs_ops {
     char chmod_supported;
     char chown_supported;
     char chgrp_supported;
+    char block_count_supported;
 
     // for utimesat, stat will return these anyway
     char btime_supported; // only ext2

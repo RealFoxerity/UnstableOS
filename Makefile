@@ -32,6 +32,7 @@ endif
 # Global CFLAGS that apply to everything
 CFLAGS += -march=i486
 CFLAGS += -std=c99
+CFLAGS += $(LIBC_INCLUDES)
 
 DEBUG ?= 1
 

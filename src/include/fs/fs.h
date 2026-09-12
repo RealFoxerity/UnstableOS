@@ -44,12 +44,13 @@ struct inode_t {
 
     off_t size;
     blksize_t io_block_size;
+    blkcnt_t block_count;
 
     struct flock_info * flocks;
 
     struct superblock_t * backing_superblock; // used to lookup functions to use for i/o operations, same as next for "/"
 
-    spinlock_t lock; // mostly just for atomic times
+    spinlock_t lock; // mostly just for atomic times and size
 
     char is_mountpoint; // if inode is a mountpoint, instances will be at least 1 to avoid clean, think of it as the superblock using it
     struct superblock_t * next_superblock; // pointer to the superblock structure mounted at this inode
@@ -174,7 +175,6 @@ int get_fd_from_inode(inode_t * inode, unsigned short flags);
 
 int sys_openat(int fd, const char * path, unsigned short flags, mode_t mode);
 // the kernel function itself
-// pass AT_EACCESS to flags to use euid
 int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t mode, inode_t ** out, char trusted_path);
 int openat_file(inode_t * base, const char * path, unsigned int flags, mode_t mode, file_descriptor_t ** out, char trusted_path);
 
@@ -231,6 +231,7 @@ int sys_dup(int oldfd);
 int sys_dup3(int oldfd, int newfd, int flags);
 int sys_unlinkat(int fd, const char *path, int flags);
 int sys_renameat(int oldfd, const char * old, int newfd, const char * new);
+int sys_mknodat(int fd, const char *path, mode_t mode, dev_t dev);
 
 #include <UnstableOS/mount.h>
 long mount_dev(dev_t dev, inode_t * mount_point, unsigned char type, unsigned short options);

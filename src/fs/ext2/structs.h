@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#define dkprintf(fmt, ...) kprintf("ext2: "fmt, ##__VA_ARGS__)
+
 #define EXT2_MAGIC (0xef53)
 
 #define EXT2_FS_CLEAN 1
@@ -109,7 +111,7 @@ struct ext2_sb {
 } __attribute__((aligned(4)));
 
 struct ext2_bgroup_desc {
-    uint32_t bgroup_bitmap_block; // block id with the block bitmap of this block group
+    uint32_t block_bitmap_block; // block id with the block bitmap of this block group
     uint32_t inode_bitmap_block;  //               ... inode ...
     uint32_t inode_table_block;   // block id with the first inode of the inode table
     uint16_t free_blocks;
@@ -208,6 +210,10 @@ struct ext2_directory {
     /* 0 - 255 byte name here */
 } __attribute__((aligned(4)));
 
+
+#define EXT2_LOOKASIDE_BUFFER_LEN 128
+#define EXT2_LAST_BUFFER_LEN 64
+
 #include "../../include/kernel_spinlock.h"
 struct ext2_metadata {
     rw_spinlock_t access_lock;
@@ -219,6 +225,27 @@ struct ext2_metadata {
     unsigned char sparse_sb : 1;
     unsigned char large_files : 1;
     unsigned char filetype : 1;
+
+    unsigned long last_visited_bgroup; // will go up the disk and then back to 0
+    unsigned long lookaside_cache_inodes[EXT2_LOOKASIDE_BUFFER_LEN];
+    unsigned long lookaside_cache_blocks[EXT2_LOOKASIDE_BUFFER_LEN];
+    unsigned long lookaside_cache_inodes_tail;
+    unsigned long lookaside_cache_blocks_tail;
+
+    unsigned long last_freed_inodes[EXT2_LAST_BUFFER_LEN]; // strictly 0 indexed
+    unsigned long last_freed_blocks[EXT2_LAST_BUFFER_LEN]; // strictly 0 indexed
+    unsigned long last_freed_inodes_tail;
+    unsigned long last_freed_blocks_tail;
 };
+
+int ext2_replenish_cache(superblock_t * sb, char for_inodes);
+unsigned long ext2_allocate(superblock_t * sb, ino_t ideal_locality, char get_inode);
+unsigned long ext2_get_block(superblock_t * sb, struct ext2_inode * inode, off_t target_offset, char is_blockno, char alloc);
+void ext2_adjust_bgroup_dir_count(superblock_t * sb, unsigned long ino, short delta);
+void ext2_free(superblock_t * sb, unsigned long block, char get_inode);
+int ext2_free_indirect(superblock_t * sb, unsigned long block, unsigned long left);
+int ext2_free_doubly_indirect(superblock_t * sb, unsigned long block, unsigned long left);
+int ext2_free_triply_indirect(superblock_t * sb, unsigned long block, unsigned long left);
+int ext2_alloc_dentry(superblock_t * sb, struct ext2_inode * dir, const char * name, ino_t ino, mode_t file_type);
 
 #endif

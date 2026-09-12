@@ -335,7 +335,7 @@ static size_t tty_console_write(tty_t * tty) {
         console_write(tq->buffer, tq->tail);
     }
 
-    tty_com_write(tty);
+    //tty_com_write(tty);
     tty->oqueue.head = tty->oqueue.tail = 0;
 
     spinlock_release(&tq->queue_lock);
@@ -351,7 +351,7 @@ tty_t * tty_init_tty(tcflag_t imodes, tcflag_t lmodes, tcflag_t omodes, const un
     memset(new_tty, 0, sizeof(tty_t));
 
     *new_tty = (tty_t) {
-        .used = 1,
+        .instances = 1,
         .com_port = com_port,
         .foreground_pgrp = foreground_pgrp,
         .height = height,
@@ -390,8 +390,6 @@ long tty_open(inode_t * tty, unsigned short flags) {
     if (!S_ISCHR(tty->mode))
         return -1;
     dev_t dev = tty->device;
-    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE))
-        dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_0);
     if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CURRENT)) {
         spinlock_acquire(&current_process->lock);
         dev = current_process->ctty;
@@ -399,12 +397,15 @@ long tty_open(inode_t * tty, unsigned short flags) {
         if (dev == 0)
             return -ENXIO;
     }
+    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE))
+        dev = GET_DEV(DEV_MAJ_TTY, KERNEL_CONSOLE_MINOR);
     if (!is_valid_tty(dev))
         return -ENODEV;
 
     tty_t * term = terminals[MINOR(dev)];
 
     spinlock_acquire(&term->tty_lock);
+    __atomic_add_fetch(&term->instances, 1, __ATOMIC_ACQUIRE);
     if (term->session == 0 && flags & O_TTY_INIT)
         tty_set_defaults(term);
     if (term->session == 0 && !(flags & (O_NOCTTY | O_SEARCH | O_PATH))) {
@@ -439,15 +440,15 @@ long tty_close(inode_t * tty) {
         return -1;
     dev_t dev = tty->device;
     if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE))
-        dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_0);
-    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CURRENT)) {
+        dev = GET_DEV(DEV_MAJ_TTY, KERNEL_CONSOLE_MINOR);
+    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CURRENT))
         return 0; // pseudo device, will never actually "get open", so nothing to close
-    }
     if (!is_valid_tty(dev))
         return -1;
     tty_t * term = terminals[MINOR(dev)];
     spinlock_acquire(&term->tty_lock);
-    term->session = term->foreground_pgrp = 0;
+    if (__atomic_sub_fetch(&term->instances, 1, __ATOMIC_RELEASE) == 0)
+        term->session = term->foreground_pgrp = 0;
     spinlock_release(&term->tty_lock);
     return 0;
 }
@@ -455,7 +456,7 @@ long tty_close(inode_t * tty) {
 void tty_alloc_kernel_console() { // for the kernel task, don't call for user processes
     if (kernel_task == NULL) panic("Tried to allocate console before initializing kernel task!");
 
-    tty_t * kernel_console = tty_init_tty(
+    tty_t * tty0 = tty_init_tty(
         TTYDEF_IFLAG,
         TTYDEF_LFLAG,
         TTYDEF_OFLAG,
@@ -463,8 +464,17 @@ void tty_alloc_kernel_console() { // for the kernel task, don't call for user pr
         display_height, display_width,
         tty_console_write, 0,
         0, 0);
-    tty_register(kernel_console, DEV_TTY_0);
-    tty_register(kernel_console, DEV_TTY_S0);
+    tty_register(tty0, DEV_TTY_0);
+
+    tty_t * ttyS0 = tty_init_tty(
+        TTYDEF_IFLAG,
+        TTYDEF_LFLAG,
+        TTYDEF_OFLAG,
+        default_control_chars,
+        display_height, display_width,
+        tty_com_write, 0,
+        0, 0);
+    tty_register(ttyS0, DEV_TTY_S0);
 
     tty_t * ttys1 = tty_init_tty(
         TTYDEF_IFLAG,
@@ -818,8 +828,6 @@ ssize_t tty_pread(file_descriptor_t * file, void * s, size_t n, off_t offset) {
 
     // assuming now file is a valid pointer
     dev_t dev = file->inode->device;
-    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE))
-        dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_0);
     if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CURRENT)) {
         spinlock_acquire(&current_process->lock);
         dev = current_process->ctty;
@@ -827,6 +835,8 @@ ssize_t tty_pread(file_descriptor_t * file, void * s, size_t n, off_t offset) {
         if (dev == 0)
             return -ENXIO;
     }
+    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE))
+        dev = GET_DEV(DEV_MAJ_TTY, KERNEL_CONSOLE_MINOR);
     if (!is_valid_tty(dev)) return -EINVAL;
 
     if (n == 0) return 0;
@@ -909,8 +919,6 @@ ssize_t tty_pwrite(file_descriptor_t * file, const void * s, size_t n, off_t off
 
     // likewise assuming now file is a valid pointer
     dev_t dev = file->inode->device;
-    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE))
-        dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_0);
     if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CURRENT)) {
         spinlock_acquire(&current_process->lock);
         dev = current_process->ctty;
@@ -918,6 +926,8 @@ ssize_t tty_pwrite(file_descriptor_t * file, const void * s, size_t n, off_t off
         if (dev == 0)
             return -ENXIO;
     }
+    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE))
+        dev = GET_DEV(DEV_MAJ_TTY, KERNEL_CONSOLE_MINOR);
     if (!is_valid_tty(dev)) return -EINVAL;
 
     if (n == 0) return 0;
@@ -937,7 +947,8 @@ ssize_t tty_pwrite(file_descriptor_t * file, const void * s, size_t n, off_t off
     return ret;
 }
 long tty_write_to_tty(const char * s, size_t n, dev_t dev) { // writes data into read queue of a tty, aka recv input
-    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE)) dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_0);
+    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE))
+        dev = GET_DEV(DEV_MAJ_TTY, KERNEL_CONSOLE_MINOR);
         // since the underlying tty is the same for S0 and 0, having both would input stuff 2 times
     if (n == 0) return 0;
 

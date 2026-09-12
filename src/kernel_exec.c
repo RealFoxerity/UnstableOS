@@ -233,6 +233,7 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
         // kernel spawning /init
         proc->ring = 3;
         proc->pgrp = proc->pid; // 1, note that you can't signal to pgrp 1 either
+        proc->pgrp_leader = proc;
         proc->session = proc->pid;
         terminals[DEV_TTY_0]->foreground_pgrp = proc->pgrp;
         terminals[DEV_TTY_0]->session = proc->session;

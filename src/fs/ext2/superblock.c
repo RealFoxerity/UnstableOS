@@ -12,10 +12,11 @@
 #include "fs/vfs.h"
 
 #include "structs.h"
-#define dkprintf(fmt, ...) kprintf("ext2: "fmt, ##__VA_ARGS__)
 
 // TODO: add fragment checking if/when adding fragment support
 // note: neither Linux, BSD, or HURD support fragments :p
+    static int ext2_get_inode(const superblock_t * sb, ino_t ino, struct ext2_inode * out);
+
 int ext2_init(superblock_t * sb) {
     kassert(sb);
     kassert(sb->fd);
@@ -156,20 +157,26 @@ int ext2_init(superblock_t * sb) {
 
     sb->data = meta;
     strcpy(meta->sb.last_mountpoint, "TODO: Implement last mountpoint into UnstableOS");
+
+    if (!(sb->mount_options & MOUNT_RDONLY))
+        ext2_replenish_cache(sb, 0);
     return 0;
 }
 
 int ext2_deinit(superblock_t * sb) {
     kassert(sb);
+    struct ext2_metadata * meta = sb->data;
+    if (!(sb->mount_options & MOUNT_RDONLY))
+        if (pwrite_file(sb->fd, &meta->sb, sizeof(struct ext2_sb), 1024) < 0)
+            dkprintf("Warning: Failed superblock write\n");
     kfree(sb->data);
     return 0;
 }
 
 // lock if looking up, lockless if inode already exists
-static int ext2_get_inode(const superblock_t * sb, ino_t ino, struct ext2_inode * out) {
+static off_t ext2_get_inode_offset(const superblock_t * sb, ino_t ino) {
     kassert(ino > 0);
     kassert(sb);
-    kassert(out);
 
     struct ext2_metadata * meta = sb->data;
     kassert(meta);
@@ -188,9 +195,19 @@ static int ext2_get_inode(const superblock_t * sb, ino_t ino, struct ext2_inode 
     if (pread_file(sb->fd,
         &bgd, sizeof(struct ext2_bgroup_desc),
         bgroup_desc_start) != sizeof(struct ext2_bgroup_desc))
-            return -EIO;
+        return -EIO;
 
-    off_t inode_off = bgd.inode_table_block * meta->block_size + block_index * meta->sb.inode_size;
+    return bgd.inode_table_block * meta->block_size + block_index * meta->sb.inode_size;
+}
+
+static int ext2_get_inode(const superblock_t * sb, ino_t ino, struct ext2_inode * out) {
+    kassert(ino > 0);
+    kassert(sb);
+    kassert(out);
+
+    off_t inode_off = ext2_get_inode_offset(sb, ino);
+    if (inode_off < 0)
+        return (int)inode_off;
 
     if (pread_file(sb->fd,
         out, sizeof(struct ext2_inode),
@@ -199,76 +216,42 @@ static int ext2_get_inode(const superblock_t * sb, ino_t ino, struct ext2_inode 
     return 0;
 }
 
-// if is_blockno is set, target offset specifies a block number instead of an offset into the file
-// potentially easier on for loops
-static unsigned long ext2_get_block(const superblock_t * sb, const struct ext2_inode * inode, off_t target_offset, char is_blockno) {
+static int ext2_lookup_internal(superblock_t * sb, struct ext2_inode * ino, const char * pathname, struct ext2_directory * dirent) {
     kassert(sb);
-    kassert(inode);
-    if (target_offset < 0)
-        return 0;
+    kassert(sb->data);
+
     struct ext2_metadata * meta = sb->data;
-    if (!is_blockno)
-        target_offset /= meta->block_size;
-    // direct pointers are enough
-    if (target_offset < 12)
-        return inode->blocks[target_offset];
 
-    // indirect block
-    target_offset -= 12;
-    unsigned long block = inode->indirect_block; // to do gotos
-    if (target_offset < meta->block_size / 4) {
-        indirect:
+    char name[256] = {0};
+    for (size_t i = 0; ; i++) {
+        unsigned long block = ext2_get_block(sb, ino, i, 1, 0);
         if (block == 0)
-            return 0;
-        off_t block_offset = block * meta->block_size;
+            return -ENOENT;
+        for (size_t offset = 0; offset < meta->block_size;) {
+            if (pread_file(sb->fd,
+                dirent, sizeof(struct ext2_directory),
+                block * meta->block_size + offset) != sizeof(struct ext2_directory) ||
+                dirent->name_len > dirent->rec_len - 8)
+                    return -EIO;
+            if (pread_file(sb->fd,
+                name, dirent->name_len,
+                block * meta->block_size + offset + sizeof(struct ext2_directory)
+                ) != dirent->name_len)
+                    return -EIO;
 
-        block_offset += target_offset * 4;
-        unsigned long out = 0;
-        // error will lead to out still being 0
-        pread_file(sb->fd,
-            &out, sizeof(out),
-            block_offset);
-        return out;
+            name[dirent->name_len] = '\0';
+            if (dirent->inode != 0 && strncmp(pathname, name, 255) == 0)
+                return 0;
+            if (dirent->rec_len == 0) {
+                dkprintf("Warning: directory entry with record length 0, skipping rest of block %lu\n", block);
+                break;
+            }
+            offset += dirent->rec_len;
+            if (offset % 4)
+                dkprintf("Warning: Unaligned directory entry at block %lu\n", block);
+        }
     }
-
-    // doubly indirect
-    target_offset -= meta->block_size / 4;
-    block = inode->d_indirect_block;
-    if (target_offset < (meta->block_size / 4) * meta->block_size / 4) {
-        double_indirect:
-        if (block == 0)
-            return 0;
-        off_t block_offset = block * meta->block_size;
-
-        block_offset += (target_offset / (meta->block_size / 4)) * 4;
-        target_offset = target_offset % (meta->block_size / 4);
-        unsigned long out = 0;
-        // error will lead to out still being 0
-        pread_file(sb->fd,
-            &out, sizeof(out),
-            block_offset);
-        block = out;
-        goto indirect;
-    }
-
-    // triply indirect
-    target_offset -= (meta->block_size / 4) * meta->block_size / 4;
-    if (target_offset >= (meta->block_size / 4) * (meta->block_size / 4) * meta->block_size / 4)
-        return 0; // file larger than max supported for this block size
-
-    if (inode->t_indirect_block == 0)
-        return 0;
-    off_t block_offset = inode->t_indirect_block * meta->block_size;
-    block_offset += (target_offset / (meta->block_size / 4) / (meta->block_size / 4)) * 4;
-    target_offset = target_offset % ((meta->block_size / 4) * meta->block_size / 4);
-
-    unsigned long out = 0;
-    // error will lead to out still being 0
-    pread_file(sb->fd,
-        &out, sizeof(out),
-        block_offset);
-    block = out;
-    goto double_indirect;
+    return -ENOENT;
 }
 
 int ext2_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t ** inode_out, unsigned short flags) {
@@ -313,47 +296,13 @@ int ext2_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_
     }
 
     struct ext2_directory dirent = {0};
-    char name[256] = {0};
     rw_spinlock_acquire_read(&meta->access_lock);
-    for (size_t i = 0; ; i++) {
-        unsigned long block = ext2_get_block(sb, &ino, i, 1);
-        if (block == 0) {
-            rw_spinlock_release_read(&meta->access_lock);
-            ret = -ENOENT;
-            goto end;
-        }
-        for (size_t offset = 0; offset < meta->block_size;) {
-            if (pread_file(sb->fd,
-                &dirent, sizeof(struct ext2_directory),
-                block * meta->block_size + offset) != sizeof(struct ext2_directory) ||
-                dirent.name_len > dirent.rec_len - 8
-            ) {
-                rw_spinlock_release_read(&meta->access_lock);
-                ret = -EIO;
-                goto end;
-            }
-            if (pread_file(sb->fd,
-                name, dirent.name_len,
-                block * meta->block_size + offset + sizeof(struct ext2_directory)
-                ) != dirent.name_len
-            ) {
-                rw_spinlock_release_read(&meta->access_lock);
-                ret = -EIO;
-                goto end;
-            }
-            name[dirent.name_len] = '\0';
-            if (dirent.inode != 0 && strncmp(pathname, name, 255) == 0)
-                goto found;
-            if (dirent.rec_len == 0) {
-                dkprintf("Warning: directory entry with record length 0, skipping rest of block %lu\n", block);
-                break;
-            }
-            offset += dirent.rec_len;
-            if (offset % 4)
-                dkprintf("Warning: Unaligned directory entry at block %lu\n", block);
-        }
+    ret = ext2_lookup_internal(sb, &ino, pathname, &dirent);
+    if (ret < 0) {
+        rw_spinlock_release_read(&meta->access_lock);
+        goto end;
     }
-    found:
+
     if (dirent.inode == 0)
         ret = -ENOENT;
     else if (meta->filetype &&
@@ -385,9 +334,15 @@ int ext2_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_
             .atime = ino.atime,
             .size  = size,
             .io_block_size = (blksize_t)meta->block_size,
+            .block_count = ino.used_512blocks,
         };
         if (S_ISBLK(new_inode.mode) || S_ISCHR(new_inode.mode))
             new_inode.device = ino.blocks[0] ? ino.blocks[0] : ino.blocks[1];
+        new_inode.device &= 0x7FFF;
+        // we don't have a true separation between char and block devices like ext2 expects
+        if (S_ISCHR(new_inode.mode))
+            new_inode.device |= 0x8000;
+
         if (S_ISFIFO(ino.mode)) {
             ret = -ENXIO;
             dkprintf("Named pipes are not yet supported\n");
@@ -442,7 +397,7 @@ ssize_t ext2_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_s
         goto end;
 
     rw_spinlock_acquire_read(&meta->access_lock);
-    unsigned long block = ext2_get_block(sb, &ino, block_number, 1);
+    unsigned long block = ext2_get_block(sb, &ino, block_number, 1, 0);
     if (block == 0) {
         ret = 0;
         goto end2;
@@ -471,7 +426,7 @@ ssize_t ext2_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_s
     // slightly paranoid approach just in case
     if ((dir.rec_len == 0 && block_offset) || actual_offset >= meta->block_size - sizeof(struct ext2_directory) - 2) {
         block_number++;
-        block = ext2_get_block(sb, &ino, block_number, 1);
+        block = ext2_get_block(sb, &ino, block_number, 1, 0);
         if (block == 0) {
             ret = 0;
             goto end2;
@@ -584,10 +539,10 @@ ssize_t ext2_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) {
 
     rw_spinlock_acquire_read(&meta->access_lock);
     size_t read_bytes = 0;
-    for (; read_bytes < n && offset < fd->inode->size;) {
-        unsigned long block = ext2_get_block(sb, &ino, offset, 0);
+    while (read_bytes < n && offset < fd->inode->size) {
+        unsigned long block       = ext2_get_block(sb, &ino, offset, 0, 0);
         size_t remaining_of_block = meta->block_size - offset % meta->block_size;
-        size_t to_read = remaining_of_block > n - read_bytes ? n - read_bytes : remaining_of_block;
+        size_t to_read            = remaining_of_block > n - read_bytes ? n - read_bytes : remaining_of_block;
         if (offset + to_read > fd->inode->size)
             to_read = fd->inode->size - offset;
 
@@ -623,11 +578,559 @@ ssize_t ext2_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) {
     return ret;
 }
 
+ssize_t ext2_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t offset) {
+    kassert(fd);
+    kassert(fd->inode);
+    kassert(fd->inode->backing_superblock);
+    superblock_t * sb = fd->inode->backing_superblock;
+    kassert(sb->data);
+    struct ext2_metadata * meta = sb->data;
+    if (!buf)
+        return -EFAULT;
+
+    if (offset < 0) return -EINVAL;
+    if (!S_ISREG(fd->inode->mode)) return -EINVAL;
+
+    if (n == 0) return 0;
+#ifdef E2BIG_ON_2G
+    if (n > SSIZE_MAX) return -E2BIG;
+#else
+    if (n > SSIZE_MAX) n = SSIZE_MAX;
+#endif
+
+    if (check_eintr())
+        return -EINTR;
+    sigset_t sig = PAUSE_SIGNALS();
+
+    struct ext2_inode ino;
+    ssize_t ret;
+    off_t inode_offset = ext2_get_inode_offset(sb, fd->inode->id);
+    if (inode_offset < 0) {
+        ret = (ssize_t)inode_offset;
+        goto end;
+    }
+    ret = ext2_get_inode(sb, fd->inode->id, &ino);
+    if (ret < 0)
+        goto end;
+
+    rw_spinlock_acquire_write(&meta->access_lock);
+    size_t written_bytes = 0;
+    while (written_bytes < n) {
+        unsigned long block = ext2_get_block(sb, &ino, offset, 0, 1);
+        if (block) {
+            if (pwrite_file(sb->fd,
+                &ino, sizeof(ino),
+                inode_offset) < 0
+            ) {
+                ret = -EIO;
+                rw_spinlock_release_write(&meta->access_lock);
+                goto end;
+            }
+            fd->inode->block_count = ino.used_512blocks;
+        }
+        size_t remaining_of_block = meta->block_size - offset % meta->block_size;
+        size_t to_write           = remaining_of_block > n - written_bytes ? n - written_bytes : remaining_of_block;
+
+        // release since this might take some time, so to make it more responsive
+        rw_spinlock_release_write(&meta->access_lock);
+        RESTORE_SIGNALS(sig);
+        if (!block) {
+            ret = -ENOSPC;
+            goto end2;
+        }
+
+        if (check_eintr()) {
+            eintr:
+            ret = written_bytes == 0 ? -EINTR : (ssize_t)written_bytes;
+            goto end2;
+        }
+
+        ret = pwrite_file(sb->fd,
+            buf + written_bytes, to_write,
+            block * meta->block_size + offset % meta->block_size);
+        if (ret == -EINTR)
+            goto eintr;
+
+        if (ret < 0)
+            goto end2;
+
+        written_bytes += ret;
+        offset += ret;
+
+        if (ret != to_write) {
+            ret = (ssize_t)written_bytes;
+            goto end2;
+        }
+
+        sig = PAUSE_SIGNALS();
+        rw_spinlock_acquire_write(&meta->access_lock);
+    }
+    rw_spinlock_release_write(&meta->access_lock);
+    ret = (ssize_t)written_bytes;
+
+    end:
+    RESTORE_SIGNALS(sig);
+    end2:
+    spinlock_acquire(&fd->inode->lock);
+    if (offset > fd->inode->size)
+        fd->inode->size = offset;
+    spinlock_release(&fd->inode->lock);
+    return ret;
+}
+
+static int ext2_trunc_to_size(superblock_t * sb, struct ext2_inode * ino, unsigned long blocks) {
+    kassert(sb);
+    kassert(sb->data);
+    kassert(ino);
+
+    struct ext2_metadata * meta = sb->data;
+    if (blocks <= 12 + meta->block_size / 4 + (meta->block_size / 4) * (meta->block_size / 4)) {
+        int ret = ext2_free_triply_indirect(sb, ino->t_indirect_block, 0);
+        if (ret < 0)
+            return ret;
+
+        ext2_free(sb, ino->t_indirect_block, 0);
+        ino->t_indirect_block = 0;
+    } else {
+        return ext2_free_triply_indirect(sb, ino->t_indirect_block,
+            blocks - 12 - meta->block_size / 4 - (meta->block_size / 4) * (meta->block_size / 4));
+    }
+    if (blocks <= 12 + meta->block_size / 4) {
+        int ret = ext2_free_doubly_indirect(sb, ino->d_indirect_block, 0);
+        if (ret < 0)
+            return ret;
+        ext2_free(sb, ino->d_indirect_block, 0);
+        ino->d_indirect_block = 0;
+    } else {
+        return ext2_free_doubly_indirect(sb, ino->t_indirect_block,
+            blocks - 12 - meta->block_size / 4);
+    }
+    if (blocks <= 12) {
+        int ret = ext2_free_indirect(sb, ino->indirect_block, 0);
+        if (ret < 0)
+            return ret;
+        ext2_free(sb, ino->indirect_block, 0);
+        ino->indirect_block = 0;
+    } else {
+        return ext2_free_indirect(sb, ino->indirect_block,
+            blocks - 12);
+    }
+
+    for (unsigned long i = blocks; i < 12; i++) {
+        ext2_free(sb, ino->blocks[i], 0);
+        ino->blocks[i] = 0;
+    }
+    return 0;
+}
+
+int ext2_trunc(inode_t * file, off_t length) {
+    kassert(file);
+    if (length < 0)
+        return -EINVAL;
+    if (!S_ISREG(file->mode))
+        return -EINVAL;
+
+    superblock_t * sb = file->backing_superblock;
+    kassert(sb);
+    kassert(sb->data);
+    struct ext2_metadata * meta = sb->data;
+
+    spinlock_acquire(&file->lock);
+    if (length > file->size) {
+        file->size = length; // ext2 supports sparse files
+        spinlock_release(&file->lock);
+        return 0;
+    }
+    spinlock_release(&file->lock);
+
+    if (check_eintr())
+        return -EINTR;
+
+    sigset_t sig = PAUSE_SIGNALS();
+    rw_spinlock_acquire_write(&meta->access_lock);
+    int ret;
+    unsigned long target_blocks = (length + meta->block_size - 1) / meta->block_size;
+    struct ext2_inode ino;
+    off_t inode_offset = ext2_get_inode_offset(sb, file->id);
+    if (inode_offset < 0) {
+        ret = (int)inode_offset;
+        goto err;
+    }
+    ret = ext2_get_inode(sb, file->id, &ino);
+    if (ret < 0)
+        goto err;
+
+    ret = ext2_trunc_to_size(sb, &ino, target_blocks);
+    if (ret < 0)
+        goto err;
+    ino.used_512blocks = target_blocks * (meta->block_size / 512);
+    ret = pwrite_file(sb->fd,
+        &ino, sizeof(ino),
+        inode_offset);
+    if (ret < 0)
+        goto err;
+
+    spinlock_acquire(&file->lock);
+    file->size = length;
+    file->block_count = ino.used_512blocks;
+    spinlock_release(&file->lock);
+
+    ret = 0;
+
+    err:
+    rw_spinlock_release_write(&meta->access_lock);
+    RESTORE_SIGNALS(sig);
+    return ret;
+}
+
+int ext2_release(inode_t * inode) {
+    kassert(inode);
+    kassert(inode->backing_superblock);
+    superblock_t * sb = inode->backing_superblock;
+    kassert(sb->data);
+    struct ext2_metadata * meta = sb->data;
+
+    sigset_t sig = PAUSE_SIGNALS();
+    struct ext2_inode ino;
+    int ret = ext2_get_inode(sb, inode->id, &ino);
+    if (ret < 0)
+        goto end;
+
+    off_t offset = ext2_get_inode_offset(sb, inode->id);
+    if (offset < 0) {
+        ret = (int)offset;
+        goto end;
+    }
+
+    rw_spinlock_acquire_write(&meta->access_lock);
+
+    if (inode->nlink == 0) {
+        ext2_trunc_to_size(sb, &ino, 0);
+        ext2_free(sb, inode->id, 1);
+        goto freed;
+    }
+
+    ino.mode = inode->mode;
+    ino.uid  = inode->uid;
+    ino.osd2_linux.uid_high = inode->uid >> 16;
+    if (meta->large_files) {
+        ino.lo_size = inode->size;
+        ino.hi_size = (int32_t)(inode->size >> 32);
+    } else
+        ino.size = (int32_t)inode->size;
+    ino.atime = (int32_t)inode->atime;
+    ino.btime = (int32_t)inode->btime;
+    ino.mtime = (int32_t)inode->mtime;
+
+    ino.gid = inode->gid;
+    ino.osd2_linux.gid_high = inode->gid >> 16;
+
+    ino.nlink = inode->nlink;
+    //ino.used_512blocks = inode->block_count;
+
+
+    ret = pwrite_file(sb->fd,
+        &ino, sizeof(ino),
+        offset);
+
+    freed:
+    rw_spinlock_release_write(&meta->access_lock);
+    end:
+    RESTORE_SIGNALS(sig);
+    return ret;
+}
+
+static void ext2_inodet_to_ext2inode(const inode_t * inode, struct ext2_inode * out) {
+    kassert(inode);
+    kassert(out);
+    memset(out, 0, sizeof(struct ext2_inode));
+
+    out->mode = inode->mode;
+    out->uid  = inode->uid;
+    out->atime = (int32_t)inode->atime;
+    out->btime = (int32_t)inode->btime;
+    out->mtime = (int32_t)inode->mtime;
+    out->gid = inode->gid;
+    out->nlink = inode->nlink;
+    out->osd2_linux.uid_high = inode->uid >> 16;
+    out->osd2_linux.gid_high = inode->gid >> 16;
+
+    if (S_ISBLK(inode->mode) || S_ISCHR(inode->mode))
+        out->blocks[0] = inode->device & 0x7FFF;
+}
+
+static off_t ext2_creat_internal(superblock_t * sb, struct ext2_inode * ino, const struct ext2_inode * new, ino_t parent_inode, const char * pathname) {
+    struct ext2_directory dent;
+    int ret = ext2_lookup_internal(sb, ino, pathname, &dent);
+    if (ret == 0)
+        return -EEXIST;
+    if (ret != -ENOENT)
+        return ret;
+
+    unsigned long new_ino = ext2_allocate(sb, parent_inode, 1);
+    if (new_ino == 0)
+        return -ENOSPC;
+    ret = ext2_alloc_dentry(sb, ino, pathname, new_ino, new->mode);
+    if (ret < 0) {
+        ext2_free(sb, new_ino, 1);
+        return ret;
+    }
+    off_t inode_offset = ext2_get_inode_offset(sb, new_ino);
+    if (inode_offset < 0) {
+        dkprintf("Warning: error on inode write, dangling directory entry!\n");
+        ext2_free(sb, new_ino, 1);
+        return inode_offset;
+    }
+
+    ret = pwrite_file(sb->fd,
+        new, sizeof(struct ext2_inode),
+        inode_offset);
+    if (ret < 0) {
+        dkprintf("Warning: error on inode write, dangling directory entry!\n");
+        ext2_free(sb, new_ino, 1);
+        return ret;
+    }
+    return new_ino;
+}
+
+int ext2_creat(inode_t * parent, const char * pathname, mode_t mode, inode_t ** inode_out) {
+    if (strcmp(pathname, ".") == 0 || strcmp(pathname, "..") == 0)
+        return -EINVAL;
+    mode &= ~S_IFMT;
+    kassert(parent);
+    if (!S_ISDIR(parent->mode))
+        return -ENOTDIR;
+
+    kassert(pathname);
+    kassert(inode_out);
+    superblock_t * sb = parent->backing_superblock;
+    kassert(sb);
+    kassert(sb->data);
+    struct ext2_metadata * meta = sb->data;
+
+    inode_t new = {
+        .uid = parent->mode & S_ISUID ? parent->uid : current_process->euid,
+        .gid = parent->mode & S_ISGID ? parent->gid : current_process->egid,
+        .nlink = 1,
+        .atime = system_time_sec,
+        .ctime = system_time_sec,
+        .mtime = system_time_sec,
+        .btime = system_time_sec,
+        .backing_superblock = sb,
+        .mode = mode | S_IFREG,
+        .io_block_size = (blksize_t)meta->block_size,
+    };
+
+    struct ext2_inode e2new, ino;
+    ext2_inodet_to_ext2inode(&new, &e2new);
+
+    if (check_eintr())
+        return -EINTR;
+    sigset_t sig = PAUSE_SIGNALS();
+
+    int ret = ext2_get_inode(sb, parent->id, &ino);
+    if (ret < 0) {
+        RESTORE_SIGNALS(sig);
+        return ret;
+    }
+    rw_spinlock_acquire_write(&meta->access_lock);
+
+    off_t new_inode = ext2_creat_internal(sb, &ino, &e2new, parent->id, pathname);
+    if (new_inode < 0)
+        ret = (int)new_inode;
+    else
+        new.id = new_inode;
+
+    rw_spinlock_release_write(&meta->access_lock);
+    RESTORE_SIGNALS(sig);
+    if (ret == 0)
+        return register_inode(&new, inode_out, 0);
+    return ret;
+}
+
+int ext2_mkdir(inode_t * parent, const char * pathname, mode_t mode, inode_t ** inode_out) {
+    if (strcmp(pathname, ".") == 0 || strcmp(pathname, "..") == 0)
+        return -EINVAL;
+    mode &= ~S_IFMT;
+    kassert(parent);
+    if (!S_ISDIR(parent->mode))
+        return -ENOTDIR;
+
+    kassert(pathname);
+    kassert(inode_out);
+    superblock_t * sb = parent->backing_superblock;
+    kassert(sb);
+    kassert(sb->data);
+    struct ext2_metadata * meta = sb->data;
+
+    inode_t new = {
+        .uid = parent->mode & S_ISUID ? parent->uid : current_process->euid,
+        .gid = parent->mode & S_ISGID ? parent->gid : current_process->egid,
+        .nlink = 2,
+        .size = meta->block_size,
+        .atime = system_time_sec,
+        .ctime = system_time_sec,
+        .mtime = system_time_sec,
+        .btime = system_time_sec,
+        .backing_superblock = sb,
+        .mode = mode | S_IFDIR,
+        .io_block_size = (blksize_t)meta->block_size,
+        .block_count = meta->block_size / 512,
+    };
+
+    struct ext2_inode e2new, ino;
+    ext2_inodet_to_ext2inode(&new, &e2new);
+
+    if (check_eintr())
+        return -EINTR;
+    sigset_t sig = PAUSE_SIGNALS();
+
+    int ret = ext2_get_inode(sb, parent->id, &ino);
+    if (ret < 0) {
+        RESTORE_SIGNALS(sig);
+        return ret;
+    }
+    rw_spinlock_acquire_write(&meta->access_lock);
+
+    unsigned long dir_block = ext2_allocate(sb, ino.blocks[0], 0);
+    if (dir_block == 0) {
+        ret = -ENOSPC;
+        goto err;
+    }
+
+    e2new.blocks[0] = dir_block;
+    e2new.size = (int32_t)meta->block_size;
+    e2new.used_512blocks = meta->block_size / 512;
+
+    off_t new_inode = ext2_creat_internal(sb, &ino, &e2new, parent->id, pathname);
+    if (new_inode < 0) {
+        ret = (int)new_inode;
+        ext2_free(sb, dir_block, 0);
+        goto err;
+    }
+
+    new.id = new_inode;
+
+    unsigned char new_dir_buffer[24] = {0};
+    *(struct ext2_directory*)new_dir_buffer =
+        (struct ext2_directory) {
+            .inode = new_inode,
+            .rec_len = 12,
+            .name_len = 1,
+            .file_type = meta->filetype ? EXT2_FT_DIR : 0,
+        };
+    new_dir_buffer[sizeof(struct ext2_directory)] = '.';
+
+    *(struct ext2_directory*)(new_dir_buffer + 12) =
+        (struct ext2_directory) {
+            .inode = parent->id,
+            .rec_len = meta->block_size - 12,
+            .name_len = 2,
+            .file_type = meta->filetype ? EXT2_FT_DIR : 0,
+        };
+    new_dir_buffer[12 + sizeof(struct ext2_directory) + 0] = '.';
+    new_dir_buffer[12 + sizeof(struct ext2_directory) + 1] = '.';
+
+    ret = pwrite_file(sb->fd,
+        new_dir_buffer, sizeof(new_dir_buffer),
+        dir_block * meta->block_size);
+    if (ret < 0) {
+        dangle:
+        dkprintf("Warning: error on mkdir write, dangling directory entry!\n");
+        ext2_free(sb, new_inode, 1);
+        ext2_free(sb, dir_block, 0);
+        goto err;
+    }
+
+    off_t inode_offset = ext2_get_inode_offset(sb, new_inode);
+    if (inode_offset < 0) {
+        ret = (int)inode_offset;
+        goto dangle;
+    }
+    ret = pwrite_file(sb->fd,
+        &e2new, sizeof(e2new),
+        inode_offset);
+    if (ret < 0)
+        goto dangle;
+    ret = 0;
+
+    parent->nlink++;
+    ext2_adjust_bgroup_dir_count(sb, parent->id, 1);
+
+    err:
+    rw_spinlock_release_write(&meta->access_lock);
+    RESTORE_SIGNALS(sig);
+    if (ret == 0)
+        return register_inode(&new, inode_out, 0);
+    return ret;
+}
+
+int ext2_mknod(inode_t * parent, const char * pathname, mode_t mode, dev_t dev) {
+    if (strcmp(pathname, ".") == 0 || strcmp(pathname, "..") == 0)
+        return -EINVAL;
+    if (!S_ISBLK(mode) && !S_ISCHR(mode))
+        return -EINVAL;
+    kassert(parent);
+    if (!S_ISDIR(parent->mode))
+        return -ENOTDIR;
+
+    kassert(pathname);
+    superblock_t * sb = parent->backing_superblock;
+    kassert(sb);
+    kassert(sb->data);
+    struct ext2_metadata * meta = sb->data;
+
+    inode_t new = {
+        .uid = parent->mode & S_ISUID ? parent->uid : current_process->euid,
+        .gid = parent->mode & S_ISGID ? parent->gid : current_process->egid,
+        .nlink = 1,
+        .atime = system_time_sec,
+        .ctime = system_time_sec,
+        .mtime = system_time_sec,
+        .btime = system_time_sec,
+        .backing_superblock = sb,
+        .mode = mode,
+        .io_block_size = (blksize_t)meta->block_size,
+        .device = dev,
+    };
+
+    struct ext2_inode e2new, ino;
+    ext2_inodet_to_ext2inode(&new, &e2new);
+
+    if (check_eintr())
+        return -EINTR;
+    sigset_t sig = PAUSE_SIGNALS();
+
+    int ret = ext2_get_inode(sb, parent->id, &ino);
+    if (ret < 0) {
+        RESTORE_SIGNALS(sig);
+        return ret;
+    }
+    rw_spinlock_acquire_write(&meta->access_lock);
+
+    off_t new_inode = ext2_creat_internal(sb, &ino, &e2new, parent->id, pathname);
+    if (new_inode < 0)
+        ret = (int)new_inode;
+    else
+        ret = 0;
+
+    rw_spinlock_release_write(&meta->access_lock);
+    RESTORE_SIGNALS(sig);
+    return ret;
+}
+
 const struct vfs_ops ext2_op = {
     .fs_init = ext2_init,
     .fs_deinit = ext2_deinit,
     .lookup = ext2_lookup,
+    .release = ext2_release,
     .pread = ext2_pread,
+    .pwrite = ext2_pwrite,
+    .trunc = ext2_trunc,
+    .creat = ext2_creat,
+    .mkdir = ext2_mkdir,
+    .mknod = ext2_mknod,
+
     .readdir = ext2_readdir,
 
     .utimes_supported = 1,

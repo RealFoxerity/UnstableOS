@@ -170,7 +170,7 @@ static inline void register_kernel_task(__gregcontext_t * context) {
     kernel_task->argc = 1;
     kernel_task->argv = kalloc(sizeof(char*));
     kernel_task->argv[0] = KERNEL_ARGV0;
-
+    kernel_task->umask = 022;
     if (process_list == NULL) {
         process_list = kernel_task;
         process_list->prev = kernel_task;

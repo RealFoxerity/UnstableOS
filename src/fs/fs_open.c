@@ -124,7 +124,6 @@ int sys_openat(int fd, const char * path, unsigned short flags, mode_t mode) {
     kassert(ino->instances > (ino->is_mountpoint ? 1 : 0));
 
     inode_t * new = NULL;
-    flags &= ~AT_EACCESS;
     int ret = openat_inode(ino, path, flags, mode, &new, 0);
     if (ret < 0) return ret;
     ret = get_fd_from_inode(new, flags);
@@ -158,7 +157,6 @@ static size_t cleanup_path(char * dup_path, size_t pathlen) {
     return pathlen;
 }
 
-// pass AT_EACCESS to flags to use euid
 int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t mode, inode_t ** out, char trusted_path) {
     if (base == NULL) {
         kprintf("\e[0m\e[41mWarning: called openat with NULL base inode!\e[0m\n");
@@ -195,6 +193,7 @@ int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t m
             flags |= O_DIRECTORY;
     }
     mode &= ~current_process->umask;
+    mode &= ~S_IFMT;
 
     kassert(root_mountpoint);
     int ret = 0;
@@ -659,7 +658,7 @@ int sys_renameat(int oldfd, const char * old, int newfd, const char * new) {
     }
     if (src->backing_superblock->funcs->rename == NULL) {
         close_inode(src);
-        ret = -EINVAL;
+        ret = -ENOTSUP;
         goto err;
     }
 
@@ -746,5 +745,102 @@ int sys_renameat(int oldfd, const char * old, int newfd, const char * new) {
     close_inode(new_parent);
     kfree(old_dup);
     kfree(new_dup);
+    return ret;
+}
+
+int sys_mknodat(int fd, const char *path, mode_t mode, dev_t dev) {
+    if (!S_ISBLK(mode) && !S_ISCHR(mode))
+        return -EINVAL;
+    dev &= 0x7FFF;
+    if (S_ISCHR(mode))
+        dev |= 0x8000;
+
+    inode_t * base = NULL;
+
+    if (path == NULL)
+        return -EBADF;
+
+    size_t path_len = 0;
+    char * safe_path = secure_strdup(path, PATH_MAX, &path_len);
+    if (safe_path == NULL) {
+        kfree(safe_path);
+        return -EFAULT;
+    }
+    if (path_len == 0) {
+        kfree(safe_path);
+        return -ENOENT; // WHYY POSIX, WHYYY
+    }
+
+    char * last_slash = strrchr(safe_path, '/');
+    if (last_slash == NULL)
+        last_slash = safe_path;
+    else last_slash++;
+    if (*last_slash == '\0') { // trailing slash
+        kfree(safe_path);
+        return -EINVAL;
+    }
+    if (strcmp(last_slash, ".") == 0 ||
+        strcmp(last_slash, "..") == 0) {
+        kfree(safe_path);
+        return -EINVAL; // maybe EILSEQ? not sure
+    }
+
+    spinlock_acquire(&current_process->lock);
+    if (fd != AT_FDCWD) {
+        file_descriptor_t * file = current_process->fds[fd];
+        if (file == NULL) {
+            spinlock_release(&current_process->lock);
+            kfree(safe_path);
+            return -EBADF;
+        }
+        kassert(file->instances > 0);
+        base = file->inode;
+    } else {
+        base = current_process->pwd;
+    }
+    __atomic_add_fetch(&base->instances, 1, __ATOMIC_ACQUIRE);
+    spinlock_release(&current_process->lock);
+
+    int ret = 0;
+    last_slash = strrchr(safe_path, '/');
+    if (last_slash == NULL) {
+        last_slash = safe_path;
+
+        do_mknod:
+        if (!base->backing_superblock ||
+            !base->backing_superblock->funcs ||
+            !base->backing_superblock->funcs->mknod
+        ) {
+            ret = -ENOTSUP; // linux does EPERM
+            goto end;
+        }
+        if (base->backing_superblock->mount_options & MOUNT_RDONLY) {
+            ret = -EROFS;
+            goto end;
+        }
+        ret = inode_check_perm(base, W_OK, AT_EACCESS);
+        if (ret < 0)
+            goto end;
+        mode &= ~current_process->umask;
+        ret = base->backing_superblock->funcs->mknod(
+            base, last_slash, mode, dev);
+        goto end;
+    }
+
+    *last_slash = 0;
+    last_slash++;
+
+    inode_t * final = NULL;
+    ret = openat_inode(base, safe_path, O_DIRECTORY | O_RDWR, 0, &final, 1);
+    if (ret < 0)
+        goto end;
+
+    close_inode(base);
+    base = final;
+    goto do_mknod;
+
+    end:
+    kfree(safe_path);
+    close_inode(base);
     return ret;
 }

@@ -18,7 +18,7 @@ enum dev_maj {
     DEV_MAJ_EPHEMERAL, // numbers incrementing so that st_dev in stat is different for virtual file systems
     DEV_MAJ_FB, // minor here being the id of the framebuffer
 
-    DEV_MAJ_TTY = 0b100000, // first char device
+    DEV_MAJ_TTY = 0b100000, // first char device, mknod (for char) device id is without the top bit
     DEV_MAJ_MISC,
 };
 
@@ -77,7 +77,7 @@ enum dev_tty_min {
     */
     
     DEV_TTY_CURRENT = 254, // current controlling terminal
-    DEV_TTY_CONSOLE = 255 // the kernel log
+    DEV_TTY_CONSOLE = 255, // the kernel console
 };
 
 #endif

@@ -6,6 +6,8 @@
 #include <UnstableOS/devs.h>
 #include <termios.h>
 
+#define KERNEL_CONSOLE_MINOR DEV_TTY_0
+
 #define TTYDEF_IFLAG    (ICRNL | ISTRIP | IXANY | IXON)
 #define TTYDEF_OFLAG    (OPOST | ONLCR)
 #define TTYDEF_LFLAG    (ECHO | ECHOE | ECHOK | ICANON | ISIG | ECHOCTL)
@@ -58,7 +60,9 @@ struct tty_queue {
 
 // took inspiration from the linux kernel v0.95
 struct tty_t {
-    char used; // here so we don't need to free() the structure
+    // here so we don't need to free()/close() this terminal
+    // for aliased ttys like console
+    unsigned long instances;
     char com_port; // -1 if not serial backed
     spinlock_t tty_lock; // for params
     size_t height;

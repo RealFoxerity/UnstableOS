@@ -19,16 +19,7 @@ int open(const char * path, unsigned short flags, ...) {
     return ret;
 }
 int creat(const char * path, mode_t mode) {
-    int ret = open(path, O_WRONLY | O_CREAT | O_TRUNC, mode);
-    if (ret < 0) {
-        ___set_errno(-ret);
-        return -1;
-    }
-    return ret;
-}
-
-int mkdirat(int fd, const char *path, mode_t mode) {
-    return open(path, O_CREAT | O_DIRECTORY, mode);
+    return open(path, O_WRONLY | O_CREAT | O_TRUNC, mode);
 }
 
 int openat(int fd, const char * path, unsigned short flags, ...) {

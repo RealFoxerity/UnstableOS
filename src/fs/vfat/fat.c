@@ -716,7 +716,9 @@ ssize_t fat_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t off
         // we can downgrade the lock to read now that we're done with the FAT
         rw_spinlock_downgrade(&fi->fs_lock);
 
+        spinlock_acquire(&fd->inode->lock);
         fd->inode->size = offset + n;
+        spinlock_release(&fd->inode->lock);
 
     } else {
         rw_spinlock_downgrade(&fi->fs_lock);
@@ -1360,8 +1362,11 @@ int fat_trunc(inode_t * file, off_t length) {
     rw_spinlock_acquire_write(&fi->fs_lock);
 
     int ret = fat_change_file_size(file->id, (size_t)length, SIZE_MAX, sb);
-    if (ret == 0)
+    if (ret == 0) {
+        spinlock_acquire(&file->lock);
         file->size = length;
+        spinlock_release(&file->lock);
+    }
     rw_spinlock_release_write(&fi->fs_lock);
     RESTORE_SIGNALS(mask);
     return ret;

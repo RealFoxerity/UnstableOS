@@ -9,6 +9,7 @@ enum syscalls {
     SYSCALL_BRK, // same as linux, returns the current end on error
     SYSCALL_FACCESSAT,
     SYSCALL_OPENAT,
+    SYSCALL_MKNODAT,
     SYSCALL_CLOSE,
     SYSCALL_FCNTL,
 
@@ -77,7 +78,7 @@ enum syscalls {
     SYSCALL_WAITID,
 
     SYSCALL_CREATE_THREAD, // create_thread(void (* entry_point)(void*), void * args)
-    SYSCALL_EXIT_THREAD, // like exit() but for threads, no exitcode, has to be done via userspace (see libc/src/threads.c)
+    SYSCALL_EXIT_THREAD, // like exit() but for threads, no exitcode (see libc/src/pthread/pthread_basic.c)
 
     SYSCALL_YIELD,
 
