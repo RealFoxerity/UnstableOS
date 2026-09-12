@@ -14,7 +14,7 @@ if [[ ! -e binutils-2.47 ]]; then
 fi
 
 if [[ ! -e gcc-16.2.0 ]]; then
-	curl -L https://ftpmirror.gnu.org/gnu/gcc/gcc-16.2.0/gcc-16.2.0.tar.gz | tar xz
+	curl -L https://ftpmirror.gnu.org/gcc/gcc-16.2.0/gcc-16.2.0.tar.gz | tar xz
 	cd gcc-16.2.0
 	patch -p1 <../patches/gcc-16.2.0.patch
 	cd ..
@@ -22,7 +22,7 @@ fi
 
 cd binutils-2.47
 if [[ ! -e autoconf-2.69 ]]; then
-	curl -L https://ftpmirror.gnu.org/gnu/autoconf/autoconf-2.69.tar.gz | tar xz
+	curl -L https://ftpmirror.gnu.org/autoconf/autoconf-2.69.tar.gz | tar xz
 	cd autoconf-2.69
 	./configure --prefix="$(pwd)/../install"
 	# this old autoconf has borked doc generation, so have to do it like this
@@ -32,7 +32,7 @@ if [[ ! -e autoconf-2.69 ]]; then
 	cd ..
 fi
 if [[ ! -e automake-1.15.1 ]]; then
-	curl -L https://ftpmirror.gnu.org/gnu/automake/automake-1.15.1.tar.gz | tar xz
+	curl -L https://ftpmirror.gnu.org/automake/automake-1.15.1.tar.gz | tar xz
 	cd automake-1.15.1
 	./configure --prefix="$(pwd)/../install"
 	make && make install
