@@ -837,18 +837,14 @@ static int fat_is_dir_empty(size_t dir_cluster, superblock_t * sb) {
     return 0;
 }
 
-static int __fat_unlink(inode_t * file) {
-    superblock_t * sb = file->backing_superblock;
+static int __fat_unlink(superblock_t * sb, off_t id) {
     struct fat_info * fi = sb->data;
-    if (file->instances > 1) {
-        return -EBUSY;
-    }
 
     struct fat_dir_entry dentry_buf = {0};
 
     if (pread_file(sb->fd,
         &dentry_buf, sizeof(dentry_buf),
-        file->id) != sizeof(dentry_buf)
+        id) != sizeof(dentry_buf)
     ) {
         return -EIO;
     }
@@ -870,7 +866,7 @@ static int __fat_unlink(inode_t * file) {
         return -EIO;
     }
 
-    if (S_ISDIR(file->mode)) {
+    if (dentry_buf.attr & FAT_DENTRY_ATTR_SUBDIR) {
         int ret = fat_is_dir_empty(cluster_start, sb);
         if (ret) {
             return ret;
@@ -887,37 +883,52 @@ static int __fat_unlink(inode_t * file) {
 
     if (pwrite_file(sb->fd,
         &dentry_buf, sizeof(dentry_buf),
-        file->id) != sizeof(dentry_buf)
+        id) != sizeof(dentry_buf)
     ) {
-        dkprintf("Warning: I/O error on writing free dentry at %llu after freeing chain!\n", file->id);
+        dkprintf("Warning: I/O error on writing free dentry at %llu after freeing chain!\n", id);
         return -EIO;
     }
     return 0;
 }
 
-int fat_unlink(inode_t * file) {
-    kassert(file);
-    kassert(file->backing_superblock);
-    superblock_t * sb = file->backing_superblock;
+int fat_unlink(inode_t * parent, const char * name) {
+    kassert(name);
+
+    char shortname[11] = {0};
+    int ret = fat_name_to_short(name, shortname);
+    if (ret)
+        return ret;
+
+    kassert(parent);
+    kassert(parent->backing_superblock);
+    superblock_t * sb = parent->backing_superblock;
     struct fat_info * fi = sb->data;
     kassert(sb->data);
 
     if (sb->mount_options & MOUNT_RDONLY)
         return -EROFS;
 
-    if (file->id == 0)
-        return -EBUSY;
-
-    if (file->instances > 1)
-        return -EBUSY;
-
     if (check_eintr())
         return -EINTR;
+
     sigset_t mask = PAUSE_SIGNALS();
     rw_spinlock_acquire_write(&fi->fs_lock);
-    int ret = __fat_unlink(file);
-    if (ret == 0)
-        file->nlink = 0;
+
+    off_t entry = __fat_lookup_from_inode(parent, shortname);
+    if (entry < 0) {
+        ret = (int)entry;
+        goto err;
+    }
+
+    inode_t * found = get_inode(sb, entry);
+    if (found) {
+        ret = -EBUSY;
+        goto err;
+    }
+
+    ret = __fat_unlink(sb, entry);
+
+    err:
     rw_spinlock_release_write(&fi->fs_lock);
     RESTORE_SIGNALS(mask);
     return ret;
@@ -1244,87 +1255,118 @@ int fat_mkdir(inode_t * parent, const char * pathname, mode_t mode, inode_t ** i
     return ret;
 }
 
-int fat_rename(inode_t * old, inode_t * new, const char * name) {
+int fat_rename(inode_t * old, const char * oldname, inode_t * new, const char * newname) {
     kassert(old);
     kassert(new);
+    kassert(oldname);
+    kassert(newname);
 
     superblock_t * sb = old->backing_superblock;
     struct fat_info * fi = sb->data;
+
+    if (sb->mount_options & MOUNT_RDONLY)
+        return -EROFS;
+
+    char oldshortname[11] = {0};
+    int ret = fat_name_to_short(oldname, oldshortname);
+    if (ret)
+        return ret;
+    char newshortname[11] = {0};
+    ret = fat_name_to_short(newname, newshortname);
+    if (ret)
+        return ret;
 
     if (check_eintr())
         return -EINTR;
     sigset_t mask = PAUSE_SIGNALS();
 
-    int ret = 0;
     struct fat_dir_entry old_file = {0};
-    struct fat_dir_entry new_file = {0};
     rw_spinlock_acquire_write(&fi->fs_lock);
+
+    off_t old_file_id = __fat_lookup_from_inode(old, oldshortname);
+    if (old_file_id < 0) {
+        ret = (int)old_file_id;
+        goto err;
+    }
+    off_t new_file_id = __fat_lookup_from_inode(new, newshortname);
+    if (new_file_id < 0 && new_file_id != -ENOENT) {
+        ret = (int)new_file_id;
+        goto err;
+    }
+    if (new_file_id < 0)
+        new_file_id = 0;
+
+    if (new_file_id > 0) {
+        inode_t * oldnew = get_inode(sb, new_file_id);
+        if (oldnew) {
+            ret = -EBUSY;
+            goto err;
+        }
+        ret = __fat_unlink(sb, new_file_id);
+        if (ret < 0)
+            goto err;
+    }
 
     if (pread_file(sb->fd,
         &old_file, sizeof(old_file),
-        old->id) != sizeof(old_file)
+        old_file_id) != sizeof(old_file)
     ) {
         ret = -EIO;
         goto err;
     }
-    if (new->id) {
-        if (pread_file(sb->fd,
-            &new_file, sizeof(new_file),
-            new->id) != sizeof(new_file)
-        ) {
-            ret = -EIO;
-            goto err;
-        }
-    } else
-        kassert(name);
-
-    // we already have the target
-    if (!name) {
-        ret = __fat_unlink(new);
-        if (ret < 0)
-            goto err;
-
-        memcpy(old_file.name, new_file.name, 11);
-
+    memcpy(old_file.name, newshortname, 11);
+    if (new_file_id) {
         if (pwrite_file(sb->fd,
             &old_file, sizeof(old_file),
-            new->id) != sizeof(old_file)
+            new_file_id) != sizeof(old_file)
         ) {
             ret = -EIO;
             goto err;
         }
-    } else {
-        char shortname[11];
-        ret = fat_name_to_short(name, shortname);
-        if (ret != 0)
-            goto err;
-        memcpy(old_file.name, shortname, 11);
-
-        size_t cl = 0;
-        if (new->id != 0) {
-            cl = new_file.start_cluster;
-            if (fi->type == FAT32)
-                cl |= new_file.fat32_cluster_hi << 16;
+        inode_t * oldinode = get_inode(sb, old_file_id);
+        if (oldinode) {
+            // atomicity should be guaranteed by requiring the fs lock
+            // none of the internal functions of this driver will see the old id
+            oldinode->id = new_file_id;
         }
-
-        off_t free_dentry = fat_get_free_dentry(cl, sb, shortname);
-        if (free_dentry < 0) {
-            ret = (int)free_dentry;
-            goto err;
-        }
-        if (pwrite_file(sb->fd,
-            &old_file, sizeof(old_file),
-            free_dentry) != sizeof(old_file)
-        ) {
-            ret = -EIO;
-            goto err;
-        }
+        ret = 0;
+        goto end;
     }
 
+    size_t cl = 0;
+    if (new->id != 0) {
+        struct fat_dir_entry new_dentry = {0};
+        if (pread_file(sb->fd,
+            &new_dentry, sizeof(new_dentry),
+            new->id) != sizeof(new_dentry)
+        ) {
+            ret = -EIO;
+            goto err;
+        }
+
+        cl = new_dentry.start_cluster;
+        if (fi->type == FAT32)
+            cl |= new_dentry.fat32_cluster_hi << 16;
+    }
+
+    off_t free_dentry = fat_get_free_dentry(cl, sb, newshortname);
+    if (free_dentry < 0) {
+        ret = (int)free_dentry;
+        goto err;
+    }
+    if (pwrite_file(sb->fd,
+        &old_file, sizeof(old_file),
+        free_dentry) != sizeof(old_file)
+    ) {
+        ret = -EIO;
+        goto err;
+    }
+
+    end:
     old_file.name[0] = FAT_DIR_FREE;
     if (pwrite_file(sb->fd,
         &old_file, sizeof(old_file),
-        old->id) != sizeof(old_file)
+        old_file_id) != sizeof(old_file)
     ) {
         ret = -EIO;
         goto err;

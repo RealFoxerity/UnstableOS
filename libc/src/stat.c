@@ -52,6 +52,11 @@ int mkdirat(int fd, const char *path, mode_t mode) {
 }
 
 int mknod(const char *path, mode_t mode, dev_t dev) {
+    if (S_ISREG(mode))
+        return creat(path, mode);
+    if (S_ISDIR(mode))
+        return mkdir(path, mode);
+
     return mknodat(AT_FDCWD, path, mode, dev);
 }
 int mknodat(int fd, const char *path, mode_t mode, dev_t dev) {

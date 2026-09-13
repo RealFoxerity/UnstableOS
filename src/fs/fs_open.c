@@ -79,7 +79,7 @@ static char check_page(const char * addr) {
     return 1;
 }
 
-static char * secure_strdup(const char * path, size_t max_len, size_t *len_out) {
+char * secure_strdup(const char * path, size_t max_len, size_t *len_out) {
     if (path == NULL) return NULL;
 
     VM_LOCK(path);
@@ -132,7 +132,7 @@ int sys_openat(int fd, const char * path, unsigned short flags, mode_t mode) {
     return ret;
 }
 
-static size_t cleanup_path(char * dup_path, size_t pathlen) {
+size_t cleanup_path(char * dup_path, size_t pathlen) {
     // path cleanup
     char seen_slash = 0;
     for (size_t i = 0; i < pathlen; i++) {
@@ -538,6 +538,9 @@ int sys_renameat(int oldfd, const char * old, int newfd, const char * new) {
     inode_t * old_parent = NULL;
     inode_t * new_parent = NULL;
 
+    if (old == NULL || new == NULL)
+        return -EFAULT;
+
     if ((oldfd < 0 || oldfd >= FD_LIMIT_PROCESS) && oldfd != AT_FDCWD) return -EBADF;
     if ((newfd < 0 || newfd >= FD_LIMIT_PROCESS) && newfd != AT_FDCWD) return -EBADF;
 
@@ -547,6 +550,7 @@ int sys_renameat(int oldfd, const char * old, int newfd, const char * new) {
         kfree(old_dup);
         return -EFAULT;
     }
+    old_len = cleanup_path(old_dup, old_len);
 
     if (memcmp("//", old_dup, 2) == 0) {
         kprintf("Stub: we don't yet support the // meta directory!\n");
@@ -564,10 +568,6 @@ int sys_renameat(int oldfd, const char * old, int newfd, const char * new) {
         return -EINVAL;
     }
 
-    // check for endings in . or ..
-    // in brackets to not polute the namespace
-
-
     size_t new_len = 0;
     char * new_dup = secure_strdup(new, PATH_MAX, &new_len);
     if (new_dup == NULL || new_len == 0) {
@@ -575,6 +575,7 @@ int sys_renameat(int oldfd, const char * old, int newfd, const char * new) {
         kfree(new_dup);
         return -EBUSY;
     }
+    new_len = cleanup_path(new_dup, new_len);
 
     if (memcmp("//", new_dup, 2) == 0) {
         kprintf("Stub: we don't yet support the // meta directory!\n");
@@ -595,9 +596,6 @@ int sys_renameat(int oldfd, const char * old, int newfd, const char * new) {
         return -EINVAL;
     }
 
-    old_len = cleanup_path(old_dup, old_len);
-    new_len = cleanup_path(new_dup, new_len);
-
     spinlock_acquire(&current_process->lock);
     if (oldfd != AT_FDCWD) {
         file_descriptor_t * file = current_process->fds[oldfd];
@@ -612,12 +610,10 @@ int sys_renameat(int oldfd, const char * old, int newfd, const char * new) {
     } else {
         old_parent = current_process->pwd;
     }
-    __atomic_add_fetch(&old_parent->instances, 1, __ATOMIC_ACQUIRE);
 
     if (newfd != AT_FDCWD) {
         file_descriptor_t * file = current_process->fds[newfd];
         if (file == NULL) {
-            close_inode(old_parent);
             spinlock_release(&current_process->lock);
             kfree(old_dup);
             kfree(new_dup);
@@ -628,120 +624,181 @@ int sys_renameat(int oldfd, const char * old, int newfd, const char * new) {
     } else {
         new_parent = current_process->pwd;
     }
+    __atomic_add_fetch(&old_parent->instances, 1, __ATOMIC_ACQUIRE);
     __atomic_add_fetch(&new_parent->instances, 1, __ATOMIC_ACQUIRE);
     spinlock_release(&current_process->lock);
 
     int ret = 0;
 
-    inode_t * src;
-    ret = openat_inode(old_parent, old_dup, O_WRONLY | O_NOXDEV, 0, &src, 1);
-    close_inode(old_parent);
-    if (ret != 0 || src == NULL)
-        goto err;
+    char should_be_dir = 0;
+    char * old_frag = strrchr(old_dup, '/');
+    if (old_frag && *(old_frag+1) == '\0') {
+        should_be_dir = 1;
+        *old_frag = '\0';
+        old_frag = strrchr(old_dup, '/');
+    }
+    if (old_frag == NULL) {
+        old_frag = old_dup;
+    }
+    if (*old_frag == '/') {
+        *old_frag = '\0';
+        old_frag++;
+    }
 
-    if (new_parent == src && new_dup[0] != '/') {
-        close_inode(src);
-        ret = -EINVAL;
+    char * new_frag = strrchr(new_dup, '/');
+    if (new_frag && *(new_frag+1) == '\0') {
+        should_be_dir = 1;
+        *new_frag = '\0';
+        new_frag = strrchr(new_dup, '/');
+    }
+    if (new_frag == NULL) {
+        new_frag = new_dup;
+    }
+    if (*new_frag == '/') {
+        *new_frag = '\0';
+        new_frag++;
+    }
+
+
+    if (*old_dup == '\0') {
+        close_inode(old_parent);
+        spinlock_acquire(&current_process->lock);
+        old_parent = current_process->pwd;
+        __atomic_add_fetch(&old_parent->instances, 1, __ATOMIC_ACQUIRE);
+        spinlock_release(&current_process->lock);
+        kassert(old_parent);
+    } else if (old_dup != old_frag) {
+        inode_t * new_old_parent = NULL;
+        ret = openat_inode(old_parent, old_dup, O_WRONLY | O_DIRECTORY, 0, &new_old_parent, 1);
+        if (ret < 0 || new_old_parent == NULL)
+            goto err;
+        close_inode(old_parent);
+        old_parent = new_old_parent;
+    }
+
+    if (*new_dup == '\0') {
+        close_inode(new_parent);
+        spinlock_acquire(&current_process->lock);
+        new_parent = current_process->pwd;
+        __atomic_add_fetch(&new_parent->instances, 1, __ATOMIC_ACQUIRE);
+        spinlock_release(&current_process->lock);
+        kassert(new_parent);
+    } else if (new_dup != new_frag) {
+        inode_t * new_new_parent = NULL;
+        ret = openat_inode(new_parent, new_dup, O_WRONLY | O_DIRECTORY, 0, &new_new_parent, 1);
+        if (ret < 0 || new_new_parent == NULL)
+            goto err;
+        close_inode(new_parent);
+        new_parent = new_new_parent;
+    }
+
+    if (old_parent->backing_superblock != new_parent->backing_superblock) {
+        ret = -EXDEV;
         goto err;
     }
 
-    if (new_dup[new_len - 1] == '/' && !S_ISDIR(src->mode)) {
-        close_inode(src);
-        ret = -EISDIR;
-        goto err;
-    }
-
-    if (src->backing_superblock->mount_options & MOUNT_RDONLY) {
-        close_inode(src);
+    if (old_parent->backing_superblock->mount_options & MOUNT_RDONLY) {
         ret = -EROFS;
         goto err;
     }
-    if (src->backing_superblock->funcs->rename == NULL) {
-        close_inode(src);
+    if (old_parent->backing_superblock->funcs->rename == NULL) {
         ret = -ENOTSUP;
+        goto err;
+    }
+
+    // needed for the directory check and then later for the ancestor check and the mountpoint check
+    inode_t * src;
+    ret = openat_inode(old_parent, old_frag, O_PATH | O_NOXDEV | (should_be_dir ? O_DIRECTORY : 0), 0, &src, 1);
+    if (ret != 0 || src == NULL)
+        goto err;
+    inode_t * dst = NULL;
+    ret = openat_inode(new_parent, new_frag, O_PATH | O_NOXDEV, 0, &dst, 1);
+    if (ret != 0 || src == NULL) {
+        // ok
+    } else {
+        if (S_ISDIR(dst->mode) != S_ISDIR(src->mode)) {
+            ret = should_be_dir ? -ENOTDIR : -EISDIR;
+            close_inode(dst);
+            goto err;
+        }
+    }
+
+    if (src == dst) {
+        close_inode(src);
+        close_inode(dst);
+        ret = 0;
+        goto err;
+    }
+
+    // quick check right off the bat
+    if (new_parent == src) {
+        close_inode(src);
+        close_inode(dst);
+        ret = -EINVAL;
         goto err;
     }
 
     // now for the harder part
     // have to manually iterate to check if new is an ancestor of old
     inode_t * curr;
-    inode_t * prev = new_parent;
+    inode_t * prev = dst ? dst : new_parent;
 
-    __atomic_add_fetch(&new_parent->instances, 1, __ATOMIC_ACQUIRE);
+    __atomic_add_fetch(&prev->instances, 1, __ATOMIC_ACQUIRE);
 
-    char last_fragment = 0;
-    char wrdir = 0;
-    char * path = new_dup;
+    superblock_t * sb = prev->backing_superblock;
+    kassert(sb->funcs);
+    kassert(sb->funcs->lookup);
 
-    char have_target = 0;
-    while (!last_fragment) {
-        // ternary only true on first iteration being root relative
-        char * next_slash = strchrnul(path + (path[0] == '/' ? 1 : 0), '/');
 
-        if (*next_slash == '\0' || *(next_slash + 1) == '\0')
-            last_fragment = 1;
-        else {
-            *next_slash = '\0';
-            char * temp = strchrnul(next_slash + 1, '/');
-            if (*temp == '\0' || *(temp + 1) == '\0')
-                wrdir = 1;
-        }
-
-        ret = openat_inode(prev, path, (wrdir ? O_SEARCH : O_WRONLY) | (last_fragment ? 0 : O_DIRECTORY), 0, &curr, 1);
-        if (ret == -ENOENT && last_fragment) {
+    while (1) {
+        ret = sb->funcs->lookup(sb, prev, "..", &curr, 0);
+        if (ret == VFS_LOOKUP_ESCAPE)
             break;
-        }
-        close_inode(prev);
-        if (curr == src) {
-            close_inode(curr);
-            ret = -EINVAL;
-        }
-        if (ret < 0 || curr == NULL) {
+        if (ret < 0) {
+            close_inode(prev);
             close_inode(src);
+            close_inode(dst);
             goto err;
         }
-        if (wrdir && !last_fragment) {
-            close_inode(new_parent);
-            __atomic_add_fetch(&curr->instances, 1, __ATOMIC_ACQUIRE);
-            new_parent = curr;
+        if (src == curr) {
+            close_inode(curr);
+            close_inode(prev);
+            close_inode(src);
+            close_inode(dst);
+            ret = -EINVAL;
+            goto err;
         }
-        if (last_fragment)
-            have_target = 1;
+        close_inode(prev);
         prev = curr;
-        path = next_slash + 1;
     }
+    close_inode(prev);
 
-    if (prev->backing_superblock != src->backing_superblock) {
-        close_inode(src);
-        close_inode(prev);
-        ret = -EXDEV;
+    spinlock_acquire(&mount_tree_lock);
+    char mnt = dst ? dst->is_mountpoint : 0;
+    close_inode(src);
+    close_inode(dst);
+    if (mnt) {
+        spinlock_release(&mount_tree_lock);
+        ret = -EBUSY;
         goto err;
     }
-    if (have_target && (prev->mode & S_IFMT) != (src->mode & S_IFMT))
-    {
-        if (S_ISDIR(prev->mode))
-            ret = -EISDIR;
-        else
-            ret = -ENOTDIR;
-        close_inode(src);
-        close_inode(prev);
-        goto err;
-    }
+    ret = src->backing_superblock->funcs->rename(old_parent, old_frag, new_parent, new_frag);
+    spinlock_release(&mount_tree_lock);
 
-    *strchrnul(path, '/') = '\0'; // clean up trailing slash
-    ret = src->backing_superblock->funcs->rename(src, prev, have_target ? NULL : path);
 
     if (ret == 0) {
         utimes_inode(new_parent,
             (struct timespec){.tv_nsec = UTIME_OMIT},
             (struct timespec){.tv_nsec = UTIME_NOW},
             (struct timespec){.tv_nsec = UTIME_NOW});
+        utimes_inode(old_parent,
+            (struct timespec){.tv_nsec = UTIME_OMIT},
+            (struct timespec){.tv_nsec = UTIME_NOW},
+            (struct timespec){.tv_nsec = UTIME_NOW});
     }
 
-    close_inode(src);
-    close_inode(prev);
-
     err:
+    close_inode(old_parent);
     close_inode(new_parent);
     kfree(old_dup);
     kfree(new_dup);
@@ -749,6 +806,8 @@ int sys_renameat(int oldfd, const char * old, int newfd, const char * new) {
 }
 
 int sys_mknodat(int fd, const char *path, mode_t mode, dev_t dev) {
+    if ((fd < 0 || fd >= FD_LIMIT_PROCESS) && fd != AT_FDCWD) return -EBADF;
+
     if (!S_ISBLK(mode) && !S_ISCHR(mode))
         return -EINVAL;
     dev &= 0x7FFF;
@@ -824,6 +883,11 @@ int sys_mknodat(int fd, const char *path, mode_t mode, dev_t dev) {
         mode &= ~current_process->umask;
         ret = base->backing_superblock->funcs->mknod(
             base, last_slash, mode, dev);
+        if (ret == 0)
+            utimes_inode(base,
+                (struct timespec){.tv_nsec = UTIME_OMIT},
+                (struct timespec){.tv_nsec = UTIME_NOW},
+                (struct timespec){.tv_nsec = UTIME_NOW});
         goto end;
     }
 
@@ -841,6 +905,139 @@ int sys_mknodat(int fd, const char *path, mode_t mode, dev_t dev) {
 
     end:
     kfree(safe_path);
+    close_inode(base);
+    return ret;
+}
+
+int sys_linkat(int fd1, const char * path1, int fd2, const char * path2, int flag) {
+    if ((fd1 < 0 || fd1 >= FD_LIMIT_PROCESS) && fd1 != AT_FDCWD) return -EBADF;
+    if ((fd2 < 0 || fd2 >= FD_LIMIT_PROCESS) && fd2 != AT_FDCWD) return -EBADF;
+
+    inode_t * file = NULL;
+    inode_t * file_base = NULL;
+    inode_t * base = NULL;
+
+    if (path2 == NULL)
+        return -EBADF;
+
+    size_t path_len = 0;
+    char * safe_path = secure_strdup(path2, PATH_MAX, &path_len);
+    if (safe_path == NULL) {
+        kfree(safe_path);
+        return -EFAULT;
+    }
+    if (path_len == 0) {
+        kfree(safe_path);
+        return -ENOENT; // WHYY POSIX, WHYYY
+    }
+
+    char * last_slash = strrchr(safe_path, '/');
+    if (last_slash == NULL)
+        last_slash = safe_path;
+    else last_slash++;
+    if (*last_slash == '\0') { // trailing slash
+        kfree(safe_path);
+        return -EINVAL;
+    }
+    if (strcmp(last_slash, ".") == 0 ||
+        strcmp(last_slash, "..") == 0) {
+        kfree(safe_path);
+        return -EINVAL; // maybe EILSEQ? not sure
+    }
+
+    spinlock_acquire(&current_process->lock);
+    if (fd1 != AT_FDCWD) {
+        file_descriptor_t * file2 = current_process->fds[fd1];
+        if (file2 == NULL) {
+            spinlock_release(&current_process->lock);
+            kfree(safe_path);
+            return -EBADF;
+        }
+        kassert(file2->instances > 0);
+        file_base = file2->inode;
+    } else {
+        file_base = current_process->pwd;
+    }
+    if (fd2 != AT_FDCWD) {
+        file_descriptor_t * file2 = current_process->fds[fd2];
+        if (file2 == NULL) {
+            spinlock_release(&current_process->lock);
+            kfree(safe_path);
+            return -EBADF;
+        }
+        kassert(file2->instances > 0);
+        base = file2->inode;
+    } else {
+        base = current_process->pwd;
+    }
+    __atomic_add_fetch(&file_base->instances, 1, __ATOMIC_ACQUIRE);
+    __atomic_add_fetch(&base->instances, 1, __ATOMIC_ACQUIRE);
+    spinlock_release(&current_process->lock);
+
+    int ret = 0;
+
+    if (path1) {
+        ret = openat_inode(file_base, path1, O_PATH, 0, &file, 0);
+        if (ret < 0) {
+            kfree(safe_path);
+            close_inode(file_base);
+            close_inode(base);
+            return ret;
+        }
+        close_inode(file_base);
+    } else {
+        file = file_base;
+    }
+
+    last_slash = strrchr(safe_path, '/');
+    if (last_slash == NULL) {
+        last_slash = safe_path;
+
+        do_link:
+        if (!base->backing_superblock ||
+            !base->backing_superblock->funcs ||
+            !base->backing_superblock->funcs->link
+        ) {
+            ret = -ENOTSUP; // linux does EPERM
+            goto end;
+        }
+        if (base->backing_superblock->mount_options & MOUNT_RDONLY) {
+            ret = -EROFS;
+            goto end;
+        }
+        ret = inode_check_perm(base, W_OK, AT_EACCESS);
+        if (ret < 0)
+            goto end;
+        ret = base->backing_superblock->funcs->link(
+            file, base, safe_path);
+        if (ret == 0) {
+            utimes_inode(file,
+                (struct timespec){.tv_nsec = UTIME_OMIT},
+                (struct timespec){.tv_nsec = UTIME_OMIT},
+                (struct timespec){.tv_nsec = UTIME_NOW});
+            utimes_inode(base,
+                (struct timespec){.tv_nsec = UTIME_OMIT},
+                (struct timespec){.tv_nsec = UTIME_NOW},
+                (struct timespec){.tv_nsec = UTIME_NOW});
+        }
+        goto end;
+    }
+
+    *last_slash = 0;
+    last_slash++;
+
+    inode_t * final = NULL;
+    ret = openat_inode(base, safe_path, O_PATH, 0, &final, 1);
+    if (ret < 0)
+        goto end;
+
+    close_inode(base);
+    base = final;
+    goto do_link;
+
+    end:
+    kfree(safe_path);
+    close_inode(file);
     close_inode(base);
     return ret;
 }

@@ -176,6 +176,37 @@ off_t fat_get_parent(off_t dentry, superblock_t * sb, struct fat_dir_entry * out
     return -ENOENT;
 }
 
+off_t __fat_lookup_from_inode(inode_t * parent, char shortname[11]) {
+    superblock_t * sb = parent->backing_superblock;
+    struct fat_info * fi = sb->data;
+
+    struct fat_dir_entry parent_buf = {0};
+    size_t start_cl = 0;
+
+    if (parent->id == 0 && fi->type == FAT32)
+        start_cl = fi->root_dir_cluster;
+    else if (parent->id != 0) {
+        if (pread_file(sb->fd,
+            &parent_buf, sizeof(parent_buf),
+            parent->id) != sizeof(parent_buf))
+                return -EIO;
+        start_cl = parent_buf.start_cluster;
+        if (fi->type == FAT32)
+            start_cl |= parent_buf.fat32_cluster_hi;
+    }
+
+    if (start_cl == 0 && fi->type == FAT32)
+        return -EIO;
+
+    off_t entry = 0;
+    if (start_cl == 0)
+        entry = fat12_lookup(shortname, sb, NULL);
+    else
+        entry = fat_lookup_cluster_generic(shortname, start_cl, sb, NULL);
+
+    return entry;
+}
+
 int fat_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t ** inode_out, unsigned short flags) {
     if (!pathname) return -EFAULT;
     if (!sb) return -EFAULT;

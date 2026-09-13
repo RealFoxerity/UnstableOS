@@ -545,59 +545,109 @@ int sys_unlinkat(int fd, const char *path, int flags) {
     // partially copied over sys_openat
     if ((fd < 0 || fd >= FD_LIMIT_PROCESS) && fd != AT_FDCWD) return -EBADF;
 
+    size_t safe_path_len = 0;
+    char * safe_path = secure_strdup(path, PATH_MAX, &safe_path_len);
+    if (memcmp("//", safe_path, 2) == 0) {
+        kprintf("Stub: we don't yet support the // meta directory!\n");
+        kfree(safe_path);
+        return -EINVAL;
+    }
+
+    cleanup_path(safe_path, safe_path_len);
+
+    if (strcmp("/", safe_path) == 0) {
+        kfree(safe_path);
+        return -EBUSY;
+    }
+
+    char dir_needed = 0;
+    char * file_frag = strrchr(safe_path, '/');
+    if (file_frag && *(file_frag + 1) == '\0') {
+        dir_needed = 1;
+        *file_frag = '\0';
+        file_frag = strrchr(safe_path, '/');
+    }
+    if (file_frag == NULL)
+        file_frag = safe_path;
+    if (*file_frag == '/') {
+        *file_frag = '\0';
+        file_frag++;
+    }
+
+
     inode_t * ino = NULL;
-    if (fd != AT_FDCWD) {
-        spinlock_acquire(&current_process->lock);
+    spinlock_acquire(&current_process->lock);
+    if (fd != AT_FDCWD && *safe_path) {
         file_descriptor_t * file = current_process->fds[fd];
         if (file == NULL) {
             spinlock_release(&current_process->lock);
+            kfree(safe_path);
             return -EBADF;
         }
         kassert(file->instances > 0);
         ino = file->inode;
-        __atomic_add_fetch(&ino->instances, 1, __ATOMIC_ACQUIRE);
-        spinlock_release(&current_process->lock);
     } else
-        ino = (inode_t*)AT_FDCWD;
+        ino = current_process->pwd;
+    kassert(ino);
+    __atomic_add_fetch(&ino->instances, 1, __ATOMIC_ACQUIRE);
+    spinlock_release(&current_process->lock);
 
-    kassert(ino != NULL);
-    kassert(ino->instances > (ino->is_mountpoint ? 1 : 0));
-
-    inode_t * unlinked = NULL;
-    int ret = openat_inode(ino, path, O_WRONLY, 0, &unlinked, 0);
-    if (ino != (inode_t *)AT_FDCWD)
+    inode_t * unlinked_parent = NULL;
+    if (*safe_path && safe_path != file_frag) {
+        int ret = openat_inode(ino, safe_path, O_WRONLY | O_DIRECTORY, 0, &unlinked_parent, 1);
         close_inode(ino);
-    if (ret < 0 || unlinked == NULL) return ret;
-    if (unlinked->backing_superblock->mount_options & MOUNT_RDONLY) {
-        close_inode(unlinked);
+        if (ret < 0 || unlinked_parent == NULL) {
+            kfree(safe_path);
+            return ret;
+        }
+    } else {
+        unlinked_parent = ino;
+    }
+
+    if (unlinked_parent->backing_superblock->mount_options & MOUNT_RDONLY) {
+        close_inode(unlinked_parent);
         return -EROFS;
     }
 
-    if (flags & AT_REMOVEDIR && !S_ISDIR(unlinked->mode)) {
-        close_inode(unlinked);
-        return -ENOTDIR;
+    inode_t * unlinked; // only for the directory checking, TODO: prone to races (unlink + mkdir/creat)
+    int ret = openat_inode(unlinked_parent, file_frag, O_PATH | (dir_needed ? O_DIRECTORY : 0), 0, &unlinked, 1);
+    if (ret < 0) {
+        close_inode(unlinked_parent);
+        kfree(safe_path);
+        return ret;
     }
     if (!(flags & AT_REMOVEDIR) && S_ISDIR(unlinked->mode)) {
         close_inode(unlinked);
+        close_inode(unlinked_parent);
+        kfree(safe_path);
         return -EISDIR;
     }
-
-    if (unlinked->backing_superblock &&
-        unlinked->backing_superblock->funcs &&
-        unlinked->backing_superblock->funcs->unlink)
-    {
-        ret = unlinked->backing_superblock->funcs->unlink(unlinked);
+    if (unlinked_parent->backing_superblock &&
+        unlinked_parent->backing_superblock->funcs &&
+        unlinked_parent->backing_superblock->funcs->unlink
+    ) {
+        if (!unlinked_parent->backing_superblock->funcs->unlink_opened_supported) {
+            close_inode(unlinked);
+            unlinked = NULL;
+        }
+        ret = unlinked_parent->backing_superblock->funcs->unlink(unlinked_parent, file_frag);
         if (ret == 0) {
-            utimes_inode(unlinked,
+            if (unlinked)
+                utimes_inode(unlinked,
+                    (struct timespec){.tv_nsec = UTIME_OMIT},
+                    (struct timespec){.tv_nsec = UTIME_OMIT},
+                    (struct timespec){.tv_nsec = UTIME_NOW});
+            utimes_inode(unlinked_parent,
                 (struct timespec){.tv_nsec = UTIME_OMIT},
                 (struct timespec){.tv_nsec = UTIME_OMIT},
                 (struct timespec){.tv_nsec = UTIME_NOW});
         }
-        close_inode(unlinked);
-        return ret;
-    }
+    } else ret = -ENOTSUP;
+
     close_inode(unlinked);
-    return -ENOTSUP; // maybe EINVAL?
+    close_inode(unlinked_parent);
+    kfree(safe_path);
+    return ret;
 }
 
 ssize_t sys_readdir(int fd, struct dirent * dent, size_t dent_size) {

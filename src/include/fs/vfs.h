@@ -56,7 +56,7 @@ struct vfs_ops {
     // doubles as rmdir if file is a directory
     // implementations are required to do all locking needed to not race on unlink and open/lookup
     // MT safety is guaranteed by sys_unlinkat, don't need to lock the inode separately
-    int (*unlink)    (inode_t * file);
+    int (*unlink)    (inode_t * parent, const char * name);
     int (*trunc)     (inode_t * file, off_t length);
 
     // all creating functions are required to check whether the file already exists or not
@@ -66,9 +66,9 @@ struct vfs_ops {
     // only for the device mknod, put S_IFBLK or S_IFCHR into mode
     int (*mknod)     (inode_t * parent, const char * pathname, mode_t mode, dev_t dev);
 
-    // if name == NULL, then new is the target, otherwise new is the parent directory
+    int (*link)      (inode_t * file, inode_t * parent, const char * pathname);
     // implementations should double-check that no race leading to name existing happened
-    int (*rename)    (inode_t * old, inode_t * new, const char * name);
+    int (*rename)    (inode_t * old, const char * oldname, inode_t * new, const char * newname);
 
     // note: fd offset 0 is considered the "." folder to simplify userspace rewinddir()
     // the function implementation is required to set fd->off to new offset
@@ -92,6 +92,10 @@ struct vfs_ops {
     char ctime_supported;
     char mtime_supported;
     char atime_supported;
+
+    // if unlink can be performed on opened files
+    // e.g. ext2 can and fat cannot
+    char unlink_opened_supported;
 
     // constants for chown/chgrp
     uid_t uid_max;
