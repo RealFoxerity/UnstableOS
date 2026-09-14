@@ -50,4 +50,5 @@ int ___get_errno();
 #define ENOSPC    39
 #define ENOTEMPTY 40
 #define EXDEV     41
+#define EMLINK    42
 #endif

@@ -383,6 +383,9 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
         case SYSCALL_MKNODAT:
             return_value = sys_mknodat(arg1, (const char *)arg2, arg3, arg4);
             break;
+        case SYSCALL_LINKAT:
+            return_value = sys_linkat(arg1, (const char *)arg2, arg3, (const char *)arg4, arg5);
+            break;
         case SYSCALL_UMASK:
             arg1 &= 0777;
             mode_t old_umask = current_process->umask;

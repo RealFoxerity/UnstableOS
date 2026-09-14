@@ -287,7 +287,7 @@ void ext2_free(superblock_t * sb, unsigned long block, char get_inode) {
 
 // left = how many blocks to leave unfreed
 // 0 = success
-int ext2_free_indirect(superblock_t * sb, unsigned long block, unsigned long left) {
+int ext2_free_indirect(superblock_t * sb, struct ext2_inode * ino, unsigned long block, unsigned long left) {
     if (block == 0)
         return 0;
     kassert(sb);
@@ -303,6 +303,8 @@ int ext2_free_indirect(superblock_t * sb, unsigned long block, unsigned long lef
                 return -EIO;
         if (temp == 0)
             continue;
+        if (ino)
+            ino->used_512blocks -= meta->block_size / 512;
         ext2_free(sb, temp, 0);
         temp = 0;
         if (pwrite_file(sb->fd,
@@ -314,7 +316,7 @@ int ext2_free_indirect(superblock_t * sb, unsigned long block, unsigned long lef
     return 0;
 }
 
-int ext2_free_doubly_indirect(superblock_t * sb, unsigned long block, unsigned long left) {
+int ext2_free_doubly_indirect(superblock_t * sb, struct ext2_inode * ino, unsigned long block, unsigned long left) {
     if (block == 0)
         return 0;
     kassert(sb);
@@ -331,7 +333,7 @@ int ext2_free_doubly_indirect(superblock_t * sb, unsigned long block, unsigned l
                 return -EIO;
         if (temp == 0)
             continue;
-        ext2_free_indirect(sb, temp, left % (meta->block_size / 4));
+        ext2_free_indirect(sb, ino, temp, left % (meta->block_size / 4));
         if (left % (meta->block_size / 4) == 0) {
             ext2_free(sb, temp, 0);
             temp = 0;
@@ -346,7 +348,7 @@ int ext2_free_doubly_indirect(superblock_t * sb, unsigned long block, unsigned l
     return 0;
 }
 
-int ext2_free_triply_indirect(superblock_t * sb, unsigned long block, unsigned long left) {
+int ext2_free_triply_indirect(superblock_t * sb, struct ext2_inode * ino, unsigned long block, unsigned long left) {
     if (block == 0)
         return 0;
     kassert(sb);
@@ -363,7 +365,7 @@ int ext2_free_triply_indirect(superblock_t * sb, unsigned long block, unsigned l
                 return -EIO;
         if (temp == 0)
             continue;
-        ext2_free_doubly_indirect(sb, temp, left % ((meta->block_size / 4)*(meta->block_size / 4)));
+        ext2_free_doubly_indirect(sb, ino, temp, left % ((meta->block_size / 4)*(meta->block_size / 4)));
         if (left % ((meta->block_size / 4)*(meta->block_size / 4)) == 0) {
             ext2_free(sb, temp, 0);
             temp = 0;

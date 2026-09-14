@@ -104,4 +104,6 @@ int getopt(int argc, char * const argv[], const char *optstring);
 int access(const char *path, int amode);
 int faccessat(int fd, const char *path, int amode, int flag);
 
+int link(const char *path1, const char *path2);
+int linkat(int fd1, const char *path1, int fd2, const char *path2, int flag);
 #endif

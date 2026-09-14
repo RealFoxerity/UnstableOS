@@ -417,3 +417,16 @@ int faccessat(int fd, const char *path, int amode, int flag) {
     }
     return ret;
 }
+
+int link(const char *path1, const char *path2) {
+    return linkat(AT_FDCWD, path1, AT_FDCWD, path2, 0);
+}
+
+int linkat(int fd1, const char *path1, int fd2, const char *path2, int flag) {
+    int ret = syscall(SYSCALL_LINKAT, fd1, path1, fd1, path2, flag);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return ret;
+}

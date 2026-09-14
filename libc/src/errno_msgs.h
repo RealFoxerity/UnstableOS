@@ -43,4 +43,5 @@ static const char * __errno_msgs[] = {
     [ENOSPC]    = "No space left on device",
     [ENOTEMPTY] = "Directory not empty",
     [EXDEV]     = "Improper hard link",
+    [EMLINK]    = "Too many hard links",
 };

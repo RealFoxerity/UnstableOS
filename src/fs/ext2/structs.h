@@ -33,6 +33,8 @@
 
 #define EXT2_MAX_SHIFT 8 // 262K
 
+#define EXT2_SKIP_TRUNC_DIFF 8 // don't do the truncate if the difference is less than this
+
 // TODO: implement fsck
 struct ext2_sb {
     uint32_t total_inodes;
@@ -243,9 +245,12 @@ unsigned long ext2_allocate(superblock_t * sb, ino_t ideal_locality, char get_in
 unsigned long ext2_get_block(superblock_t * sb, struct ext2_inode * inode, off_t target_offset, char is_blockno, char alloc);
 void ext2_adjust_bgroup_dir_count(superblock_t * sb, unsigned long ino, short delta);
 void ext2_free(superblock_t * sb, unsigned long block, char get_inode);
-int ext2_free_indirect(superblock_t * sb, unsigned long block, unsigned long left);
-int ext2_free_doubly_indirect(superblock_t * sb, unsigned long block, unsigned long left);
-int ext2_free_triply_indirect(superblock_t * sb, unsigned long block, unsigned long left);
+
+// ext2_inode here to correctly track the used block counter and can be NULL
+int ext2_free_indirect(superblock_t * sb, struct ext2_inode * ino, unsigned long block, unsigned long left);
+int ext2_free_doubly_indirect(superblock_t * sb, struct ext2_inode * ino, unsigned long block, unsigned long left);
+int ext2_free_triply_indirect(superblock_t * sb, struct ext2_inode * ino, unsigned long block, unsigned long left);
+
 int ext2_alloc_dentry(superblock_t * sb, struct ext2_inode * dir, const char * name, ino_t ino, mode_t file_type);
 
 #endif
