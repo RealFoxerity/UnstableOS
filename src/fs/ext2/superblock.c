@@ -945,7 +945,7 @@ int ext2_creat(inode_t * parent, const char * pathname, mode_t mode, inode_t ** 
     }
     rw_spinlock_acquire_write(&meta->access_lock);
 
-    if (parent->nlink == 0) {
+    if (__atomic_load_n(&parent->nlink, __ATOMIC_RELEASE) == 0) {
         ret = -ENOENT;
         goto end;
     }
@@ -1009,7 +1009,7 @@ int ext2_mkdir(inode_t * parent, const char * pathname, mode_t mode, inode_t ** 
         return ret;
     }
     rw_spinlock_acquire_write(&meta->access_lock);
-    if (parent->nlink == 0) {
+    if (__atomic_load_n(&parent->nlink, __ATOMIC_RELEASE) == 0) {
         ret = -ENOENT;
         goto err;
     }
@@ -1130,7 +1130,7 @@ int ext2_mknod(inode_t * parent, const char * pathname, mode_t mode, dev_t dev) 
         goto err;
     }
     rw_spinlock_acquire_write(&meta->access_lock);
-    if (parent->nlink == 0) {
+    if (__atomic_load_n(&parent->nlink, __ATOMIC_RELEASE) == 0) {
         rw_spinlock_release_write(&meta->access_lock);
 
     }
@@ -1179,7 +1179,7 @@ int ext2_link(inode_t * file, inode_t * parent, const char * pathname) {
         return ret;
     }
     rw_spinlock_acquire_write(&meta->access_lock);
-    if (parent->nlink == 0) {
+    if (__atomic_load_n(&parent->nlink, __ATOMIC_RELEASE) == 0) {
         ret = -ENOENT;
         goto err;
     }
@@ -1486,6 +1486,95 @@ int ext2_unlink(inode_t * parent, const char * name) {
     RESTORE_SIGNALS(sig);
     return ret;
 }
+
+int ext2_rename(inode_t * old, const char * oldname, inode_t * new, const char * newname) {
+    if (strcmp(oldname, ".") == 0 || strcmp(oldname, "..") == 0)
+        return -EINVAL;
+    if (strcmp(newname, ".") == 0 || strcmp(newname, "..") == 0)
+        return -EINVAL;
+    kassert(old && new);
+    if (!S_ISDIR(old->mode) ||
+        !S_ISDIR(new->mode))
+        return -ENOTDIR;
+    if (old->nlink == 0 ||
+        new->nlink == 0)
+        return -ENOENT;
+
+    kassert(old->backing_superblock == new->backing_superblock);
+
+    superblock_t * sb = old->backing_superblock;
+    kassert(sb);
+    kassert(sb->data);
+    struct ext2_metadata * meta = sb->data;
+
+    if (check_eintr())
+        return -EINTR;
+    int ret = 0;
+    sigset_t sig = PAUSE_SIGNALS();
+    rw_spinlock_acquire_write(&meta->access_lock);
+    if (__atomic_load_n(&old->nlink, __ATOMIC_RELEASE) == 0 ||
+        __atomic_load_n(&new->nlink, __ATOMIC_RELEASE) == 0) {
+        ret = -ENOENT;
+        goto err;
+    }
+
+    struct ext2_inode new_parent;
+    ret = ext2_get_inode(sb, new->id, &new_parent);
+    if (ret < 0)
+        goto err;
+
+    struct ext2_inode old_parent;
+    ret = ext2_get_inode(sb, old->id, &old_parent);
+    if (ret < 0)
+        goto err;
+
+    struct ext2_directory to_be_renamed;
+    struct ext2_directory to_be_unlinked;
+
+    ret = ext2_lookup_internal(sb, &old_parent, oldname, &to_be_renamed);
+    if (ret < 0)
+        goto err;
+
+    ret = ext2_lookup_internal(sb, &new_parent, newname, &to_be_unlinked);
+    if (ret == -ENOENT)
+        goto skip_dstunlink;
+    if (ret < 0)
+        goto err;
+
+    ret = ext2_unlink_internal(sb, to_be_unlinked.inode);
+    if (ret < 0)
+        goto err;
+
+    ino_t removed = ext2_remove_dentry(sb, new->id, newname);
+    if (removed < 0) {
+        ret = (int)removed;
+        dkprintf("Warning: failed to remove the unlinked dentry; dangling dentry!\n");
+        goto err;
+    }
+
+    skip_dstunlink:
+
+    ret = ext2_alloc_dentry(sb, &new_parent, newname, to_be_renamed.inode, to_be_renamed.file_type);
+    if (ret < 0) {
+        dkprintf("Warning: failed to allocate a new dentry after old file deletion\n");
+        goto err;
+    }
+
+    removed = ext2_remove_dentry(sb, old->id, oldname);
+    if (removed < 0) {
+        ret = (int)removed;
+        dkprintf("Warning: failed to remove the old dentry after file deletion and new dentry allocation\n");
+        goto err;
+    }
+
+    ret = 0;
+
+    err:
+    rw_spinlock_release_write(&meta->access_lock);
+    RESTORE_SIGNALS(sig);
+    return ret;
+}
+
 const struct vfs_ops ext2_op = {
     .fs_init = ext2_init,
     .fs_deinit = ext2_deinit,
@@ -1499,6 +1588,7 @@ const struct vfs_ops ext2_op = {
     .mkdir = ext2_mkdir,
     .mknod = ext2_mknod,
     .link = ext2_link,
+    .rename = ext2_rename,
 
     .readdir = ext2_readdir,
 

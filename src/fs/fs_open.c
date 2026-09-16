@@ -711,6 +711,9 @@ int sys_renameat(int oldfd, const char * old, int newfd, const char * new) {
     ret = openat_inode(old_parent, old_frag, O_PATH | O_NOXDEV | (should_be_dir ? O_DIRECTORY : 0), 0, &src, 1);
     if (ret != 0 || src == NULL)
         goto err;
+    if (S_ISDIR(src->mode))
+        should_be_dir = 1;
+
     inode_t * dst = NULL;
     ret = openat_inode(new_parent, new_frag, O_PATH | O_NOXDEV, 0, &dst, 1);
     if (ret != 0 || src == NULL) {
@@ -741,7 +744,7 @@ int sys_renameat(int oldfd, const char * old, int newfd, const char * new) {
     // now for the harder part
     // have to manually iterate to check if new is an ancestor of old
     inode_t * curr;
-    inode_t * prev = dst ? dst : new_parent;
+    inode_t * prev = dst ? S_ISDIR(dst->mode) ? dst : new_parent : new_parent;
 
     __atomic_add_fetch(&prev->instances, 1, __ATOMIC_ACQUIRE);
 

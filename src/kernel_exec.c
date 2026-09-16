@@ -78,7 +78,16 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
     current_process->sa_rt_queue_count = 0;
     current_process->sa_pending = 0;
     memset(current_process->sa_pending_info, 0, sizeof(current_process->sa_pending_info));
-    memset(current_process->sa_handlers, 0, sizeof(current_process->sa_handlers));
+    // POSIX specifies all caught signals are to be reset to SIG_DFL
+    //memset(current_process->sa_handlers, 0, sizeof(current_process->sa_handlers));
+
+    for (int i = 0; i < NSIG_MAX; i++) {
+        if (current_process->sa_handlers[i].sa_handler != SIG_DFL &&
+            current_process->sa_handlers[i].sa_handler != SIG_IGN
+        ) {
+            current_process->sa_handlers[i].sa_handler = SIG_DFL;
+        }
+    }
 
     memset(PROGRAM_PCB_VADDR->thread_slots, 0, PTHREAD_THREADS_MAX * sizeof(char));
 
@@ -226,8 +235,18 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     }
     proc->sa_rt_queue_last  = NULL;
     proc->sa_rt_queue_count = 0;
+
     memset(proc->sa_pending_info, 0, sizeof(proc->sa_pending_info));
-    memset(proc->sa_handlers, 0, sizeof(proc->sa_handlers));
+    // POSIX specifies all caught signals are to be reset to SIG_DFL
+    //memset(proc->sa_handlers, 0, sizeof(proc->sa_handlers));
+
+    for (int i = 0; i < NSIG_MAX; i++) {
+        if (proc->sa_handlers[i].sa_handler != SIG_DFL &&
+            proc->sa_handlers[i].sa_handler != SIG_IGN
+        ) {
+            proc->sa_handlers[i].sa_handler = SIG_DFL;
+        }
+    }
 
     if (process_list->next == NULL) {
         // kernel spawning /init
