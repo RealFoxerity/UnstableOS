@@ -15,8 +15,6 @@
 ### Known missing features
 ---
 - `scanf()` and `printf()` family of functions don't implement floats
-- `execve()` family of functions doesn't accept NULL argv or envp
-- `execve()` family of functions doesn't currently implement auxv
 - everything in the TODO obviously
 - missing `sigaltstack()` and everything along with it
 - missing almost all `si_code` values for `siginfo_t`

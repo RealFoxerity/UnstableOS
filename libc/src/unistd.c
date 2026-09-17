@@ -249,6 +249,70 @@ int getresgid(uid_t *restrict rgid, uid_t *restrict egid, uid_t *restrict sgid) 
     return 0;
 }
 
+int setgid(gid_t gid) {
+    int ret = syscall(SYSCALL_SETGID, gid);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return 0;
+}
+int setegid(gid_t gid) {
+    int ret = syscall(SYSCALL_SETEGID, gid);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return 0;
+}
+int setregid(gid_t rgid, gid_t egid) {
+    int ret = syscall(SYSCALL_SETREGID, rgid, egid);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return 0;
+}
+int setresgid(gid_t rgid, gid_t egid, gid_t sgid) {
+    int ret = syscall(SYSCALL_SETRESGID, rgid, egid, sgid );
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return 0;
+}
+int setuid(uid_t uid) {
+    int ret = syscall(SYSCALL_SETUID, uid);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return 0;
+}
+int seteuid(uid_t uid) {
+    int ret = syscall(SYSCALL_SETEUID, uid);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return 0;
+}
+int setreuid(uid_t ruid, uid_t euid) {
+    int ret = syscall(SYSCALL_SETREUID, ruid, euid);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return 0;
+}
+int setresuid(uid_t ruid, uid_t euid, uid_t suid) {
+    int ret = syscall(SYSCALL_SETRESUID, ruid, euid, suid);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return 0;
+}
 
 
 pid_t getpid() {

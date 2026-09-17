@@ -249,7 +249,7 @@ int utimes_inode(inode_t * inode, struct timespec atime, struct timespec mtime, 
 int sys_utimensat(int fd, const char *path, const struct timespec times[2], int flag);
 
 // same as access()
-int inode_check_perm(inode_t * inode, int amode, int flag);
+int inode_check_perm(inode_t * inode, unsigned int amode, int flag);
 int sys_faccessat(int fd, const char *path, int amode, int flag);
 
 #endif

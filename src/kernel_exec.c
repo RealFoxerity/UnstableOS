@@ -137,6 +137,13 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
 
     void * target = new->kernel_stack - sizeof(struct interr_frame);
 
+    if (new_prog.was_suid)
+        current_process->euid = new_prog.suid;
+    if (new_prog.was_sgid)
+        current_process->egid = new_prog.sgid;
+    current_process->suid = current_process->euid;
+    current_process->sgid = current_process->egid;
+
     current_process->lock.state = SPINLOCK_UNLOCKED;
     current_process->vm_lock = (rw_spinlock_t){0};
 
@@ -294,6 +301,13 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     paging_memcpy_to_address_space(new_prog.pd_vaddr, new_thread->stack - stack_state_sz, stack_state, stack_state_sz);
     new_thread->context.iret_frame.sp = PROGRAM_STACK_VADDR - stack_state_sz;
     kfree(stack_state);
+
+    if (new_prog.was_suid)
+        proc->euid = new_prog.suid;
+    if (new_prog.was_sgid)
+        proc->egid = new_prog.sgid;
+    proc->suid = proc->euid;
+    proc->sgid = proc->egid;
 
     // relink to process_list
     APPEND_DOUBLE_LINKED_LIST(proc, process_list)

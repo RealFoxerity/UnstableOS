@@ -945,7 +945,7 @@ int ext2_creat(inode_t * parent, const char * pathname, mode_t mode, inode_t ** 
     }
     rw_spinlock_acquire_write(&meta->access_lock);
 
-    if (__atomic_load_n(&parent->nlink, __ATOMIC_RELEASE) == 0) {
+    if (__atomic_load_n(&parent->nlink, __ATOMIC_ACQUIRE) == 0) {
         ret = -ENOENT;
         goto end;
     }
@@ -1009,7 +1009,7 @@ int ext2_mkdir(inode_t * parent, const char * pathname, mode_t mode, inode_t ** 
         return ret;
     }
     rw_spinlock_acquire_write(&meta->access_lock);
-    if (__atomic_load_n(&parent->nlink, __ATOMIC_RELEASE) == 0) {
+    if (__atomic_load_n(&parent->nlink, __ATOMIC_ACQUIRE) == 0) {
         ret = -ENOENT;
         goto err;
     }
@@ -1130,7 +1130,7 @@ int ext2_mknod(inode_t * parent, const char * pathname, mode_t mode, dev_t dev) 
         goto err;
     }
     rw_spinlock_acquire_write(&meta->access_lock);
-    if (__atomic_load_n(&parent->nlink, __ATOMIC_RELEASE) == 0) {
+    if (__atomic_load_n(&parent->nlink, __ATOMIC_ACQUIRE) == 0) {
         rw_spinlock_release_write(&meta->access_lock);
 
     }
@@ -1179,7 +1179,7 @@ int ext2_link(inode_t * file, inode_t * parent, const char * pathname) {
         return ret;
     }
     rw_spinlock_acquire_write(&meta->access_lock);
-    if (__atomic_load_n(&parent->nlink, __ATOMIC_RELEASE) == 0) {
+    if (__atomic_load_n(&parent->nlink, __ATOMIC_ACQUIRE) == 0) {
         ret = -ENOENT;
         goto err;
     }
@@ -1512,8 +1512,8 @@ int ext2_rename(inode_t * old, const char * oldname, inode_t * new, const char *
     int ret = 0;
     sigset_t sig = PAUSE_SIGNALS();
     rw_spinlock_acquire_write(&meta->access_lock);
-    if (__atomic_load_n(&old->nlink, __ATOMIC_RELEASE) == 0 ||
-        __atomic_load_n(&new->nlink, __ATOMIC_RELEASE) == 0) {
+    if (__atomic_load_n(&old->nlink, __ATOMIC_ACQUIRE) == 0 ||
+        __atomic_load_n(&new->nlink, __ATOMIC_ACQUIRE) == 0) {
         ret = -ENOENT;
         goto err;
     }

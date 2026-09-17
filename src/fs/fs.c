@@ -602,6 +602,11 @@ int sys_unlinkat(int fd, const char *path, int flags) {
         }
     } else {
         unlinked_parent = ino;
+        if (inode_check_perm(unlinked_parent, W_OK, AT_EACCESS)) {
+            close_inode(ino);
+            kfree(safe_path);
+            return -EACCES;
+        }
     }
 
     if (unlinked_parent->backing_superblock->mount_options & MOUNT_RDONLY) {
@@ -664,20 +669,20 @@ ssize_t sys_readdir(int fd, struct dirent * dent, size_t dent_size) {
     if (test != 0) return test;
     if (!file->inode->backing_superblock || !file->inode->backing_superblock->funcs) {
         close_file(file);
-        return -EBADF;
+        return -ENOTSUP;
     }
     if (!S_ISDIR(file->inode->mode)) {
         close_file(file);
         return -ENOTDIR;
     }
-    if (file->flags & O_PATH) {
+    if (!(file->flags & O_RDONLY)) {
         close_file(file);
-        return -EINVAL;
+        return -EBADF;
     }
 
     if (!file->inode->backing_superblock->funcs->readdir) {
         close_file(file);
-        return -EINVAL;
+        return -ENOTSUP;
     }
 
     // can't lock because i486 doesn't have 64 bit atomics,
@@ -1228,19 +1233,20 @@ int sys_utimensat(int fd, const char *path, const struct timespec times[2], int 
 
     int ret;
     if (path) {
-        ret = openat_inode(base, path, O_SEARCH, 0, &new, 0);
+        ret = openat_inode(base, path, O_WRONLY, 0, &new, 0);
         if (base != (inode_t*)AT_FDCWD)
             close_inode(base);
         if (ret < 0) return ret;
     } else
         new = base;
-
-    ret = utimes_inode(new, times[0], times[1], (struct timespec){.tv_nsec = UTIME_OMIT});
+    ret = inode_check_perm(new, O_WRONLY, AT_EACCESS);
+    if (ret == 0)
+        ret = utimes_inode(new, times[0], times[1], (struct timespec){.tv_nsec = UTIME_OMIT});
     close_inode(new);
     return ret;
 }
 
-int inode_check_perm(inode_t * inode, int amode, int flag) {
+int inode_check_perm(inode_t * inode, unsigned int amode, int flag) {
     kassert(inode);
     kassert(inode != (inode_t*)AT_FDCWD);
     amode &= R_OK | W_OK | X_OK;
@@ -1256,16 +1262,16 @@ int inode_check_perm(inode_t * inode, int amode, int flag) {
 
     amode <<= 6; // bump up to the user perms
     if (inode->uid == target_uid)
-        if ((inode->mode & S_IRWXU) == amode)
+        if ((inode->mode & amode) == amode)
             return 0;
 
     amode >>= 3;
     if (inode->gid == target_gid)
-        if ((inode->mode & S_IRWXG) == amode)
+        if ((inode->mode & amode) == amode)
             return 0;
 
     amode >>= 3;
-    if ((inode->mode & S_IRWXO) == amode)
+    if ((inode->mode & amode) == amode)
         return 0;
     return -EACCES;
 }

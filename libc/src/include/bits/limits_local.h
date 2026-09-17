@@ -38,4 +38,7 @@
 // pathname variable values
 #define PATH_MAX 4096
 
+// runtime increasable values
+#define NGROUPS_MAX 16
+
 #endif

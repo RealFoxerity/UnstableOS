@@ -9,15 +9,13 @@
 
 extern char ** environ;
 int exec(const char * path) {
-    ___set_errno(-syscall(SYSCALL_EXEC, path, (const char *[]){path, NULL}, environ));
-    return -1;
+    return execv(path, (char *const[]){(char*)path, NULL});
 }
 int execv(const char * path, char * const* argv) {
-    ___set_errno(-syscall(SYSCALL_EXEC, path, argv, environ));
-    return -1;
+    return execve(path, argv, environ);
 }
 int execve(const char * path, char * const* argv, char * const* envp) {
-    ___set_errno(-syscall(SYSCALL_EXEC, path, argv, envp));
+    ___set_errno(-syscall(SYSCALL_EXEC, path, argv ? argv : (char *[1]){NULL}, envp ? envp : (char *[1]){NULL}));
     return -1;
 }
 

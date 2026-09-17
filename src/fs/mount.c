@@ -123,6 +123,8 @@ long mount_dev(dev_t dev, inode_t * mount_point, unsigned char type, unsigned sh
 
 long sys_mount(const char * dev_path, const char * mount_path, unsigned char type, unsigned short options) {
     if (type >= SUPPORTED_FS_COUNT) return -ENODEV;
+    if (current_process->euid != 0)
+        return -EPERM;
 
     inode_t * mount_inode = NULL, * dev_inode = NULL;
     int ret = openat_inode((inode_t*)AT_FDCWD, mount_path, O_RDONLY | O_DIRECTORY | O_NOXDEV, 0, &mount_inode, 0);
@@ -176,6 +178,9 @@ long sys_mount(const char * dev_path, const char * mount_path, unsigned char typ
 
 long sys_umount(const char * mount_path) {
     if (mount_path == NULL) return -EFAULT;
+    if (current_process->euid != 0)
+        return -EPERM;
+
     inode_t * mount_inode = NULL;
     // this could be done without O_PATH (sb->mountpoint), but I think that it's cleaner like this
     int ret = openat_inode((inode_t*)AT_FDCWD, mount_path, O_RDONLY | O_DIRECTORY | O_NOXDEV, 0, &mount_inode, 0);

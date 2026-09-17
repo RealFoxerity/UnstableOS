@@ -167,6 +167,9 @@ struct process_t {
     uid_t uid, euid, suid;
     gid_t gid, egid, sgid;
 
+    gid_t sup_groups[NGROUPS_MAX];
+    unsigned int ngroup;
+
     PAGE_DIRECTORY_TYPE * address_space_paddr;
 
     void * program_break;
@@ -231,6 +234,10 @@ struct program {
     void * start;
     void * stack_image;
     size_t stack_size;
+    uid_t suid;
+    gid_t sgid;
+    char was_suid : 1;
+    char was_sgid : 1;
 };
 
 
@@ -296,6 +303,15 @@ extern spinlock_t scheduler_lock;
 extern pid_t last_pid;
 extern pid_t last_tid;
 
+// users.c
+int sys_setgid(gid_t gid);
+int sys_setegid(gid_t gid);
+int sys_setregid(gid_t rgid, gid_t egid);
+int sys_setresgid(gid_t rgid, gid_t egid, gid_t sgid);
+int sys_setuid(uid_t uid);
+int sys_seteuid(uid_t uid);
+int sys_setreuid(uid_t ruid, uid_t euid);
+int sys_setresuid(uid_t ruid, uid_t euid, uid_t suid);
 
 // kernel_signals.c
 int sys_kill(pid_t pid, int sig);

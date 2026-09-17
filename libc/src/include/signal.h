@@ -233,6 +233,8 @@ int sigrelse(int sig);
 void (*sigset(int sig, void (*disp)(int)))(int); // internally calls signal
 int sigqueue(pid_t pid, int signo, union sigval value);
 
+int siginterrupt(int sig, int flag);
+
 int pthread_kill(pthread_t thread, int sig);
 int raise(int sig);
 
@@ -240,17 +242,12 @@ int raise(int sig);
 missing functions:
 int    sigaltstack(const stack_t *restrict, stack_t *restrict);
 
-int siginterrupt(int sig, int flag); because we don't support SA_RESTART
-
 int sigtimedwait(const sigset_t *restrict set,
        siginfo_t *restrict info,
        const struct timespec *restrict timeout);
 int sigwaitinfo(const sigset_t *restrict set,
        siginfo_t *restrict info);
 
-
-void siglongjmp(sigjmp_buf env, int val);
-int sigsetjmp(sigjmp_buf env, int savemask);
 */
 
 #define SIG2STR_MAX 16

@@ -199,6 +199,17 @@ int sigqueue(pid_t pid, int signo, union sigval value) {
     return 0;
 }
 
+int siginterrupt(int sig, int flag) {
+    struct sigaction act;
+    (void) sigaction(sig, NULL, &act);
+    if (flag)
+        act.sa_flags &= ~SA_RESTART;
+    else
+        act.sa_flags |= SA_RESTART;
+    return sigaction(sig, &act, NULL);
+}
+
+
 #include "signal_msgs.h"
 // strictly technically, POSIX says that strsignal shall not be called anywhere internally
 // however the buffer is static anyway, and we only do reading, so probably fine

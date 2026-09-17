@@ -48,7 +48,7 @@ struct program load_elf(int * status, const char * path, char * const* argv, cha
     }
 
     file_descriptor_t * main_elf = NULL;
-    int file_status = openat_file((void*)AT_FDCWD, path, O_RDONLY, 0, &main_elf, 0);
+    int file_status = openat_file((void*)AT_FDCWD, path, O_EXEC, 0, &main_elf, 0);
     if (file_status < 0) {
         *status = file_status;
         kfree(stack_state);
@@ -69,7 +69,7 @@ struct program load_elf(int * status, const char * path, char * const* argv, cha
     restart_checks:
 
     if (parsing_interp) {
-        file_status = openat_file((void*)AT_FDCWD, path, O_RDONLY, 0, &file, 1);
+        file_status = openat_file((void*)AT_FDCWD, path, O_EXEC, 0, &file, 1);
         kfree((void*)path);
         if (file_status < 0) {
             kfree(stack_state);
@@ -85,6 +85,8 @@ struct program load_elf(int * status, const char * path, char * const* argv, cha
             return (struct program){0};
         }
     }
+    file->flags |= O_RDONLY; // O_EXEC for permissions, O_RDONLY for the interpreter if applicable
+    file->flags &= ~O_EXEC;  // O_EXEC is not readable
 
     if (!check_elf(file)) goto early_err;
 
@@ -363,20 +365,26 @@ struct program load_elf(int * status, const char * path, char * const* argv, cha
     kfree(dvt);
     kfree(copy_buffer);
 
+    struct program prog = {
+        .main_executable = parsing_interp ? main_elf : NULL,
+        .pd_vaddr = address_space,
+        .start = (void *)ehdr.program_entry_offset + rela_offset,
+        .vm = vmr,
+        .stack_image = stack_state,
+        .stack_size = stack_state_sz,
+        .was_suid = main_elf->inode->mode & S_ISUID ? 1 : 0,
+        .was_sgid = main_elf->inode->mode & S_ISGID ? 1 : 0,
+        .suid = main_elf->inode->uid,
+        .sgid = main_elf->inode->gid
+    };
+
     // also handles closing of main_elf if !parsing_interp
     close_file(file);
 
     if (!parsing_interp)
         execfd->type = AT_NULL;
 
-    return (struct program) {
-        .main_executable = parsing_interp ? main_elf : NULL,
-        .pd_vaddr = address_space,
-        .start = (void *)ehdr.program_entry_offset + rela_offset,
-        .vm = vmr,
-        .stack_image = stack_state,
-        .stack_size = stack_state_sz
-    };
+    return prog;
 
 
     reloc_err:

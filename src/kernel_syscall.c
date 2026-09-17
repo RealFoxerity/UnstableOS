@@ -702,6 +702,30 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
         case SYSCALL_GETSGID:
             return_value = (long)current_process->sgid;
             break;
+        case SYSCALL_SETGID:
+            return_value = sys_setgid((gid_t)arg1);
+            break;
+        case SYSCALL_SETEGID:
+            return_value = sys_setegid((gid_t)arg1);
+            break;
+        case SYSCALL_SETREGID:
+            return_value = sys_setregid((gid_t)arg1, (gid_t)arg2);
+            break;
+        case SYSCALL_SETRESGID:
+            return_value = sys_setresgid((gid_t)arg1, (gid_t)arg2, (gid_t)arg3);
+            break;
+        case SYSCALL_SETUID:
+            return_value = sys_setuid((uid_t)arg1);
+            break;
+        case SYSCALL_SETEUID:
+            return_value = sys_seteuid((uid_t)arg1);
+            break;
+        case SYSCALL_SETREUID:
+            return_value = sys_setreuid((uid_t)arg1, (uid_t)arg2);
+            break;
+        case SYSCALL_SETRESUID:
+            return_value = sys_setresuid((uid_t)arg1, (uid_t)arg2, (uid_t)arg3);
+            break;
         default:
             return_value = -ENOSYS;
             break;

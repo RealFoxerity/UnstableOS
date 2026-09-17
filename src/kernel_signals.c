@@ -8,8 +8,6 @@
 #include "kernel_spinlock.h"
 #include "mm/kernel_memory.h"
 
-// TODO: permission checks
-
 static void signal_queue_up(process_t * signaled, const siginfo_t * info) {
     if (info->si_signo == 0) return;
 
@@ -376,13 +374,23 @@ void signal_thread(process_t * group, thread_t * thread, siginfo_t * sig) {
 static long signal_send_thread(pid_t tgid, pid_t tid, siginfo_t * sig) {
     for (process_t * signaled = process_list; signaled != NULL; signaled = signaled->next) {
         if (signaled->pid == tgid) {
-            for (thread_t * thread = signaled->threads; thread != NULL; thread = thread->next) {
-                if (thread->tid == tid) {
-                    signal_thread(signaled, thread, sig);
-                    return 0;
+            // bro idk this is really atrocious
+            if (current_process->euid == 0 ||
+                (sig->si_signo == SIGCONT && current_process->session == signaled->session) ||
+                current_process->uid  == signaled->uid  ||
+                current_process->uid  == signaled->suid ||
+                current_process->euid == signaled->uid  ||
+                current_process->euid == signaled->suid)
+            {
+                for (thread_t * thread = signaled->threads; thread != NULL; thread = thread->next) {
+                    if (thread->tid == tid) {
+                        signal_thread(signaled, thread, sig);
+                        return 0;
+                    }
                 }
+                return -ESRCH;
             }
-            return -ESRCH;
+            return -EPERM;
         }
     }
     return -ESRCH;
@@ -391,19 +399,37 @@ static long signal_send_thread(pid_t tgid, pid_t tid, siginfo_t * sig) {
 static long signal_send_process(pid_t pid, siginfo_t * sig) {
     for (process_t * signaled = process_list; signaled != NULL; signaled = signaled->next) {
         if (signaled->pid == pid) {
-            __signal_process(signaled, sig);
-            return 0;
+            if (current_process->euid == 0 ||
+                (sig->si_signo == SIGCONT && current_process->session == signaled->session) ||
+                current_process->uid  == signaled->uid  ||
+                current_process->uid  == signaled->suid ||
+                current_process->euid == signaled->uid  ||
+                current_process->euid == signaled->suid)
+            {
+                __signal_process(signaled, sig);
+                return 0;
+            }
+            return -EPERM;
         }
     }
     return -ESRCH;
 }
 
-static long signal_send_process_group(pid_t pgrp, siginfo_t * sig) {
+static long signal_send_process_group(pid_t pgrp, siginfo_t * sig, char do_perms) {
     char found = 0;
     for (process_t * signaled = process_list; signaled != NULL; signaled = signaled->next) {
         if (signaled->pgrp == pgrp) {
-            __signal_process(signaled, sig);
-            found = 1;
+            if (!do_perms ||
+                current_process->euid == 0 ||
+                (sig->si_signo == SIGCONT && current_process->session == signaled->session) ||
+                current_process->uid  == signaled->uid  ||
+                current_process->uid  == signaled->suid ||
+                current_process->euid == signaled->uid  ||
+                current_process->euid == signaled->suid)
+            {
+                __signal_process(signaled, sig);
+                found = 1;
+            }
         }
     }
     if (found) return 0;
@@ -429,11 +455,11 @@ int sys_kill(pid_t pid, int sig) {
     if (pid > 0) { // normal kill behavior
         ret = signal_send_process(pid, &info);
     } else if (pid == 0) { // process group
-        ret = signal_send_process_group(current_process->pgrp, &info);
+        ret = signal_send_process_group(current_process->pgrp, &info, 1);
     } else if (pid == -1) {
         signal_send_every_process(&info);
     } else {
-        ret = signal_send_process_group(-pid, &info);
+        ret = signal_send_process_group(-pid, &info, 1);
     }
     spinlock_release(&scheduler_lock);
 
@@ -468,7 +494,7 @@ int signal_process_group(pid_t process_group, siginfo_t * info) {
 
     spinlock_acquire(&scheduler_lock);
 
-    signal_send_process_group(process_group, info);
+    signal_send_process_group(process_group, info, 0);
 
     spinlock_release(&scheduler_lock);
 

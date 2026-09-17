@@ -189,8 +189,6 @@ int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t m
     }
     if (flags & (O_PATH | O_SEARCH)) {
         flags &= O_PATH | O_DIRECTORY | O_SEARCH | O_CLOEXEC | O_CLOFORK;
-        if (flags & O_SEARCH)
-            flags |= O_DIRECTORY;
     }
     mode &= ~current_process->umask;
     mode &= ~S_IFMT;
@@ -279,6 +277,11 @@ int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t m
 
     kassert(prev->is_mountpoint == 0 || prev == root_mountpoint->mountpoint);
 
+    unsigned int wanted_perms = 0;
+    wanted_perms |= (flags & O_RDONLY) ? 4 : 0;
+    wanted_perms |= (flags & O_WRONLY) ? 2 : 0;
+    wanted_perms |= (flags & O_EXEC  ) ? 1 : 0; // aka O_SEARCH
+
     char last_fragment = 0;
     while (!last_fragment) {
         char * next_slash = strchrnul(final_path, '/');
@@ -287,14 +290,21 @@ int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t m
 
         lookup_escape_again:
         if (strcmp(PATH_PARENT, final_path) == 0 &&
-            prev == current_root) {
-                if (last_fragment) {
-                    new = prev;
-                    break;
-                }
-                final_path = next_slash + 1;
-                continue;
+            prev == current_root
+        ) {
+            if (last_fragment) {
+                new = prev;
+                break;
             }
+            final_path = next_slash + 1;
+            continue;
+        }
+        // could be done better, but we're always going to end up here, so yea
+        if (inode_check_perm(prev, X_OK, AT_EACCESS) != 0) {
+            close_inode(prev);
+            ret = -EACCES;
+            goto err;
+        }
         long status = sb->funcs->lookup(sb, prev, final_path, &new, last_fragment ? flags : (O_SEARCH | O_DIRECTORY));
 
         if (status == -ENOENT) {
@@ -303,6 +313,13 @@ int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t m
                     (flags & O_DIRECTORY && sb->funcs->mkdir != NULL)) &&
                 flags & O_CREAT)
             {
+
+                if (inode_check_perm(prev, W_OK | X_OK, AT_EACCESS) != 0) {
+                    close_inode(prev);
+                    ret = -EACCES;
+                    goto err;
+                }
+
                 if (sb->mount_options & MOUNT_RDONLY) {
                     close_inode(prev);
                     ret = -EROFS;
@@ -341,23 +358,6 @@ int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t m
             ret = status;
             goto err;
         }
-        if (new && last_fragment && need_dir && !S_ISDIR(new->mode)) {
-            close_inode(prev);
-            close_inode(new);
-            ret = -ENOTDIR;
-            goto err;
-        }
-        // has to be below because we prefer returning ENOENT
-        // devices are not governed by the mountpoint options
-        if (new && last_fragment && (S_ISREG(new->mode) || S_ISDIR(new->mode))) {
-            if ((sb->mount_options & MOUNT_RDONLY ||
-                sb->funcs->pwrite == NULL)
-                    && flags & O_WRONLY) {
-                close_inode(prev);
-                ret = -EROFS;
-                goto err;
-            }
-        }
         if (status == VFS_LOOKUP_ESCAPE) {
             new = sb->mountpoint;
             __atomic_add_fetch(&new->instances, 1, __ATOMIC_ACQUIRE);
@@ -372,6 +372,24 @@ int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t m
             ret = -ENXIO;
             goto err;
         }
+
+        if (last_fragment && need_dir && !S_ISDIR(new->mode)) {
+            close_inode(prev);
+            close_inode(new);
+            ret = -ENOTDIR;
+            goto err;
+        }
+        // has to be below because we prefer returning ENOENT
+        // devices are not governed by the mountpoint options
+        if (last_fragment && (S_ISREG(new->mode) || S_ISDIR(new->mode))) {
+            if ((sb->mount_options & MOUNT_RDONLY ||
+                sb->funcs->pwrite == NULL)
+                    && flags & O_WRONLY) {
+                close_inode(prev);
+                ret = -EROFS;
+                goto err;
+            }
+        }
         if (last_fragment &&
             flags & O_CREAT && (
                 flags & O_EXCL || flags & O_DIRECTORY
@@ -382,11 +400,7 @@ int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t m
             ret = -EEXIST;
             goto err;
         }
-        if (last_fragment && flags & O_NOXDEV) {
-            close_inode(prev);
-            break;
-        }
-        if (new->is_mountpoint) {
+        if (new->is_mountpoint && !(last_fragment && flags & O_NOXDEV)) {
             sb = new->next_superblock;
             kassert(sb);
             kassert(sb->funcs);
@@ -412,6 +426,12 @@ int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t m
         }
         if (last_fragment) {
             close_inode(prev);
+            if (inode_check_perm(new, wanted_perms, AT_EACCESS)) {
+                close_inode(new);
+                ret = -EACCES;
+                goto err;
+            }
+
             if (S_ISREG(new->mode) && flags & O_TRUNC && flags & O_WRONLY) {
                 if (new->backing_superblock->funcs->trunc) {
                     status = new->backing_superblock->funcs->trunc(new, 0);
@@ -421,12 +441,10 @@ int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t m
                         close_inode(new);
                         goto err;
                     }
-                    if (status == 0) {
-                        utimes_inode(new,
-                            (struct timespec){.tv_nsec = UTIME_OMIT},
-                            (struct timespec){.tv_nsec = UTIME_NOW},
-                            (struct timespec){.tv_nsec = UTIME_NOW});
-                    }
+                    utimes_inode(new,
+                        (struct timespec){.tv_nsec = UTIME_OMIT},
+                        (struct timespec){.tv_nsec = UTIME_NOW},
+                        (struct timespec){.tv_nsec = UTIME_NOW});
                 }
             }
             break;
@@ -476,7 +494,7 @@ int sys_chdir(const char * path) {
     __atomic_add_fetch(&curr_pwd->instances, 1, __ATOMIC_ACQUIRE);
     spinlock_release(&current_process->lock);
 
-    int ret = openat_inode(curr_pwd, path, O_DIRECTORY | O_RDONLY, 0, &new, 0);
+    int ret = openat_inode(curr_pwd, path, O_DIRECTORY | O_SEARCH, 0, &new, 0);
     close_inode(curr_pwd);
 
     if (ret < 0) return ret;
@@ -498,7 +516,7 @@ int sys_chroot(const char * path) {
     __atomic_add_fetch(&curr_pwd->instances, 1, __ATOMIC_ACQUIRE);
     spinlock_release(&current_process->lock);
 
-    int ret = openat_inode(curr_pwd, path, O_DIRECTORY | O_RDONLY, 0, &new, 0);
+    int ret = openat_inode(curr_pwd, path, O_DIRECTORY | O_SEARCH, 0, &new, 0);
     close_inode(curr_pwd);
     if (ret < 0) return ret;
     if (new == NULL) return -EINVAL;
@@ -690,6 +708,12 @@ int sys_renameat(int oldfd, const char * old, int newfd, const char * new) {
             goto err;
         close_inode(new_parent);
         new_parent = new_new_parent;
+    }
+
+    if (inode_check_perm(old_parent, W_OK, AT_EACCESS) ||
+        inode_check_perm(new_parent, W_OK, AT_EACCESS)) {
+        ret = -EACCES;
+        goto err;
     }
 
     if (old_parent->backing_superblock != new_parent->backing_superblock) {
@@ -898,7 +922,7 @@ int sys_mknodat(int fd, const char *path, mode_t mode, dev_t dev) {
     last_slash++;
 
     inode_t * final = NULL;
-    ret = openat_inode(base, safe_path, O_DIRECTORY | O_RDWR, 0, &final, 1);
+    ret = openat_inode(base, safe_path, O_DIRECTORY | O_WRONLY, 0, &final, 1);
     if (ret < 0)
         goto end;
 
@@ -996,6 +1020,10 @@ int sys_linkat(int fd1, const char * path1, int fd2, const char * path2, int fla
     if (last_slash == NULL) {
         last_slash = safe_path;
 
+        ret = inode_check_perm(base, W_OK, AT_EACCESS);
+        if (ret < 0)
+            goto end;
+
         do_link:
         if (!base->backing_superblock ||
             !base->backing_superblock->funcs ||
@@ -1008,11 +1036,9 @@ int sys_linkat(int fd1, const char * path1, int fd2, const char * path2, int fla
             ret = -EROFS;
             goto end;
         }
-        ret = inode_check_perm(base, W_OK, AT_EACCESS);
-        if (ret < 0)
-            goto end;
+
         ret = base->backing_superblock->funcs->link(
-            file, base, safe_path);
+            file, base, last_slash);
         if (ret == 0) {
             utimes_inode(file,
                 (struct timespec){.tv_nsec = UTIME_OMIT},
@@ -1030,7 +1056,7 @@ int sys_linkat(int fd1, const char * path1, int fd2, const char * path2, int fla
     last_slash++;
 
     inode_t * final = NULL;
-    ret = openat_inode(base, safe_path, O_PATH, 0, &final, 1);
+    ret = openat_inode(base, safe_path, O_WRONLY, 0, &final, 1);
     if (ret < 0)
         goto end;
 

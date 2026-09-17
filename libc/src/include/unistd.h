@@ -72,6 +72,15 @@ gid_t getgid();
 gid_t getegid();
 int getresgid(uid_t *restrict rgid, uid_t *restrict egid, uid_t *restrict sgid);
 
+int setgid(gid_t gid);
+int setegid(gid_t gid);
+int setregid(gid_t rgid, gid_t egid);
+int setresgid(gid_t rgid, gid_t egid, gid_t sgid);
+int setuid(uid_t uid);
+int seteuid(uid_t uid);
+int setreuid(uid_t ruid, uid_t euid);
+int setresuid(uid_t ruid, uid_t euid, uid_t suid);
+
 pid_t getpid();
 pid_t gettid();
 pid_t getppid();
