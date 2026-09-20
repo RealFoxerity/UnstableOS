@@ -1251,29 +1251,44 @@ int inode_check_perm(inode_t * inode, unsigned int amode, int flag) {
     kassert(inode != (inode_t*)AT_FDCWD);
     amode &= R_OK | W_OK | X_OK;
 
+    int ret = -EACCES;
+
+    spinlock_acquire(&current_process->lock);
     uid_t target_uid = flag & AT_EACCESS ? current_process->euid : current_process->uid;
     gid_t target_gid = flag & AT_EACCESS ? current_process->egid : current_process->gid;
 
     if (target_uid == 0) {
         if (amode & X_OK && (inode->mode & 0111) == 0 && !S_ISDIR(inode->mode))
-            return -EACCES;
-        return 0;
+            goto end;
+        ret = 0;
     }
 
     amode <<= 6; // bump up to the user perms
     if (inode->uid == target_uid)
         if ((inode->mode & amode) == amode)
-            return 0;
+            ret = 0;
 
     amode >>= 3;
     if (inode->gid == target_gid)
         if ((inode->mode & amode) == amode)
-            return 0;
+            ret = 0;
+
+    for (int i = 0; i < current_process->ngroup; i++) {
+        if (inode->gid == current_process->sup_groups[i]) {
+            if ((inode->mode & amode) == amode) {
+                ret = 0;
+                goto end;
+            }
+        }
+    }
 
     amode >>= 3;
     if ((inode->mode & amode) == amode)
-        return 0;
-    return -EACCES;
+        ret = 0;
+
+    end:
+    spinlock_release(&current_process->lock);
+    return ret;
 }
 
 int sys_faccessat(int fd, const char *path, int amode, int flag) {

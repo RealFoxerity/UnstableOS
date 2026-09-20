@@ -165,7 +165,7 @@ void * __attribute__((weak)) realloc(void * p, size_t size) {
     size_t old_size = 0;
     pthread_mutex_lock(&allocator_mutex);
     struct malloc_heap_header * hdr = p - sizeof(struct malloc_heap_header);
-    old_size = hdr->next_chunk - hdr;
+    old_size = (void*)hdr->next_chunk - p;
     pthread_mutex_unlock(&allocator_mutex);
 
     void * new_chunk = malloc(size);

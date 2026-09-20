@@ -195,7 +195,7 @@ void * krealloc(void * p, size_t size) {
     size_t old_size = 0;
     spinlock_acquire(&kalloc_lock);
     struct heap_header * hdr = p - sizeof(struct heap_header);
-    old_size = hdr->next_chunk - hdr;
+    old_size = (void*)hdr->next_chunk - p;
     spinlock_release(&kalloc_lock);
 
     void * new_chunk = kalloc(size);

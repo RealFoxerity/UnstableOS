@@ -141,4 +141,7 @@ void perror(const char * s);
 int rename(const char *old, const char *new);
 int renameat(int oldfd, const char *old, int newfd, const char *new);
 
+ssize_t getdelim(char **restrict lineptr, size_t *restrict n, int delimiter, FILE *restrict stream);
+ssize_t getline(char **restrict lineptr, size_t *restrict n, FILE *restrict stream);
+
 #endif

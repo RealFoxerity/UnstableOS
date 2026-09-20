@@ -314,6 +314,22 @@ int setresuid(uid_t ruid, uid_t euid, uid_t suid) {
     return 0;
 }
 
+int getgroups(int gidsetsize, gid_t grouplist[]) {
+    int ret = syscall(SYSCALL_GETGROUPS, gidsetsize, grouplist);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return 0;
+}
+int setgroups(int gidsetsize, gid_t grouplist[]) {
+    int ret = syscall(SYSCALL_SETGROUPS, gidsetsize, grouplist);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return 0;
+}
 
 pid_t getpid() {
     //return syscall(SYSCALL_GETPID);

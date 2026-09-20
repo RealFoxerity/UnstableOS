@@ -266,7 +266,7 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
             break;
         case SYSCALL_READDIR:
             VM_LOCK(arg2);
-            if (!paging_check_address_range((void*)arg2, arg3, 1, in_kernel)) {
+            if (!paging_check_address_range((void*)arg2, (size_t)arg3, 1, in_kernel)) {
                 return_value = -EFAULT;
                 VM_UNLOCK(arg2);
                 break;
@@ -702,6 +702,16 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
         case SYSCALL_GETSGID:
             return_value = (long)current_process->sgid;
             break;
+        case SYSCALL_GETGROUPS:
+            VM_LOCK(arg2);
+            if (!paging_check_address_range((void*)arg2, (size_t)arg1 * sizeof(gid_t), 1, in_kernel)) {
+                return_value = -EFAULT;
+                VM_UNLOCK(arg2);
+                break;
+            }
+            return_value = sys_getgroups(arg1, (gid_t*)arg2);
+            VM_UNLOCK(arg2);
+            break;
         case SYSCALL_SETGID:
             return_value = sys_setgid((gid_t)arg1);
             break;
@@ -725,6 +735,16 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
             break;
         case SYSCALL_SETRESUID:
             return_value = sys_setresuid((uid_t)arg1, (uid_t)arg2, (uid_t)arg3);
+            break;
+        case SYSCALL_SETGROUPS:
+            VM_LOCK(arg2);
+            if (!paging_check_address_range((void*)arg2, (size_t)arg1 * sizeof(gid_t), 0, in_kernel)) {
+                return_value = -EFAULT;
+                VM_UNLOCK(arg2);
+                break;
+            }
+            return_value = sys_setgroups(arg1, (gid_t*)arg2);
+            VM_UNLOCK(arg2);
             break;
         default:
             return_value = -ENOSYS;

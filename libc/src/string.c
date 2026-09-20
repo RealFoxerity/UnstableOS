@@ -300,7 +300,19 @@ size_t strspn(const char *s1, const char *s2) {
     unsigned char bm[256/8] = {0};
     for (; *s2; s2++) bm[*s2/8] |= 1 << (*s2 % 8);
     size_t n = 0;
-    for (; *s1; s1++) if (bm[*s1/8] & (1 << (*s1 % 8))) n++;
+    for (; *s1; s1++)
+        if (bm[*s1/8] & (1 << (*s1 % 8))) n++;
+        else return n;
+    return n;
+}
+
+size_t strcspn(const char *s1, const char *s2) {
+    unsigned char bm[256/8] = {0};
+    for (; *s2; s2++) bm[*s2/8] |= 1 << (*s2 % 8);
+    size_t n = 0;
+    for (; *s1; s1++)
+        if (!(bm[*s1/8] & (1 << (*s1 % 8)))) n++;
+        else return n;
     return n;
 }
 

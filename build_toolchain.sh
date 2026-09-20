@@ -1,6 +1,7 @@
 #!/bin/bash
 set -e
 
+cp -rv rootfs_files/* sysroot/
 mkdir -p sysroot/usr/lib sysroot/usr/include/
 cp -rv libc/src/include/* sysroot/usr/include/
 

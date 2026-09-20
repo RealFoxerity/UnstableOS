@@ -312,6 +312,8 @@ int sys_setuid(uid_t uid);
 int sys_seteuid(uid_t uid);
 int sys_setreuid(uid_t ruid, uid_t euid);
 int sys_setresuid(uid_t ruid, uid_t euid, uid_t suid);
+int sys_getgroups(int gidsetsize, gid_t * grouplist);
+int sys_setgroups(int gidsetsize, const gid_t * grouplist);
 
 // kernel_signals.c
 int sys_kill(pid_t pid, int sig);

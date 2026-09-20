@@ -81,6 +81,9 @@ int seteuid(uid_t uid);
 int setreuid(uid_t ruid, uid_t euid);
 int setresuid(uid_t ruid, uid_t euid, uid_t suid);
 
+int getgroups(int gidsetsize, gid_t grouplist[]);
+int setgroups(int gidsetsize, gid_t grouplist[]);
+
 pid_t getpid();
 pid_t gettid();
 pid_t getppid();
@@ -115,4 +118,6 @@ int faccessat(int fd, const char *path, int amode, int flag);
 
 int link(const char *path1, const char *path2);
 int linkat(int fd1, const char *path1, int fd2, const char *path2, int flag);
+
+char *crypt(const char *key, const char *salt);
 #endif

@@ -1,6 +1,7 @@
 #include "kernel_sched.h"
 #include <sys/types.h>
 #include <errno.h>
+#include <string.h>
 
 int sys_setgid(gid_t gid) {
     if (gid == -1)
@@ -189,4 +190,28 @@ int sys_setresuid(uid_t ruid, uid_t euid, uid_t suid) {
     end:
     spinlock_release(&current_process->lock);
     return ret;
+}
+
+int sys_getgroups(int gidsetsize, gid_t * grouplist) {
+    if (gidsetsize < 0)
+        return -EINVAL;
+
+    if (gidsetsize == 0)
+        return (int)current_process->ngroup;
+
+    spinlock_acquire(&current_process->lock);
+    unsigned int copied = gidsetsize > current_process->ngroup ? current_process->ngroup : gidsetsize;
+    memcpy(grouplist, current_process->sup_groups, copied * sizeof(gid_t));
+    spinlock_release(&current_process->lock);
+    return (int)copied;
+}
+int sys_setgroups(int gidsetsize, const gid_t * grouplist) {
+    if (gidsetsize <= 0 || gidsetsize > NGROUPS_MAX)
+        return -EINVAL;
+    if (current_process->euid != 0)
+        return -EPERM;
+    spinlock_acquire(&current_process->lock);
+    memcpy(current_process->sup_groups, grouplist, gidsetsize * sizeof(gid_t));
+    spinlock_release(&current_process->lock);
+    return 0;
 }

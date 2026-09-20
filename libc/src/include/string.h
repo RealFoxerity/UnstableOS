@@ -35,6 +35,7 @@ char * strchr(const char * s, int c);
 char * strchrnul(const char * s, int c);
 char * strrchr(const char * s, int c);
 size_t strspn(const char *s1, const char *s2);
+size_t strcspn(const char *s1, const char *s2);
 
 char * strcat(char *__restrict s1, const char *__restrict s2);
 char * strdup(const char * s);
