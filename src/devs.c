@@ -289,10 +289,10 @@ char * dev2string(dev_t device, char * buf_out) {
                     sprintf(buf_out, "tty%d", MINOR(device)+1);
                     break;
                 case __TTY_CONSOLE ... __TTY_CONSOLE + __TTY_SERIAL - 1:
-                    sprintf(buf_out, "ttyS%d", MINOR(device)+1);
+                    sprintf(buf_out, "ttyS%d", MINOR(device) - __TTY_CONSOLE);
                     break;
                 case __TTY_CONSOLE + __TTY_SERIAL ... DEV_TTY_CURRENT - 1:
-                    sprintf(buf_out, "pty%d", MINOR(device)+1);
+                    sprintf(buf_out, "pty%d", MINOR(device) - __TTY_CONSOLE - __TTY_SERIAL);
                     break;
                 case DEV_TTY_CURRENT:
                     strcpy(buf_out, "tty");

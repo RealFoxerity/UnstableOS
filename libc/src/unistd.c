@@ -345,6 +345,9 @@ pid_t getppid() {
     return __tls_get_tcb()->pcb->pid;
 }
 
+pid_t getpgrp() {
+    return __tls_get_tcb()->pcb->pgid;
+}
 pid_t getpgid(pid_t pid) {
     struct thread_control_block * tcb = __tls_get_tcb();
     if (pid == 0 || pid == tcb->pcb->pid)
@@ -509,4 +512,106 @@ int linkat(int fd1, const char *path1, int fd2, const char *path2, int flag) {
         return -1;
     }
     return ret;
+}
+
+#include <string.h>
+static char * dev2string(dev_t device, char * buf_out) {
+    if (buf_out == NULL) return NULL;
+
+    switch (MAJOR(device)) {
+        case DEV_MAJ_MEM:
+            sprintf(buf_out, "mem%d", MINOR(device));
+            break;
+        case DEV_MAJ_BLOCK0:
+        case DEV_MAJ_BLOCK1:
+        case DEV_MAJ_BLOCK2:
+        case DEV_MAJ_BLOCK3:
+            if (MINOR(device)%DRIVE_PART_LIMIT == 0)
+                sprintf(buf_out, "hd%d",
+                    (MAJOR(device) - DEV_MAJ_BLOCK0) * (1024/DRIVE_PART_LIMIT) + MINOR(device) / DRIVE_PART_LIMIT);
+            else
+                sprintf(buf_out, "hd%dp%d",
+                    (MAJOR(device) - DEV_MAJ_BLOCK0) * (1024/DRIVE_PART_LIMIT) + MINOR(device) / DRIVE_PART_LIMIT,
+                    MINOR(device) % DRIVE_PART_LIMIT);
+            break;
+        case DEV_MAJ_EPHEMERAL:
+            sprintf(buf_out, "?eph%d", MINOR(device));
+            break;
+        case DEV_MAJ_TTY:
+            switch (MINOR(device)) {
+                case 0 ... __TTY_CONSOLE - 1:
+                    sprintf(buf_out, "tty%d", MINOR(device)+1);
+                    break;
+                case __TTY_CONSOLE ... __TTY_CONSOLE + __TTY_SERIAL - 1:
+                    sprintf(buf_out, "ttyS%d", MINOR(device) - __TTY_CONSOLE);
+                    break;
+                case __TTY_CONSOLE + __TTY_SERIAL ... DEV_TTY_CURRENT - 1:
+                    sprintf(buf_out, "pty%d", MINOR(device) - __TTY_CONSOLE - __TTY_SERIAL);
+                    break;
+                case DEV_TTY_CURRENT:
+                    strcpy(buf_out, "tty");
+                    break;
+                case DEV_TTY_CONSOLE:
+                    strcpy(buf_out, "console");
+                    break;
+                default:
+                    sprintf(buf_out, "?tty%d", MINOR(device));
+                    break;
+            }
+            break;
+        case DEV_MAJ_FB:
+            sprintf(buf_out, "fb%d", MINOR(device));
+            break;
+        case DEV_MAJ_MISC:
+            switch (MINOR(device)) {
+                case DEV_MISC_PS2MOUSE:
+                    strcpy(buf_out, "psaux");
+                    break;
+                case DEV_MISC_ZERO:
+                    strcpy(buf_out, "zero");
+                    break;
+                case DEV_MISC_NULL:
+                    strcpy(buf_out, "null");
+                    break;
+                case DEV_MISC_RANDOM:
+                    strcpy(buf_out, "random");
+                    break;
+                default:
+                    sprintf(buf_out, "?misc%d", MINOR(device));
+                    break;
+            }
+        default:
+            sprintf(buf_out, "?maj%dmin%d\n", MAJOR(device), MINOR(device));
+            break;
+    }
+
+    return buf_out;
+}
+
+char *ttyname(int fildes) {
+    static char ttyname[TTY_NAME_MAX];
+    int ret = ttyname_r(fildes, ttyname, TTY_NAME_MAX);
+    if (ret < 0)
+        return NULL;
+    return ttyname;
+}
+
+#include <sys/stat.h>
+int ttyname_r(int fildes, char *name, size_t namesize) {
+    if (!isatty(fildes))
+        return -1;
+
+    if (namesize < TTY_NAME_MAX) {
+        ___set_errno(ERANGE);
+        return -1;
+    }
+
+    struct stat st;
+    int ret = fstat(fildes, &st);
+    if (ret < 0)
+        return -1;
+
+    strcpy(name, "/dev/");
+    dev2string(st.st_rdev, name + strlen("/dev/"));
+    return 0;
 }

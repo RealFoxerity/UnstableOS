@@ -34,7 +34,7 @@ int sys_pipe(int fildes[2], int flags) {
     kassert(pipe_inode);
 
     pipe_inode->instances ++;
-    pipe_inode->mode = S_IFFIFO;
+    pipe_inode->mode = S_IFIFO;
 
     pipe_inode->pipe = new_pipe;
 

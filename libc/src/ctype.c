@@ -48,3 +48,47 @@ int isspace(int c) {
             return 1;
     }
 }
+
+int isblank(int c) {
+    switch (c) {
+        default: return 0;
+        case ' ':
+        case '\t':
+            return 1;
+    }
+}
+
+int iscntrl(int c) {
+    switch (c) {
+        default: return 0;
+        case 0 ... 0x1F:
+        case 0x7F:
+            return 1;
+    }
+}
+
+int isgraph(int c) {
+    if (c > ' ' && c < 0x7F) return 1;
+    return 0;
+}
+
+int ispunct(int c) {
+    switch (c) {
+        default: return 0;
+        case '!' ... '/':
+        case ':' ... '@':
+        case '[' ... '`':
+        case '{' ... '~':
+            return 1;
+    }
+}
+
+int isxdigit(int c) {
+    switch (c) {
+        default: return 0;
+        case '0' ... '9':
+        case 'A' ... 'F':
+        case 'a' ... 'F':
+            return 1;
+    }
+}

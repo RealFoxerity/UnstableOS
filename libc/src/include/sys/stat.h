@@ -49,7 +49,7 @@ struct stat {
 #define S_IFBLK  (0060000)
 #define S_IFDIR  (0040000)
 #define S_IFCHR  (0020000)
-#define S_IFFIFO (0010000)
+#define S_IFIFO (0010000)
 
 #define S_ISSOCK(mode) (((mode) & S_IFMT) == S_IFSOCK)
 #define S_ISLNK(mode)  (((mode) & S_IFMT) == S_IFLNK)
@@ -57,7 +57,7 @@ struct stat {
 #define S_ISBLK(mode)  (((mode) & S_IFMT) == S_IFBLK)
 #define S_ISDIR(mode)  (((mode) & S_IFMT) == S_IFDIR)
 #define S_ISCHR(mode)  (((mode) & S_IFMT) == S_IFCHR)
-#define S_ISFIFO(mode) (((mode) & S_IFMT) == S_IFFIFO)
+#define S_ISFIFO(mode) (((mode) & S_IFMT) == S_IFIFO)
 
 int stat(const char * __restrict path, struct stat * __restrict buf);
 int fstat(int fd, struct stat * buf);

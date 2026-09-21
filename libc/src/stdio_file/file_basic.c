@@ -218,8 +218,10 @@ FILE * fopen(const char *restrict pathname, const char *restrict mode) {
         return NULL;
     }
     int flags = fopen_get_flags(mode);
-    if (flags == -1)
+    if (flags == -1) {
+        ___set_errno(EINVAL);
         return NULL;
+    }
 
     int fd = open(pathname, flags, OCREAT_FLAGS_FOPEN);
     if (fd == -1)
@@ -231,6 +233,64 @@ FILE * fopen(const char *restrict pathname, const char *restrict mode) {
     return out;
 }
 
+FILE *freopen(const char *restrict pathname, const char *restrict mode, FILE *restrict stream) {
+    if (mode == NULL || stream == NULL) {
+        ___set_errno(EINVAL);
+        return NULL;
+    }
+    int flags = fopen_get_flags(mode);
+    if (flags == -1) {
+        ___set_errno(EINVAL);
+        return NULL;
+    }
+
+    flockfile(stream);
+    // invalidates ungetc and read/write buffers so no need to free them
+    fflush(stream);
+
+    if (!pathname && stream->pure_buf) {
+        ___set_errno(EBADF);
+        funlockfile(stream);
+        return NULL;
+    }
+    if (pathname == NULL) {
+        if (flags & O_RDONLY && !(stream->mode & O_RDONLY)) {
+            ___set_errno(EBADF);
+            funlockfile(stream);
+            return NULL;
+        }
+        if (flags & O_WRONLY && !(stream->mode & O_WRONLY)) {
+            ___set_errno(EBADF);
+            funlockfile(stream);
+            return NULL;
+        }
+        stream->mode = flags;
+    } else {
+        int fd = open(pathname, flags, OCREAT_FLAGS_FOPEN);
+        if (fd == -1) {
+            funlockfile(stream);
+            return NULL;
+        }
+        close(stream->fd);
+        stream->fd = fd;
+        stream->mode = flags;
+
+        if (isatty(fd))
+            stream->buffered = _IOLBF;
+        if (lseek(fd, 0, SEEK_CUR) == -1)
+            stream->seekable = 0;
+        else
+            stream->seekable = 1;
+    }
+
+    if (flags & O_CLOEXEC)
+        fcntl(stream->fd, F_SETFD, FD_CLOEXEC);
+    if (flags & O_APPEND)
+        fcntl(stream->fd, F_SETFL, O_APPEND);
+
+    funlockfile(stream);
+    return stream;
+}
 __attribute__((constructor(1))) void __stdio_init() {
     pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr);

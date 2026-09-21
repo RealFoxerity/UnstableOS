@@ -54,7 +54,7 @@ typedef off_t fpos_t;
 FILE * fopen(const char *__restrict pathname, const char *__restrict mode);
 FILE * fdopen(int fildes, const char *mode);
 FILE * fmemopen(void *restrict buf, size_t max_size, const char *restrict mode);
-
+FILE * freopen(const char *restrict pathname, const char *restrict mode, FILE *restrict stream);
 int fclose(FILE *stream);
 
 void setbuf(FILE *__restrict stream, char *__restrict buf);

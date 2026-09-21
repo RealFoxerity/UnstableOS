@@ -87,6 +87,7 @@ int setgroups(int gidsetsize, gid_t grouplist[]);
 pid_t getpid();
 pid_t gettid();
 pid_t getppid();
+pid_t getpgrp();
 
 pid_t getpgid(pid_t pid);
 pid_t getsid(pid_t pid);
@@ -120,4 +121,7 @@ int link(const char *path1, const char *path2);
 int linkat(int fd1, const char *path1, int fd2, const char *path2, int flag);
 
 char *crypt(const char *key, const char *salt);
+
+char * ttyname(int fildes);
+int ttyname_r(int fildes, char *name, size_t namesize);
 #endif

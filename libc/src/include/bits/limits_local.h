@@ -15,6 +15,8 @@
 #define OPEN_MAX 128
 #define STREAM_MAX 0xFFFFFFFF // no limit, see stdio.h for FOPEN_MAX
 
+#define TTY_NAME_MAX 32
+
 #define PAGE_SIZE 4096
 #define PAGESIZE PAGE_SIZE
 
