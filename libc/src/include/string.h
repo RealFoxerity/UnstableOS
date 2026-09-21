@@ -38,6 +38,7 @@ size_t strspn(const char *s1, const char *s2);
 size_t strcspn(const char *s1, const char *s2);
 
 char * strcat(char *__restrict s1, const char *__restrict s2);
+char * strncat(char *restrict s1, const char *restrict s2, size_t n);
 char * strdup(const char * s);
 char * strndup(const char * s, size_t n);
 char * strstr(const char *s1, const char *s2);

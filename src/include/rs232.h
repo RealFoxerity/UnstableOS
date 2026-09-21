@@ -6,8 +6,6 @@
 enum com_errors {
     COM_ERR_INVALID_PORT = -1,
     COM_ERR_INVALID_BAUDRATE = -2,
-    COM_ERR_BAUDRATE_TOO_LOW = -3,
-    COM_ERR_BAUDRATE_TOO_HIGH = -3,
     COM_ERR_INVALID_DATA_BITS = -5,
     COM_ERR_INVALID_STOP_BITS = -6,
     COM_ERR_INVALID_PARITY = -7,
@@ -41,8 +39,14 @@ enum com_fifo { // don't move around, see COM_FCR_IRQ_LEVEL
     COM_BUFFER_14
 };
 
-char com_init(unsigned char com, unsigned int baudrate, enum com_data_bits data_bits, enum com_stop_bits stop_bits, enum com_parity parity, enum com_fifo buffered_bytes);
+char com_init(unsigned char com, unsigned int termios_baudrate, enum com_data_bits data_bits, enum com_stop_bits stop_bits, enum com_parity parity, enum com_fifo buffered_bytes);
 long com_write(unsigned char com, const char * data, unsigned long len);
+
+#include "kernel_tty_io.h"
+size_t tty_com_write(tty_t * tty);
+int com_ctl(tty_t * tty, struct termios * tio);
+void com_brk(tty_t * tty, int set);
+void com_hup(tty_t * tty);
 
 #define COM_DELTA_RX 0
 #define COM_DELTA_TX 0
@@ -57,8 +61,8 @@ long com_write(unsigned char com, const char * data, unsigned long len);
 #define COM_DELTA_MODEM_STATUS 6
 #define COM_DELTA_SCRATCH_REGISTER 7
 
-#define COM_MSB_DLAB_BIT_MASK (1<<7) // divisor latch access bit
-#define COM_MSB_BREAK_BIT_MASK (1<<6) // while this bit is set, the trasmit line is held low, not that useful
+#define COM_LCR_DLAB (1<<7) // divisor latch access bit
+#define COM_LCR_BREAK (1<<6) // while this bit is set, the trasmit line is held low, not that useful
 
 #define COM_IRQ_EN_RECV_DATA_AVAIL 1
 #define COM_IRQ_EN_TX_HOLD_REG_EMPTY (1<<1) // interrupt when we can send data
@@ -66,7 +70,7 @@ long com_write(unsigned char com, const char * data, unsigned long len);
 #define COM_IRQ_EN_MODEM_STATUS (1<<3)
 
 #define COM_IIR_NO_PENDING 1
-#define COM_IIR_INTERRUPT_STATE_MASK (3<<1) // 0, lowest priority, Modem Status, 1 = Tx holding register empty, 2 = recv data avail, 3 = reciever status
+#define COM_IIR_INTERRUPT_STATE_MASK (3<<1) // 0, lowest priority, Modem Status, 1 = Tx holding register empty, 2 = recv data avail, 3 = line status
 #define COM_IIR_UART_16650_TIMEOUT_IRQ_PENDING (1<<3)
 #define COM_IIR_FIFO_BUFFER_STATE (3<<6) // 0 = no fifo, 1 = fifo enabled but unusable, 2 = fifo enabled
 

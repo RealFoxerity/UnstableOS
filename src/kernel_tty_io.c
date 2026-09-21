@@ -11,6 +11,7 @@
 #include "kernel_console.h"
 #include <string.h>
 #include <sys/ioctl.h>
+#include "rs232.h"
 
 spinlock_t tty_lock = {0};
 tty_t * terminals[TTY_LIMIT_KERNEL] = {0};
@@ -108,8 +109,7 @@ TOSTOP | \
 ECHOCTL \
 )
 
-// missing everything
-#define TERMIOS_VALID_CFLAGS (0)
+#define TERMIOS_VALID_CFLAGS (0x1FFF)
 
 long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
     kassert(file);
@@ -150,6 +150,7 @@ long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
         case TCSETSW:
         case TCXONC:
         case TCFLSH:
+        case TCSBRKP:
             if (current_process->session != terminals[MINOR(dev)]->session ||
                 current_process->pgrp    == terminals[MINOR(dev)]->foreground_pgrp)
                     break;
@@ -174,38 +175,48 @@ long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
             if (paging_check_address_range(arg, sizeof(struct termios), 1, 0) == 0)
                 return -EFAULT;
 
-            spinlock_acquire_interruptible(&tty_lock);
+            spinlock_acquire_interruptible(&terminals[MINOR(dev)]->tty_lock);
             memcpy(arg, &terminals[MINOR(dev)]->params, sizeof(struct termios));
-            spinlock_release(&tty_lock);
+            spinlock_release(&terminals[MINOR(dev)]->tty_lock);
             return 0;
         case TCSETS: // apply immediately
             if (paging_check_address_range(arg, sizeof(struct termios), 1, 0) == 0)
                 return -EFAULT;
 
-            spinlock_acquire_interruptible(&tty_lock);
+            spinlock_acquire_interruptible(&terminals[MINOR(dev)]->tty_lock);
+            set_termios:
+            if (memcmp(&terminals[MINOR(dev)]->params, arg, sizeof(struct termios)) == 0) {
+                spinlock_release(&terminals[MINOR(dev)]->tty_lock);
+                return 0;
+            }
             memcpy(&terminals[MINOR(dev)]->params, arg, sizeof(struct termios));
             terminals[MINOR(dev)]->params.c_iflag &= TERMIOS_VALID_IFLAGS;
             terminals[MINOR(dev)]->params.c_oflag &= TERMIOS_VALID_OFLAGS;
             terminals[MINOR(dev)]->params.c_lflag &= TERMIOS_VALID_LFLAGS;
             terminals[MINOR(dev)]->params.c_cflag &= TERMIOS_VALID_CFLAGS;
-            spinlock_release(&tty_lock);
-            return 0;
+
+            int ret = 0;
+            if (terminals[MINOR(dev)]->ctl) {
+                ret = terminals[MINOR(dev)]->ctl(terminals[MINOR(dev)], &terminals[MINOR(dev)]->params);
+            } else
+                terminals[MINOR(dev)]->params.c_cflag = TTYDEF_CFLAG;
+
+            spinlock_release(&terminals[MINOR(dev)]->tty_lock);
+            return ret;
         case TCSETSW: // apply after writing all
             if (paging_check_address_range(arg, sizeof(struct termios), 1, 0) == 0)
                 return -EFAULT;
 
-            spinlock_acquire_interruptible(&tty_lock);
+            spinlock_acquire_interruptible(&terminals[MINOR(dev)]->tty_lock);
 
             terminals[MINOR(dev)]->write(terminals[MINOR(dev)]);
 
-            memcpy(&terminals[MINOR(dev)]->params, arg, sizeof(struct termios));
-            spinlock_release(&tty_lock);
-            return 0;
+            goto set_termios;
         case TCSETSF: // apply after writing all and discarding unread input
             if (paging_check_address_range(arg, sizeof(struct termios), 1, 0) == 0)
                 return -EFAULT;
 
-            spinlock_acquire_interruptible(&tty_lock);
+            spinlock_acquire_interruptible(&terminals[MINOR(dev)]->tty_lock);
 
             terminals[MINOR(dev)]->write(terminals[MINOR(dev)]);
 
@@ -216,9 +227,7 @@ long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
                     );
             tty_flush_input(terminals[MINOR(dev)]);
 
-            memcpy(&terminals[MINOR(dev)]->params, arg, sizeof(struct termios));
-            spinlock_release(&tty_lock);
-            return 0;
+            goto set_termios;
         case TCXONC:
             switch ((long)arg) {
                 case TCOOFF:
@@ -310,6 +319,23 @@ long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
             return 0;
         case TIOCGSID:
             return terminals[MINOR(dev)]->session;
+        case TCSBRKP:
+            if (!terminals[MINOR(dev)]->brk)
+                return 0;
+            // TODO: think of a more ideal solution not requiring us to potentially wait for up to 2.5s
+            spinlock_acquire_interruptible(&terminals[MINOR(dev)]->tty_lock);
+            size_t duration = 250 + (size_t)arg * 100;
+            if (duration > TTY_LONGEST_BREAK_MSEC)
+                duration = TTY_LONGEST_BREAK_MSEC;
+            struct timespec ts = {
+                .tv_sec = duration / 1000,
+                .tv_nsec = (long)(duration % 1000) * 1000000
+            };
+            terminals[MINOR(dev)]->brk(terminals[MINOR(dev)], 1);
+            sys_clock_nanosleep(current_process, current_thread, CLOCK_MONOTONIC, 0, ts, NULL);
+            terminals[MINOR(dev)]->brk(terminals[MINOR(dev)], 0);
+            spinlock_release(&terminals[MINOR(dev)]->tty_lock);
+            return 0;
         default:
             return -EINVAL;
     }
@@ -319,8 +345,6 @@ long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
 
 
 // TODO: seems like i don't do VERASE and VKILL properly
-
-extern size_t tty_com_write(tty_t * tty); // from rs232.c
 
 static size_t tty_console_write(tty_t * tty) {
     struct tty_queue * tq = &tty->oqueue;
@@ -342,10 +366,14 @@ static size_t tty_console_write(tty_t * tty) {
     return n;
 }
 
-tty_t * tty_init_tty(tcflag_t imodes, tcflag_t lmodes, tcflag_t omodes, const unsigned char * control_chars,
-                    size_t height, size_t width,
-                    size_t (*write)(struct tty_t *), char com_port,
-                    pid_t controlling_session, pid_t foreground_pgrp) {
+tty_t * tty_init_tty(tcflag_t imodes, tcflag_t lmodes, tcflag_t omodes, tcflag_t cmodes,
+                     const unsigned char * control_chars,
+                     size_t height, size_t width,
+                     size_t (*write)(struct tty_t *),
+                     int (*ctl)(struct tty_t*, struct termios*),
+                     void (*brk)(struct tty_t*, int),
+                     void (*hup)(struct tty_t*),
+                     int com_port, pid_t controlling_session, pid_t foreground_pgrp) {
     tty_t * new_tty = kalloc(sizeof(tty_t));
     if (!new_tty) return NULL;
     memset(new_tty, 0, sizeof(tty_t));
@@ -358,9 +386,13 @@ tty_t * tty_init_tty(tcflag_t imodes, tcflag_t lmodes, tcflag_t omodes, const un
         .width = width,
         .session = controlling_session,
         .write = write,
+        .ctl = ctl,
+        .brk = brk,
+        .hup = hup,
         .params.c_iflag = imodes,
         .params.c_lflag = lmodes,
         .params.c_oflag = omodes,
+        .params.c_cflag = cmodes,
     };
     memcpy(new_tty->params.c_cc, control_chars, sizeof(new_tty->params.c_cc));
 
@@ -447,8 +479,10 @@ long tty_close(inode_t * tty) {
         return -1;
     tty_t * term = terminals[MINOR(dev)];
     spinlock_acquire(&term->tty_lock);
-    if (__atomic_sub_fetch(&term->instances, 1, __ATOMIC_RELEASE) == 0)
+    if (__atomic_sub_fetch(&term->instances, 1, __ATOMIC_RELEASE) == 0) {
         term->session = term->foreground_pgrp = 0;
+        if (term->hup) term->hup(term);
+    }
     spinlock_release(&term->tty_lock);
     return 0;
 }
@@ -460,31 +494,31 @@ void tty_alloc_kernel_console() { // for the kernel task, don't call for user pr
         TTYDEF_IFLAG,
         TTYDEF_LFLAG,
         TTYDEF_OFLAG,
-        default_control_chars,
-        display_height, display_width,
-        tty_console_write, 0,
-        0, 0);
+        TTYDEF_CFLAG,
+        default_control_chars, display_height,
+        display_width, tty_console_write,
+        NULL, NULL, NULL, 0, 0, 0);
     tty_register(tty0, DEV_TTY_0);
 
     tty_t * ttyS0 = tty_init_tty(
         TTYDEF_IFLAG,
         TTYDEF_LFLAG,
         TTYDEF_OFLAG,
-        default_control_chars,
-        display_height, display_width,
-        tty_com_write, 0,
-        0, 0);
+        TTYDEF_CFLAG,
+        default_control_chars, display_height,
+        display_width, tty_com_write,
+        com_ctl, com_brk, com_hup, 0, 0, 0);
     tty_register(ttyS0, DEV_TTY_S0);
 
-    tty_t * ttys1 = tty_init_tty(
+    tty_t * ttyS1 = tty_init_tty(
         TTYDEF_IFLAG,
         TTYDEF_LFLAG,
         TTYDEF_OFLAG,
-        default_control_chars,
-        display_height, display_width,
-        tty_com_write, 1,
-        0, 0);
-    tty_register(ttys1, DEV_TTY_S0 + 1);
+        TTYDEF_CFLAG,
+        default_control_chars, display_height,
+        display_width, tty_com_write,
+        com_ctl, com_brk, com_hup, 1, 0, 0);
+    tty_register(ttyS1, DEV_TTY_S0 + 1);
 
     dev_register_ops(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), &tty_ops);
     dev_register_ops(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CURRENT), &tty_ops);
@@ -645,9 +679,12 @@ static inline char tty_remove_line(tty_t * tty) { // cannon mode, KILL char
 }
 
 // TODO: check ordering of operations
-static inline size_t tty_translate_line_incoming(const char * s, size_t n, tty_t * tty) {
+static inline size_t tty_translate_line_incoming(const char * s, size_t n, tty_t * tty, char parmarked) {
     kassert(s);
     kassert(tty);
+
+    if (!(tty->params.c_cflag & CREAD))
+        return n;
 
     for (size_t i = 0; i < n; i++) {
         char checked = s[i];
@@ -718,7 +755,19 @@ static inline size_t tty_translate_line_incoming(const char * s, size_t n, tty_t
         }
         if (skip_char) continue;
 
+        if (parmarked && tty->params.c_iflag & INPCK) {
+            if (tty->params.c_iflag & IGNPAR)
+                goto skipped_parity;
+            if (tty->params.c_iflag & PARMRK) {
+                if (tty_queue_putch(&tty->iqueue, (char)0xFF, 0) == 256) return i;
+                if (tty_queue_putch(&tty->iqueue, 0, 0) == 256) return i;
+            }
+        }
+        if (tty->params.c_iflag & INPCK && tty->params.c_iflag & PARMRK && !parmarked && final == (char)0xFF)
+            if (tty_queue_putch(&tty->iqueue, (char)0xFF, 0) == 256) return i;
         if (tty_queue_putch(&tty->iqueue, final, 0) == 256) return i;
+        skipped_parity:
+
         if (tty->params.c_lflag & ECHO) {
             if (tty->params.c_lflag & ECHOCTL && final < ' ') {
                 if ((tty->params.c_cc[VSTART] != _POSIX_VDISABLE &&
@@ -946,10 +995,9 @@ ssize_t tty_pwrite(file_descriptor_t * file, const void * s, size_t n, off_t off
     if (ret == 0 && n != 0) return -EINTR;
     return ret;
 }
-long tty_write_to_tty(const char * s, size_t n, dev_t dev) { // writes data into read queue of a tty, aka recv input
+long tty_write_to_tty(const char * s, size_t n, dev_t dev, char parmarked) { // writes data into read queue of a tty, aka recv input
     if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE))
         dev = GET_DEV(DEV_MAJ_TTY, KERNEL_CONSOLE_MINOR);
-        // since the underlying tty is the same for S0 and 0, having both would input stuff 2 times
     if (n == 0) return 0;
 
     if (!is_valid_tty(dev)) return -EINVAL;
@@ -957,7 +1005,68 @@ long tty_write_to_tty(const char * s, size_t n, dev_t dev) { // writes data into
     if (!s) return -EINVAL;
 
 
-    size_t ret = tty_translate_line_incoming(s, n, terminals[MINOR(dev)]);
+    size_t ret = tty_translate_line_incoming(s, n, terminals[MINOR(dev)], parmarked);
     if (ret == 0 && n != 0) return -EINTR;
     return ret;
+}
+
+long tty_recv_break(dev_t dev) {
+    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE))
+        dev = GET_DEV(DEV_MAJ_TTY, KERNEL_CONSOLE_MINOR);
+    if (!is_valid_tty(dev)) return -EINVAL;
+    tty_t * tty = terminals[MINOR(dev)];
+    if (tty->params.c_iflag & IGNBRK)
+        return 0;
+    if (tty->params.c_iflag & BRKINT) {
+        __atomic_store(
+            &terminals[MINOR(dev)]->iqueue.head,
+            &terminals[MINOR(dev)]->iqueue.tail,
+            __ATOMIC_RELEASE
+        );
+        __atomic_store(
+            &terminals[MINOR(dev)]->oqueue.head,
+            &terminals[MINOR(dev)]->oqueue.tail,
+            __ATOMIC_RELEASE
+        );
+        tty_flush_input(terminals[MINOR(dev)]);
+#if TTY_QUEUE_MODE == 2
+        thread_queue_unblock_all(&terminals[MINOR(dev)]->oqueue.write_queue);
+#endif
+        signal_process_group(tty->foreground_pgrp, &(siginfo_t){.si_code = SIGINT});
+        return 0;
+    }
+    sigset_t sig = PAUSE_SIGNALS();
+    if (tty->params.c_iflag & PARMRK) {
+        tty_queue_putch(&tty->iqueue, (char)0xFF, 0);
+        tty_queue_putch(&tty->iqueue, 0, 0);
+    }
+    tty_queue_putch(&tty->iqueue, 0, 0);
+    RESTORE_SIGNALS(sig);
+    return 0;
+}
+
+long tty_recv_hang_up(dev_t dev) {
+    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE))
+        dev = GET_DEV(DEV_MAJ_TTY, KERNEL_CONSOLE_MINOR);
+    if (!is_valid_tty(dev)) return -EINVAL;
+    tty_t * tty = terminals[MINOR(dev)];
+    if (tty->params.c_cflag & CLOCAL)
+        return 0;
+
+    __atomic_store(
+            &terminals[MINOR(dev)]->iqueue.head,
+            &terminals[MINOR(dev)]->iqueue.tail,
+            __ATOMIC_RELEASE
+        );
+    __atomic_store(
+        &terminals[MINOR(dev)]->oqueue.head,
+        &terminals[MINOR(dev)]->oqueue.tail,
+        __ATOMIC_RELEASE
+    );
+    tty_flush_input(terminals[MINOR(dev)]);
+#if TTY_QUEUE_MODE == 2
+    thread_queue_unblock_all(&terminals[MINOR(dev)]->oqueue.write_queue);
+#endif
+    signal_process_group(tty->foreground_pgrp, &(siginfo_t){.si_code = SIGHUP});
+    return 0;
 }

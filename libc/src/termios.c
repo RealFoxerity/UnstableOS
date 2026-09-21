@@ -68,19 +68,24 @@ int tcflush(int fildes, int queue_selector) {
 }
 
 int tcdrain(int fildes) {
-    if (fildes < 0) {
-        ___set_errno(EBADF);
-    } else {
-        ___set_errno(ENOSYS);
-    }
-    return -1;
+    return 0;
 }
 
-int tcsendbreak(int fildes) {
-    if (fildes < 0) {
-        ___set_errno(EBADF);
-    } else {
-        ___set_errno(ENOSYS);
-    }
-    return -1;
+int tcsendbreak(int fildes, int duration) {
+    return ioctl(fildes, TCSBRKP, duration);
+}
+
+speed_t cfgetispeed(const struct termios *termios_p) {
+    return termios_p->c_cflag & CBAUD;
+}
+speed_t cfgetospeed(const struct termios *termios_p) {
+    return cfgetispeed(termios_p);
+}
+int cfsetispeed(struct termios *termios_p, speed_t speed) {
+    termios_p->c_cflag &= ~CBAUD;
+    termios_p->c_cflag |= speed & CBAUD;
+    return 0;
+}
+int cfsetospeed(struct termios *termios_p, speed_t speed) {
+    return cfsetispeed(termios_p, speed);
 }

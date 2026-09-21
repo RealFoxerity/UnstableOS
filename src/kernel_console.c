@@ -977,7 +977,7 @@ void tty_console_input_terminal_input_seq(uint32_t scancode) { // vt and partial
         else
             sprintf(esc_buf, "\e[%d;%d~", esc_val, mods);
 
-    tty_write_to_tty(esc_buf, strlen(esc_buf), GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE));
+    tty_write_to_tty(esc_buf, strlen(esc_buf), GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), 0);
 }
 
 void console_translate_scancode(uint32_t scancode) { // convert ps2/com input into normal ascii for terminal use
@@ -1000,7 +1000,7 @@ void console_translate_scancode(uint32_t scancode) { // convert ps2/com input in
 
     translated_scancode = scancode_to_char[(scancode & 0xFF) + TTY_SHIFT_MOD_MASK*is_shift];
     if (scancode & KEY_MOD_LALT_MASK     || scancode & KEY_MOD_RALT_MASK)
-        tty_write_to_tty("\e", 1, GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE));
+        tty_write_to_tty("\e", 1, GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), 0);
 
     if (scancode & KEY_MOD_LCONTROL_MASK || scancode & KEY_MOD_RCONTROL_MASK) {
         if (toupper(translated_scancode) >= '@' && toupper(translated_scancode) <= '_') { // if char between C0 values
@@ -1012,5 +1012,5 @@ void console_translate_scancode(uint32_t scancode) { // convert ps2/com input in
         //}
     }
     if (translated_scancode != '\0' || explicit_nullbyte)
-        tty_write_to_tty(&translated_scancode, 1, GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE));
+        tty_write_to_tty(&translated_scancode, 1, GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), 0);
 }

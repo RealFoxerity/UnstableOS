@@ -330,7 +330,10 @@ char *strcat(char *restrict s1, const char *restrict s2) {
     strcpy(s1 + strlen(s1), s2);
     return s1;
 }
-
+char *strncat(char *restrict s1, const char *restrict s2, size_t n) {
+    strncpy(s1 + strlen(s1), s2, n);
+    return s1;
+}
 char * strdup(const char * s) {
     return strndup(s, strlen(s));
 }

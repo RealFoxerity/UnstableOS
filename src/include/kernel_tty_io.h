@@ -6,11 +6,13 @@
 #include <UnstableOS/devs.h>
 #include <termios.h>
 
+#define TTY_LONGEST_BREAK_MSEC 2500
 #define KERNEL_CONSOLE_MINOR DEV_TTY_0
 
 #define TTYDEF_IFLAG    (ICRNL | ISTRIP | IXANY | IXON)
 #define TTYDEF_OFLAG    (OPOST | ONLCR)
 #define TTYDEF_LFLAG    (ECHO | ECHOE | ECHOK | ICANON | ISIG | ECHOCTL)
+#define TTYDEF_CFLAG    (B115200 | CS8 | CREAD | HUPCL)
 
 #define EMPTY(tq) ((tq)->head == (tq)->tail)
 #define FULL(tq) (((tq)->head == 0 && (tq)->tail == MAX_CANON - 1) || (tq)->tail == (tq)->head - 1)
@@ -63,7 +65,7 @@ struct tty_t {
     // here so we don't need to free()/close() this terminal
     // for aliased ttys like console
     unsigned long instances;
-    char com_port; // -1 if not serial backed
+    int com_port;
     spinlock_t tty_lock; // for params
     size_t height;
     size_t width;
@@ -74,7 +76,13 @@ struct tty_t {
     pid_t session; // 0 assumes not taken
 
     size_t (*write)(struct tty_t *);
-
+    // optional for setting control flags and similar,
+    // implementations should edit the termios structure's based on what got applied
+    int    (*ctl)  (struct tty_t *, struct termios *);
+    // optional for break conditions, on/off
+    void   (*brk)  (struct tty_t *, int);
+    // optional for hangups on file close (cfsetospeed B0 is handled by ctl)
+    void   (*hup)  (struct tty_t *);
     size_t read_remaining;
 
     struct termios params;
@@ -83,10 +91,12 @@ struct tty_t {
 
 extern tty_t * terminals[TTY_LIMIT_KERNEL];
 
-tty_t * tty_init_tty(tcflag_t imodes, tcflag_t lmodes, tcflag_t omodes, const unsigned char * control_chars,
-                    size_t height, size_t width,
-                    size_t (*write)(tty_t *), char com_port,
-                    pid_t controlling_session, pid_t foreground_pgrp);
+tty_t * tty_init_tty(tcflag_t imodes, tcflag_t lmodes, tcflag_t omodes, tcflag_t
+                     cmodes,
+                     const unsigned char * control_chars, size_t height,
+                     size_t width, size_t (*write)(tty_t *),
+                     int (*ctl)(struct tty_t*, struct termios*), void (*brk)(struct tty_t*, int), void
+                     (*hup)(struct tty_t*), int com_port, pid_t controlling_session, pid_t foreground_pgrp);
 void tty_register(tty_t * tty, dev_t minor);
 
 void tty_alloc_kernel_console();
@@ -113,6 +123,9 @@ ssize_t tty_pwrite(file_descriptor_t * file, const void * s, size_t n, off_t off
 ssize_t tty_pread(file_descriptor_t * file, void * s, size_t n, off_t offset);
 long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg);
 
-long tty_write_to_tty(const char * s, size_t n, dev_t dev);
+long tty_write_to_tty(const char * s, size_t n, dev_t dev, char parmarked);
 
+// for hardware drivers to call to send these conditions to foreground groups
+long tty_recv_break(dev_t dev);
+long tty_recv_hang_up(dev_t dev);
 #endif

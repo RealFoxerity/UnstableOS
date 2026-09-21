@@ -19,8 +19,7 @@
 - missing `sigaltstack()` and everything along with it
 - missing almost all `si_code` values for `siginfo_t`
 - no support for PCI Configuration Space #2 (for i486 and early Pentiums)
-- no break condition support on TTY and RS-232
-- no baud/speed settings, delays, and control flags in termios
+- no delays in termios
 ### Known console issues (compared to a VT102 excluding DEC escapes)
 ---
 - no "computer editing" or insertions

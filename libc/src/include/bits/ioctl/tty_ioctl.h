@@ -23,4 +23,5 @@
 #define TIOCSPGRP __IOCTL_NO(DEV_MAJ_TTY, 7) // set               -> tcsetpgrp
 #define TIOCGSID  __IOCTL_NO(DEV_MAJ_TTY, 8) // get session id    -> tcgetsid
 
+#define TCSBRKP   __IOCTL_NO(DEV_MAJ_TTY, 9)
 #endif
