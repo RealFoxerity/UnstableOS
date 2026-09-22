@@ -48,8 +48,8 @@ int pthread_mutex_consistent(pthread_mutex_t *mutex);
 int pthread_mutex_lock(pthread_mutex_t *mutex);
 int pthread_mutex_trylock(pthread_mutex_t *mutex);
 int pthread_mutex_unlock(pthread_mutex_t *mutex);
-int pthread_mutex_clocklock(pthread_mutex_t *mutex, clockid_t clock_id, const struct timespec *restrict abstime);
-int pthread_mutex_timedlock(pthread_mutex_t *mutex, const struct timespec *restrict abstime);
+int pthread_mutex_clocklock(pthread_mutex_t *mutex, clockid_t clock_id, const struct timespec *__restrict abstime);
+int pthread_mutex_timedlock(pthread_mutex_t *mutex, const struct timespec *__restrict abstime);
 
 // pthread_spin.c
 int pthread_spin_init(pthread_spinlock_t *lock, int pshared);
@@ -64,7 +64,7 @@ int pthread_rwlockattr_init(pthread_rwlockattr_t *attr);
 int pthread_rwlockattr_destroy(pthread_rwlockattr_t *attr);
 
 // pthread_rwlock_init_destroy.c
-int pthread_rwlock_init(pthread_rwlock_t *restrict rwlock, const pthread_rwlockattr_t *restrict attr);
+int pthread_rwlock_init(pthread_rwlock_t *__restrict rwlock, const pthread_rwlockattr_t *__restrict attr);
 int pthread_rwlock_destroy(pthread_rwlock_t *rwlock);
 
 // pthread_rwlock_rdlocks.c

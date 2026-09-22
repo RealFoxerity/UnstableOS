@@ -53,8 +53,8 @@ typedef off_t fpos_t;
 
 FILE * fopen(const char *__restrict pathname, const char *__restrict mode);
 FILE * fdopen(int fildes, const char *mode);
-FILE * fmemopen(void *restrict buf, size_t max_size, const char *restrict mode);
-FILE * freopen(const char *restrict pathname, const char *restrict mode, FILE *restrict stream);
+FILE * fmemopen(void *__restrict buf, size_t max_size, const char *__restrict mode);
+FILE * freopen(const char *__restrict pathname, const char *__restrict mode, FILE *__restrict stream);
 int fclose(FILE *stream);
 
 void setbuf(FILE *__restrict stream, char *__restrict buf);
@@ -141,7 +141,7 @@ void perror(const char * s);
 int rename(const char *old, const char *new);
 int renameat(int oldfd, const char *old, int newfd, const char *new);
 
-ssize_t getdelim(char **restrict lineptr, size_t *restrict n, int delimiter, FILE *restrict stream);
-ssize_t getline(char **restrict lineptr, size_t *restrict n, FILE *restrict stream);
+ssize_t getdelim(char **__restrict lineptr, size_t *__restrict n, int delimiter, FILE *__restrict stream);
+ssize_t getline(char **__restrict lineptr, size_t *__restrict n, FILE *__restrict stream);
 
 #endif

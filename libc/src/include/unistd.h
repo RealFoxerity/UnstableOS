@@ -79,11 +79,11 @@ int execlp(const char * file, const char * arg0, ...);
 
 uid_t getuid();
 uid_t geteuid();
-int getresuid(uid_t *restrict ruid, uid_t *restrict euid, uid_t *restrict suid);
+int getresuid(uid_t *__restrict ruid, uid_t *__restrict euid, uid_t *__restrict suid);
 
 gid_t getgid();
 gid_t getegid();
-int getresgid(uid_t *restrict rgid, uid_t *restrict egid, uid_t *restrict sgid);
+int getresgid(uid_t *__restrict rgid, uid_t *__restrict egid, uid_t *__restrict sgid);
 
 int setgid(gid_t gid);
 int setegid(gid_t gid);

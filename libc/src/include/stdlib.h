@@ -8,6 +8,7 @@
 
 int abs(int i);
 
+#define MB_CUR_MAX sizeof(char)
 #define RAND_MAX (INT_MAX)
 
 int rand();
@@ -46,7 +47,7 @@ int unsetenv(const char *name);
 int putenv(char *string);
 int setenv(const char *envname, const char *envval, int overwrite);
 
-int getsubopt(char **restrict optionp, char * const *restrict keylistp, char **restrict valuep);
+int getsubopt(char **__restrict optionp, char * const *__restrict keylistp, char **__restrict valuep);
 
 void qsort(void *base, size_t nel, size_t width, int (*compar)(const void *, const void *));
 void qsort_r(void *base, size_t nel, size_t width, int (*compar)(const void *, const void *, void *), void *arg);

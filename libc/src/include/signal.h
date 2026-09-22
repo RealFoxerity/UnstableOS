@@ -244,19 +244,19 @@ int raise(int sig);
 __attribute__((noreturn)) void sigreturn();
 /*
 missing functions:
-int    sigaltstack(const stack_t *restrict, stack_t *restrict);
+int    sigaltstack(const stack_t *__restrict, stack_t *__restrict);
 
-int sigtimedwait(const sigset_t *restrict set,
-       siginfo_t *restrict info,
-       const struct timespec *restrict timeout);
-int sigwaitinfo(const sigset_t *restrict set,
-       siginfo_t *restrict info);
+int sigtimedwait(const sigset_t *__restrict set,
+       siginfo_t *__restrict info,
+       const struct timespec *__restrict timeout);
+int sigwaitinfo(const sigset_t *__restrict set,
+       siginfo_t *__restrict info);
 
 */
 
 #define SIG2STR_MAX 16
 int sig2str(int signum, char *str);
-int str2sig(const char *restrict str, int *restrict pnum);
+int str2sig(const char *__restrict str, int *__restrict pnum);
 
 
 void    psignal(int signum, const char * message);
