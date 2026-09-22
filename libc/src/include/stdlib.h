@@ -47,4 +47,7 @@ int putenv(char *string);
 int setenv(const char *envname, const char *envval, int overwrite);
 
 int getsubopt(char **restrict optionp, char * const *restrict keylistp, char **restrict valuep);
+
+void qsort(void *base, size_t nel, size_t width, int (*compar)(const void *, const void *));
+void qsort_r(void *base, size_t nel, size_t width, int (*compar)(const void *, const void *, void *), void *arg);
 #endif

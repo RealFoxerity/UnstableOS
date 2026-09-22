@@ -8,6 +8,9 @@
 #define GET_SIG_MASK(signal) (1<<((signal)-1))
 
 typedef uint64_t sigset_t;
+// on IA-32, accessing dwords is automatically with release/acquire semantics
+typedef volatile int sig_atomic_t;
+
 #define NSIG_MAX 64 // signals that can be saved in the sigset_t
 #define NSIG NSIG_MAX // amount of signals the system supports, legacy
 #define SIGMAX NSIG // same as nsig
@@ -238,6 +241,7 @@ int siginterrupt(int sig, int flag);
 int pthread_kill(pthread_t thread, int sig);
 int raise(int sig);
 
+__attribute__((noreturn)) void sigreturn();
 /*
 missing functions:
 int    sigaltstack(const stack_t *restrict, stack_t *restrict);

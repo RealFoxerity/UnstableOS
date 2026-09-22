@@ -30,7 +30,7 @@ int tgkill(pid_t tgid, pid_t tid, int sig) {
     return ret;
 }
 
-__attribute__((naked, noreturn)) static void __sigreturn() {
+__attribute__((naked, noreturn)) void sigreturn() {
     asm volatile (
         "mov %0, %%eax;"
         "int $"STR(SYSCALL_INTERR)
@@ -44,7 +44,7 @@ int sigaction(int sig, const struct sigaction *__restrict act, struct sigaction 
         return -1;
     }
     struct sigaction act2 = *act;
-    act2.__restorer = __sigreturn;
+    act2.__restorer = sigreturn;
 
     int ret = syscall(SYSCALL_SIGACTION, sig, &act2, oact);
     if (ret < 0) {
