@@ -203,6 +203,13 @@ static volatile int com_pending = -1;
 static __attribute__((noreturn)) void com_driver_loop() {
     while (1) {
         if (__builtin_expect(com_pending == -1, 0)) {
+            spinlock_acquire(&com_driver_lock);
+            if (com_pending != -1) {
+                spinlock_release(&com_driver_lock);
+                continue;
+            }
+            spinlock_release(&com_driver_lock);
+
             com_driver_thread->status = SCHED_UNINTERR_SLEEP;
             reschedule();
         } else {

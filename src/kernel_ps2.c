@@ -896,6 +896,13 @@ static __attribute__((noreturn)) void ps2_driver_loop() {
     kassert(ps2_driver_thread);
     while (1) {
         if (__builtin_expect(pending_device == -1, 0)) {
+            spinlock_acquire(&ps2_driver_lock);
+            if (pending_device != -1) {
+                spinlock_release(&ps2_driver_lock);
+                continue;
+            }
+            spinlock_release(&ps2_driver_lock);
+
             ps2_driver_thread->status = SCHED_UNINTERR_SLEEP;
             reschedule();
         }
