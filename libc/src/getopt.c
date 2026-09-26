@@ -1,6 +1,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <ctype.h>
+#include <unistd.h>
 
 char * optarg = NULL;
 int opterr = 1, optind = 1, optopt = '\0';

@@ -1343,3 +1343,142 @@ int sys_faccessat(int fd, const char *path, int amode, int flag) {
     close_inode(base);
     return ret;
 }
+
+
+int sys_fchmodat(int fd, const char *path, mode_t mode, int flag) {
+    if ((fd < 0 || fd >= FD_LIMIT_PROCESS) && fd != AT_FDCWD) return -EBADF;
+
+    mode &= 07777;
+
+    inode_t * base = NULL;
+    inode_t * new = NULL;
+
+    if (path == NULL && fd == AT_FDCWD)
+        return -EBADF;
+
+    spinlock_acquire(&current_process->lock);
+    if (fd == AT_FDCWD) {
+        base = current_process->pwd;
+    } else {
+        int test = check_file(current_process->fds[fd]);
+        if (test < 0) {
+            spinlock_release(&current_process->lock);
+            return test;
+        }
+        base = current_process->fds[fd]->inode;
+    }
+    __atomic_add_fetch(&base->instances, 1, __ATOMIC_ACQUIRE);
+    spinlock_release(&current_process->lock);
+    kassert(base);
+
+    if (path) {
+        int ret = openat_inode(base, path, O_PATH, 0, &new, 0);
+        close_inode(base);
+        if (ret < 0 || !new) return ret;
+    } else
+        new = base;
+
+    if (!new->backing_superblock ||
+        !new->backing_superblock->funcs ||
+        !new->backing_superblock->funcs->chmod_supported) {
+        close_inode(new);
+        return -ENOTSUP;
+    }
+    if (new->backing_superblock->mount_options & MOUNT_RDONLY) {
+        close_inode(new);
+        return -EROFS;
+    }
+    if (new->uid != current_process->euid && current_process->euid != 0) {
+        close_inode(new);
+        return -EACCES;
+    }
+
+    spinlock_acquire(&new->lock);
+    mode_t old = new->mode & ~07777;
+    old |= mode;
+
+    if (S_ISREG(old)) {
+        spinlock_acquire(&current_process->lock);
+        if (current_process->egid == new->gid || current_process->euid == 0)
+            goto ok;
+        for (int i = 0; i < current_process->ngroup; i++) {
+            if (current_process->sup_groups[i] == new->gid)
+                goto ok;
+        }
+        old &= ~S_ISGID;
+        ok:
+        spinlock_release(&current_process->lock);
+    }
+
+    __atomic_store_n(&new->mode, old, __ATOMIC_RELEASE);
+    spinlock_release(&new->lock);
+
+    utimes_inode(new,
+        (struct timespec){.tv_nsec = UTIME_OMIT},
+        (struct timespec){.tv_nsec = UTIME_OMIT},
+        (struct timespec){.tv_nsec = UTIME_NOW});
+    close_inode(new);
+    return 0;
+}
+
+int sys_fchownat(int fd, const char *path, uid_t owner, gid_t group, int flag) {
+    if ((fd < 0 || fd >= FD_LIMIT_PROCESS) && fd != AT_FDCWD) return -EBADF;
+    if (owner == (uid_t)-1 && group == (gid_t)-1) return 0;
+
+    inode_t * base = NULL;
+    inode_t * new = NULL;
+
+    if (path == NULL && fd == AT_FDCWD)
+        return -EBADF;
+
+    spinlock_acquire(&current_process->lock);
+    if (fd == AT_FDCWD) {
+        base = current_process->pwd;
+    } else {
+        int test = check_file(current_process->fds[fd]);
+        if (test < 0) {
+            spinlock_release(&current_process->lock);
+            return test;
+        }
+        base = current_process->fds[fd]->inode;
+    }
+    __atomic_add_fetch(&base->instances, 1, __ATOMIC_ACQUIRE);
+    spinlock_release(&current_process->lock);
+    kassert(base);
+
+    if (path) {
+        int ret = openat_inode(base, path, O_PATH, 0, &new, 0);
+        close_inode(base);
+        if (ret < 0 || !new) return ret;
+    } else
+        new = base;
+
+    if (!new->backing_superblock ||
+        !new->backing_superblock->funcs ||
+        (!new->backing_superblock->funcs->chown_supported && owner != (uid_t)-1) ||
+        (!new->backing_superblock->funcs->chgrp_supported && group != (gid_t)-1)
+        ) {
+        close_inode(new);
+        return -ENOTSUP;
+        }
+    if (new->backing_superblock->mount_options & MOUNT_RDONLY) {
+        close_inode(new);
+        return -EROFS;
+    }
+    if (new->uid != current_process->euid && current_process->euid != 0) {
+        close_inode(new);
+        return -EACCES;
+    }
+
+    if (owner != (uid_t)-1)
+        __atomic_store_n(&new->uid, owner, __ATOMIC_RELEASE);
+    if (group != (gid_t)-1)
+        __atomic_store_n(&new->gid, group, __ATOMIC_RELEASE);
+
+    utimes_inode(new,
+        (struct timespec){.tv_nsec = UTIME_OMIT},
+        (struct timespec){.tv_nsec = UTIME_OMIT},
+        (struct timespec){.tv_nsec = UTIME_NOW});
+    close_inode(new);
+    return 0;
+}

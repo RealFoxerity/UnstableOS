@@ -113,18 +113,25 @@ int sys_openat(int fd, const char * path, unsigned short flags, mode_t mode) {
 
     inode_t * ino = NULL;
     if (fd != AT_FDCWD) {
+        spinlock_acquire(&current_process->lock);
         file_descriptor_t * file = current_process->fds[fd];
-        if (file == NULL) return -EBADF;
+        if (file == NULL) {
+            spinlock_release(&current_process->lock);
+            return -EBADF;
+        }
         kassert(file->instances > 0);
         ino = file->inode;
+
+        kassert(ino != NULL);
+        __atomic_add_fetch(&ino->instances, 1, __ATOMIC_RELEASE);
+        spinlock_release(&current_process->lock);
     } else
         ino = (inode_t*)AT_FDCWD;
 
-    kassert(ino != NULL);
-    kassert(ino->instances > (ino->is_mountpoint ? 1 : 0));
-
     inode_t * new = NULL;
     int ret = openat_inode(ino, path, flags, mode, &new, 0);
+    if (ino != (inode_t*)AT_FDCWD)
+        close_inode(ino);
     if (ret < 0) return ret;
     ret = get_fd_from_inode(new, flags);
     if (ret < 0)

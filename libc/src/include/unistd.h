@@ -130,6 +130,14 @@ int getopt(int argc, char * const argv[], const char *optstring);
 int access(const char *path, int amode);
 int faccessat(int fd, const char *path, int amode, int flag);
 
+int chmod(const char * path, mode_t mode);
+int fchmod(int fildes, mode_t mode);
+int fchmodat(int fd, const char *path, mode_t mode, int flag);
+
+int chown(const char * path, uid_t owner, gid_t group);
+int fchown(int fildes, uid_t owner, gid_t group);
+int fchownat(int fd, const char *path, uid_t owner, gid_t group, int flag);
+
 int link(const char *path1, const char *path2);
 int linkat(int fd1, const char *path1, int fd2, const char *path2, int flag);
 

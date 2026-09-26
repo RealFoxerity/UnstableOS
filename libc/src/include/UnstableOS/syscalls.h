@@ -13,6 +13,8 @@ enum syscalls {
     SYSCALL_LINKAT,
     SYSCALL_CLOSE,
     SYSCALL_FCNTL,
+    SYSCALL_FCHMODAT, // NULL path means act on fd (FCHMOD)
+    SYSCALL_FCHOWNAT, // NULL path means act on fd (FCHOWN)
 
     SYSCALL_DUP,
     SYSCALL_DUP3, // use flags -1 to act as dup2

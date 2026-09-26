@@ -50,7 +50,7 @@ struct inode_t {
 
     struct superblock_t * backing_superblock; // used to lookup functions to use for i/o operations, same as next for "/"
 
-    spinlock_t lock; // mostly just for atomic times and size
+    spinlock_t lock; // mostly just for atomic times, size, and mode
 
     char is_mountpoint; // if inode is a mountpoint, instances will be at least 1 to avoid clean, think of it as the superblock using it
     struct superblock_t * next_superblock; // pointer to the superblock structure mounted at this inode
@@ -251,5 +251,6 @@ int sys_utimensat(int fd, const char *path, const struct timespec times[2], int 
 // same as access()
 int inode_check_perm(inode_t * inode, unsigned int amode, int flag);
 int sys_faccessat(int fd, const char *path, int amode, int flag);
-
+int sys_fchmodat(int fd, const char *path, mode_t mode, int flag);
+int sys_fchownat(int fd, const char *path, uid_t owner, gid_t group, int flag);
 #endif

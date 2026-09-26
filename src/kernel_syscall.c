@@ -377,6 +377,12 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
         case SYSCALL_FACCESSAT:
             return_value = sys_faccessat(arg1, (const char *)arg2, arg3, arg4);
             break;
+        case SYSCALL_FCHMODAT:
+            return_value = sys_fchmodat(arg1, (const char *)arg2, arg3, arg4);
+            break;
+        case SYSCALL_FCHOWNAT:
+            return_value = sys_fchownat(arg1, (const char *)arg2, (uid_t)arg3, (gid_t)arg4, arg5);
+            break;
         case SYSCALL_OPENAT:
             return_value = sys_openat(arg1, (const char *)arg2, arg3, arg4);
             break;

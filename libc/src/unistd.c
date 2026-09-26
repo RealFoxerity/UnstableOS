@@ -501,6 +501,38 @@ int faccessat(int fd, const char *path, int amode, int flag) {
     return ret;
 }
 
+
+int chmod(const char * path, mode_t mode) {
+    return fchmodat(AT_FDCWD, path, mode, 0);
+}
+int fchmod(int fildes, mode_t mode) {
+    return fchmodat(fildes, NULL, mode, 0);
+}
+int fchmodat(int fd, const char *path, mode_t mode, int flag) {
+    int ret = syscall(SYSCALL_FCHMODAT, fd, path, mode, flag);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return ret;
+}
+
+int chown(const char * path, uid_t owner, gid_t group) {
+    return fchownat(AT_FDCWD, path, owner, group, 0);
+}
+int fchown(int fildes, uid_t owner, gid_t group) {
+    return fchownat(fildes, NULL, owner, group, 0);
+}
+int fchownat(int fd, const char *path, uid_t owner, gid_t group, int flag) {
+    int ret = syscall(SYSCALL_FCHOWNAT, fd, path, owner, group, flag);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return ret;
+}
+
+
 int link(const char *path1, const char *path2) {
     return linkat(AT_FDCWD, path1, AT_FDCWD, path2, 0);
 }
