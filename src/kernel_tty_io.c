@@ -120,7 +120,13 @@ long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
     kassert(MAJOR(dev) == DEV_MAJ_TTY);
 
     if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE)) dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_0);
-
+    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CURRENT)) {
+        spinlock_acquire(&current_process->lock);
+        dev = current_process->ctty;
+        spinlock_release(&current_process->lock);
+        if (dev == 0)
+            return -ENXIO;
+    }
     if (!is_valid_tty(dev)) return -EINVAL; // no clue what to return here
 
     // ioctls which according to POSIX should send SIGTTOU to bg pgrp or otherwise special treatment
@@ -353,7 +359,7 @@ long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
                 .ws_col = (unsigned short)terminals[MINOR(dev)]->width,
                 .ws_row = (unsigned short)terminals[MINOR(dev)]->height,
                 }, sizeof(struct winsize)) == 0)
-                sig = 1;
+                sig = 0;
 
             __atomic_store_n(&terminals[MINOR(dev)]->width, ws->ws_col, __ATOMIC_RELEASE);
             __atomic_store_n(&terminals[MINOR(dev)]->height, ws->ws_row, __ATOMIC_RELEASE);
