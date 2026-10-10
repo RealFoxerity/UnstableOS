@@ -31,7 +31,7 @@ List of defined syscalls can be found in [<UnstableOS/syscalls.h>](./libc/src/in
 - PS/2 keyboards and mice
 - RS/232 (serial)
 - Tar as a filesystem, FAT, ext2
-- mountable devtmpfs
+- devtmpfs, tmpfs
 - RTC
 - VGA, VBE, BGA
 - PCI
@@ -69,7 +69,7 @@ So you need to load it as a Multiboot kernel\
 \
 The last multiboot module is considered as the initial filesystem\
 In case no module is found, hd0p1 and then hd0 formatted as FAT are assumed to be root\
-The kernel goes through init candidates:\
+The kernel goes through init candidates:
 - `/init`
 - `/bin/init`
 - `/bin/ysh`

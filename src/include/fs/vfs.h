@@ -88,7 +88,7 @@ struct vfs_ops {
     char block_count_supported;
 
     // for utimesat, stat will return these anyway
-    char btime_supported; // only ext2
+    char btime_supported; // only ext2 and tmpfs
     char ctime_supported;
     char mtime_supported;
     char atime_supported;

@@ -2,9 +2,10 @@
 #define _UNSTABLEOS_MOUNT_H
 
 #define MOUNT_RDONLY 1
-#define SUPPORTED_FS_COUNT 4
+#define SUPPORTED_FS_COUNT 5
 enum supported_filesystems {
     FS_TARFS,
+    FS_TMPFS,
     FS_DEVFS,
     FS_FAT,
     FS_EXT2,

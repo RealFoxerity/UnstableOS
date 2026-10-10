@@ -76,3 +76,18 @@ char is_cpuid_supported() {
     );
     return is_supported!=0;
 }
+
+// for some fucking reason __builtin_ffs works on SIGNED INTEGERS
+// returns 1 + the index, or 0
+// can't use no_caller_saved_registers here, because gcc can't detect x87 usage and refused to compile
+__attribute__((naked, pure, regparm(1)/*, no_caller_saved_registers*/)) unsigned int bsf(unsigned int x) {
+    asm volatile (
+        "bsfl %eax, %eax;"
+        "jz 1f;"
+        "incl %eax;"
+        "ret\n"
+        "1:\n"
+        "xorl %eax, %eax;" // bsfl leaves eax unchanged on x being 0
+        "ret"
+    );
+}

@@ -27,11 +27,10 @@ extern size_t hostname_len;
 #define kassert(cond) do {\
     if (!(cond)) {\
         char errmsg[128];\
-        sprintf(errmsg, "Kernel assertion `%s` failed in %s()! [" __FILE__ ":" STR(__LINE__) "]\n", #cond, __func__);\
+        sprintf(errmsg, "Kernel assertion `%s` failed in %s()! [%s:%d]\n", #cond, __func__, __FILE__, __LINE__);\
         panic(errmsg);\
     }\
 } while (0)
-
 #define UNLINK_DOUBLE_LINKED_LIST(item, list) do {  \
     if (item->next != NULL)                         \
         item->next->prev = item->prev;              \
@@ -53,6 +52,11 @@ extern size_t hostname_len;
     }                                               \
     list->prev = item;                              \
 } while (0);
+
+
+// lowlevel.c, __builtin_ffs works on signed ints
+// returns 1 + the index, or 0
+__attribute__((pure, regparm(1), no_caller_saved_registers)) unsigned int bsf(unsigned int x);
 
 #include <UnstableOS/syscalls.h>
 

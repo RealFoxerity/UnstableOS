@@ -21,4 +21,6 @@ Paging Virtual Memory Map
 0xD000'0000 - 0xDFFF'FFFF mapped linear framebuffer for VESA/VBE (256 MiB)
 0xE000'0000 - 0xFEFF'FFFF MMIO space (~520 MiB)
 
+0xFF00'0000 - 0xFF1F'F000 tmpfs scratch mapping area (512 pages)
+
 0xFFC0'0000 - 0xFFFF'FFFF mapped PTEs and PDEs
