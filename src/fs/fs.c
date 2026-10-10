@@ -713,7 +713,7 @@ int stat_inode(inode_t * inode, struct stat * buf) {
         .st_nlink = inode->nlink,
         .st_uid = inode->uid,
         .st_gid = inode->gid,
-        .st_rdev = (S_ISBLK(inode->mode) || S_ISCHR(inode->mode)) ? inode->device : 0,
+        .st_rdev = (S_ISBLK(inode->mode) || S_ISCHR(inode->mode)) ? inode->device & ~0x8000 : 0,
         .st_size = inode->size,
         .st_atime = inode->atime,
         .st_mtime = inode->mtime,

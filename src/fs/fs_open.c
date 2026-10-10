@@ -844,7 +844,8 @@ int sys_mknodat(int fd, const char *path, mode_t mode, dev_t dev) {
 
     if (!S_ISBLK(mode) && !S_ISCHR(mode))
         return -EINVAL;
-    dev &= 0x7FFF;
+    if (dev & 0x8000)
+        return -ENXIO;
     if (S_ISCHR(mode))
         dev |= 0x8000;
 

@@ -212,8 +212,8 @@ long open_dev(inode_t * inode, unsigned short flags) {
     if (MAJOR(inode->device) == DEV_MAJ_EPHEMERAL) return 0; // these devices are placeholders anyway
 
     struct dev_operations dev_ops = dev_ops_lookup(inode->device);
-    //if (dev_ops.seek == (void*)1) return -ENXIO;
-    if (dev_ops.seek == (void*)1) return 0;
+    if (dev_ops.seek == (void*)1) return -ENXIO;
+    //if (dev_ops.seek == (void*)1) return 0;
 
     if (dev_ops.open == NULL) {
         inode->io_block_size = 512; // good default
