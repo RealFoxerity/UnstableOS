@@ -129,7 +129,7 @@ int ext2_init(superblock_t * sb) {
         dkprintf("Unrecognized creator OS, uid/gid might be wrong and get truncated to 16 bits!\n");
 
     if (meta->sb.version_major >= 1) {
-        dkprintf("Mounted ext2 volume `%16s` last mounted on `%64s`, free %u/%u MiB\n",
+        dkprintf("Mounted ext2 volume `%.16s` last mounted on `%.64s`, free %u/%u MiB\n",
             meta->sb.label, meta->sb.last_mountpoint,
             (meta->sb.block_size_shift + 1) * (meta->sb.free_blocks  / 1024),
             (meta->sb.block_size_shift + 1) * (meta->sb.total_blocks / 1024));
