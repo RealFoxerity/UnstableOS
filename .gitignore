@@ -1,5 +1,7 @@
+.direnv/
 .vscode/*
 .idea/*
+.zed/
 */.idea/*
 */*/.idea/*
 *.so

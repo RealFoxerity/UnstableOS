@@ -1,2 +1,5 @@
 root:x:0:root
 user:x:1000:user
+group:x:1:user
+group2:x:2:root,user
+group3:x:3:root

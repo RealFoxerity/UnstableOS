@@ -93,6 +93,8 @@ build/UnstableOS.iso: build/UnstableOS.bin build/memdisk.tar
 		$(LIMINE_BIOS_SYS) \
 		$(LIMINE_BIOS_CD_BIN) \
 		build/iso/boot/limine
+	@chmod u+w build/iso/boot/limine/limine-bios.sys
+	@chmod u+w build/iso/boot/limine/limine-bios-cd.bin
 
 	@mkisofs -b boot/limine/limine-bios-cd.bin \
 		-no-emul-boot \

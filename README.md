@@ -40,6 +40,9 @@ List of defined syscalls can be found in [<UnstableOS/syscalls.h>](./libc/src/in
 
 ## Building
 ---
+
+*To get the required tools, you can use the [Nix](#-getting-dependencies-using-nix) package manager.*
+
 Currently, you need:
 - make
 - enough to build binutils and gcc (base-devel on arch should be enough) 
@@ -54,6 +57,46 @@ Then run the `build_toolchain.sh` script to build `i686-unstableos-gcc`\
 And finally either do `make kernel` to build just the kernel,\
 `make all` to create the kernel, utils and memdisk, or\
 `make iso` to create an iso from the kernel, utils and memdisk
+
+### Getting dependencies using Nix
+---
+*[Nix](https://nixos.org/), a declarative package manager, supporting NixOS, any other Linux distro, macOS, and some other systems...*
+
+The current Nix setup provides all required tools for building this project.
+
+To get the required tools:
+
+```sh
+# To use your installed Zsh
+nix develop -c zsh --experimental-features 'nix-command flakes'
+# To use your installed Bash
+nix develop -c bash --experimental-features 'nix-command flakes'
+# Or you can just
+nix develop --experimental-features 'nix-command flakes'
+```
+
+That has opened a shell with all the tools in PATH.
+
+Now you need to build the custom UnstableOS toolchain:
+
+```sh
+# The CFLAGS are required for now due to Nix's hardening defaults
+CFLAGS="-g -O2 -Wno-format-security" CXXFLAGS="-g -O2 -Wno-format-security" ./build_toolchain.sh
+```
+
+That has fetched the sources, built it, and installed the custom UnstableOS toolchain in toolchain/ directory.
+
+Now you can use GNU Make targets:
+
+```sh
+# Build the ISO
+make iso
+# Run the ISO in QEMU; note that QEMU is not provided using Nix for disk size reasons
+make run-iso
+# To just build the kernel
+make kernel
+```
+
 ### Minimum requirements
 ---
 CPU: 486 class with built-in x87 math coprocessor\
