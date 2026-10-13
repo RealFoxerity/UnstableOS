@@ -25,7 +25,7 @@ int brk(void * addr) {
     void * new_break = (void *)_syscall(SYSCALL_BRK, addr);
 
     if (new_break == old_break) {
-        ___set_errno(-ENOMEM);
+        ___set_errno(ENOMEM);
         return -1;
     }
     return 0;
@@ -36,7 +36,7 @@ void * sbrk(intptr_t increment) {
     void * new_break = (void *)_syscall(SYSCALL_BRK, old_break + increment);
 
     if (new_break == old_break) {
-        ___set_errno(-ENOMEM);
+        ___set_errno(ENOMEM);
         return (void *)-1;
     }
     return old_break;

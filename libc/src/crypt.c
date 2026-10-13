@@ -199,7 +199,7 @@ static void sha256_finalize(sha2_ctx_t * ctx, unsigned char * hash_out) {sha256_
 static char pwhash[1 + CRYPT_MAX_SALT + 1 + SHA256_HASH_BYTES*2 + 1];
 char *crypt(const char *key, const char *salt) {
     if (!key) {
-        ___set_errno(-EFAULT);
+        ___set_errno(EFAULT);
         return NULL;
     }
     size_t salt_len = 0;
@@ -207,7 +207,7 @@ char *crypt(const char *key, const char *salt) {
         (salt_len = strlen(salt)) > CRYPT_MAX_SALT ||
         strchr(salt, '$')
     )) {
-        ___set_errno(-EINVAL);
+        ___set_errno(EINVAL);
         return NULL;
     }
 
