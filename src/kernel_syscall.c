@@ -232,6 +232,16 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
         case SYSCALL_DUP3:
             return_value = sys_dup3(arg1, arg2, arg3);
             break;
+        case SYSCALL_UTIMESAT:
+            VM_LOCK(arg3);
+            if (!paging_check_address_range((struct timespec*)arg2, sizeof(struct timespec)*2, 0, in_kernel)) {
+                return_value = -EFAULT;
+                VM_UNLOCK(arg3);
+                break;
+            }
+            return_value = sys_utimensat(arg1, (const char*)arg2, (struct timespec*)arg3, arg4);
+            VM_UNLOCK(arg3);
+            break;
         case SYSCALL_RENAMEAT:
             return_value = sys_renameat(arg1, (const char *)arg2, arg3, (const char *)arg4);
             break;
