@@ -107,6 +107,13 @@ long register_inode(const inode_t * inode, inode_t ** inode_out, unsigned short 
     inode_t * new_inode = __get_inode(inode->backing_superblock, inode->id);
     if (new_inode != NULL) {
         __atomic_add_fetch(&new_inode->instances, 1, __ATOMIC_ACQUIRE);
+
+        // allows O_PATHed inodes to not go through initialization (like for fstat)
+        // open_dev handles if device is already opened
+        // if it fails, the error propagates to the closest io operation where it will throw EIO
+        // this way at least the file descriptor opened as O_PATH will still be valid
+        if ((S_ISCHR(inode->mode) || S_ISBLK(inode->mode)) && !(dev_flags & O_PATH))
+            open_dev(new_inode, dev_flags);
         goto ret;
     }
 
@@ -129,7 +136,7 @@ long register_inode(const inode_t * inode, inode_t ** inode_out, unsigned short 
 
      if (S_ISCHR(inode->mode) || S_ISBLK(inode->mode)) {
          new_inode->dev_opened = 0;
-         if ((status = open_dev(new_inode, dev_flags)) < 0) {
+         if (!(dev_flags & O_PATH) && (status = open_dev(new_inode, dev_flags)) < 0) {
              new_inode->instances = 0; // "free" the inode
              new_inode = NULL;
          }
