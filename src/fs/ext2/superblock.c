@@ -351,11 +351,6 @@ int ext2_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_
             dkprintf("Named sockets are not yet supported\n");
             goto end;
         }
-        if (S_ISLNK(ino.mode)) {
-            ret = -ENXIO;
-            dkprintf("Symlinks are not yet supported\n");
-            goto end;
-        }
         ret = register_inode(&new_inode, inode_out, flags);
     }
     end:
@@ -518,7 +513,7 @@ ssize_t ext2_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) {
         return -EFAULT;
 
     if (offset < 0) return -EINVAL;
-    if (!S_ISREG(fd->inode->mode)) return -EINVAL;
+    if (!S_ISREG(fd->inode->mode) && !S_ISLNK(fd->inode->mode)) return -EINVAL;
     if (offset >= fd->inode->size) return 0;
     if (n == 0) return 0;
 #ifdef E2BIG_ON_2G
@@ -535,6 +530,12 @@ ssize_t ext2_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) {
     if (ret < 0)
         goto end;
 
+    if (S_ISLNK(fd->inode->mode) && ino.used_512blocks == 0) {
+        if (offset + n > fd->inode->size)
+            n = fd->inode->size - offset;
+        memcpy(buf, ino.fast_symlink + offset, n);
+        return (ssize_t)n;
+    }
     rw_spinlock_acquire_read(&meta->access_lock);
     size_t read_bytes = 0;
     while (read_bytes < n && offset < fd->inode->size) {
@@ -680,6 +681,10 @@ static int ext2_trunc_to_size(superblock_t * sb, struct ext2_inode * ino, unsign
     kassert(sb);
     kassert(sb->data);
     kassert(ino);
+
+    // fast symlink
+    if (S_ISLNK(ino->mode) && ino->used_512blocks == 0)
+        return 0;
 
     struct ext2_metadata * meta = sb->data;
     if (blocks <= 12 + meta->block_size / 4 + (meta->block_size / 4) * (meta->block_size / 4)) {
@@ -1201,6 +1206,115 @@ int ext2_link(inode_t * file, inode_t * parent, const char * pathname) {
     return ret;
 }
 
+int ext2_symlink(inode_t * parent, const char * pathname, const char * target, mode_t mode) {
+    kassert(parent);
+    kassert(pathname);
+    kassert(target);
+    if (!S_ISDIR(parent->mode))
+        return -ENOTDIR;
+    if (parent->nlink == 0)
+        return -ENOENT;
+
+    if (strcmp(pathname, ".") == 0 || strcmp(pathname, "..") == 0 || !*target)
+        return -EINVAL;
+
+    mode &= ~S_IFMT;
+    mode |= S_IFLNK;
+
+    superblock_t * sb = parent->backing_superblock;
+    kassert(sb);
+    kassert(sb->data);
+    struct ext2_metadata * meta = sb->data;
+
+    size_t target_len = strlen(target);
+    // arbitrary choice, minimum meta->block_size is 1024 (which is our SYMLINK_MAX), this is our PATH_MAX
+    // code only handles the direct pointers, that is to the 12th block
+    if (target_len > 4 * meta->block_size)
+        return -ENAMETOOLONG;
+
+    struct ext2_inode e2new, ino;
+
+    inode_t new = {
+        .uid = current_process->euid,
+        .gid = parent->mode & S_ISGID ? parent->gid : current_process->egid,
+        .nlink = 1,
+        .size = meta->block_size,
+        .atime = system_time_sec,
+        .ctime = system_time_sec,
+        .mtime = system_time_sec,
+        .btime = system_time_sec,
+        .backing_superblock = sb,
+        .mode = mode,
+        .io_block_size = (blksize_t)meta->block_size,
+        .block_count = target_len > sizeof(e2new.fast_symlink) ?
+            (target_len + meta->block_size - 1) / meta->block_size :
+            0,
+    };
+
+    ext2_inodet_to_ext2inode(&new, &e2new);
+
+    if (check_eintr())
+        return -EINTR;
+    sigset_t sig = PAUSE_SIGNALS();
+
+    int ret = ext2_get_inode(sb, parent->id, &ino);
+    if (ret < 0) {
+        RESTORE_SIGNALS(sig);
+        return ret;
+    }
+    rw_spinlock_acquire_write(&meta->access_lock);
+    if (__atomic_load_n(&parent->nlink, __ATOMIC_ACQUIRE) == 0) {
+        ret = -ENOENT;
+        goto err;
+    }
+
+    e2new.size = (int32_t)target_len;
+
+    if (target_len > sizeof(e2new.fast_symlink)) {
+        for (int i = 0; i < (target_len + meta->block_size - 1) / meta->block_size; i++) {
+            e2new.blocks[i] = ext2_allocate(sb, i == 0 ? ino.blocks[0] : e2new.blocks[i-1], 0);
+            if (e2new.blocks[i] == 0) {
+                for (int j = 0; j < i; j++) {
+                    ext2_free(sb, e2new.blocks[j], 0);
+                }
+                ret = -ENOSPC;
+                goto err;
+            }
+            size_t to_write = i * meta->block_size + meta->block_size <= target_len ?
+                meta->block_size :
+                target_len - i * meta->block_size;
+
+            ret = pwrite_file(sb->fd,
+                target + i * meta->block_size, to_write,e2new.blocks[i] * meta->block_size);
+
+            if (ret < to_write) {
+                ret = -EIO;
+                for (int j = 0; j <= i; j++) {
+                    ext2_free(sb, e2new.blocks[j], 0);
+                }
+                goto err;
+            }
+            e2new.used_512blocks += meta->block_size / 512;
+        }
+    } else {
+        memcpy(e2new.fast_symlink, target, target_len);
+    }
+
+    off_t new_inode = ext2_creat_internal(sb, &ino, &e2new, parent->id, pathname);
+    if (new_inode < 0) {
+        ret = (int)new_inode;
+        if (target_len > sizeof(e2new.fast_symlink)) {
+            for (int i = 0; i < (target_len + meta->block_size - 1) / meta->block_size; i++) {
+                ext2_free(sb, e2new.blocks[i], 0);
+            }
+        }
+    }
+
+    err:
+    rw_spinlock_release_write(&meta->access_lock);
+    RESTORE_SIGNALS(sig);
+    return ret;
+}
 // returns errno, or previous inode number
 ino_t ext2_remove_dentry(superblock_t * sb, ino_t parent, const char * pathname) {
     if (parent <= 0 || strcmp(pathname, ".") == 0 || strcmp(pathname, "..") == 0)
@@ -1581,6 +1695,7 @@ const struct vfs_ops ext2_op = {
     .mkdir = ext2_mkdir,
     .mknod = ext2_mknod,
     .link = ext2_link,
+    .symlink = ext2_symlink,
     .rename = ext2_rename,
 
     .readdir = ext2_readdir,

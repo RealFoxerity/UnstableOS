@@ -164,10 +164,17 @@ struct ext2_inode {
         uint32_t journal_data    : 1; // TODO when implementing EXT3
     } flags;
     uint32_t osd1; // os dependant
-    uint32_t blocks[12]; // TODO: cache these, rbtree would be great
-    uint32_t indirect_block;
-    uint32_t d_indirect_block;
-    uint32_t t_indirect_block;
+    union {
+        struct {
+            uint32_t blocks[12]; // TODO: cache these, rbtree would be great
+            uint32_t indirect_block;
+            uint32_t d_indirect_block;
+            uint32_t t_indirect_block;
+        };
+        // if used_512blocks == 0, blocks instead directly contain the path
+        // thus max 60 chars of symlink before it starts being a "normal file"
+        char fast_symlink[15*sizeof(uint32_t)];
+    };
     uint32_t nfs_generation;
     uint32_t file_acl;
     union {
