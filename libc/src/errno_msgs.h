@@ -44,4 +44,5 @@ static const char * __errno_msgs[] = {
     [ENOTEMPTY] = "Directory not empty",
     [EXDEV]     = "Improper hard link",
     [EMLINK]    = "Too many hard links",
+    [ELOOP]     = "Too many levels of symbolic links",
 };

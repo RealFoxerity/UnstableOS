@@ -94,10 +94,7 @@ char * secure_strdup(const char * path, size_t max_len, size_t *len_out) {
 }
 
 
-// TODO: check permissions
-// note: if file is open for searching only, check the directory permissions
-
-int sys_openat(int fd, const char * path, unsigned short flags, mode_t mode) {
+int sys_openat(int fd, const char * path, unsigned int flags, mode_t mode) {
     if ((fd < 0 || fd >= FD_LIMIT_PROCESS) && fd != AT_FDCWD) return -EBADF;
 
     inode_t * ino = NULL;
@@ -153,7 +150,12 @@ size_t cleanup_path(char * dup_path, size_t pathlen) {
     return pathlen;
 }
 
-int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t mode, inode_t ** out, char trusted_path) {
+static int __openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t mode, inode_t ** out, char trusted_path, unsigned int nsym) {
+    if (nsym >= SYMLOOP_MAX)
+        return -ELOOP;
+
+    char * symlink_pathbuf = NULL;
+
     if (base == NULL) {
         kprintf("\e[0m\e[41mWarning: called openat with NULL base inode!\e[0m\n");
         return -EINVAL;
@@ -184,7 +186,7 @@ int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t m
         return -EFAULT;
     }
     if (flags & (O_PATH | O_SEARCH)) {
-        flags &= O_PATH | O_DIRECTORY | O_SEARCH | O_CLOEXEC | O_CLOFORK;
+        flags &= O_PATH | O_DIRECTORY | O_SEARCH | O_CLOEXEC | O_CLOFORK | AT_SYMLINK_NOFOLLOW;
     }
     mode &= ~current_process->umask;
     mode &= ~S_IFMT;
@@ -199,6 +201,12 @@ int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t m
         dup_path = strdup(path);
     } else
         dup_path = secure_strdup(path, PATH_MAX, &pathlen);
+    if (pathlen == PATH_MAX) {
+        kfree(dup_path);
+        if (preincremented)
+            close_inode(base);
+        return -ENAMETOOLONG;
+    }
     if (dup_path == NULL || pathlen == 0) {
         kfree(dup_path);
         if (preincremented)
@@ -221,7 +229,7 @@ int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t m
     char need_dir = dup_path[pathlen - 1] == '/';
 
     // resolving the mount point
-    spinlock_acquire(&mount_tree_lock);
+    rw_spinlock_acquire_read(&mount_tree_lock);
 
     char * final_path = dup_path;
 
@@ -301,7 +309,7 @@ int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t m
             ret = -EACCES;
             goto err;
         }
-        long status = sb->funcs->lookup(sb, prev, final_path, &new, last_fragment ? flags : (O_SEARCH | O_DIRECTORY));
+        long status = sb->funcs->lookup(sb, prev, final_path, &new, last_fragment ? flags : 0);
 
         if (status == -ENOENT) {
             if (last_fragment &&
@@ -369,23 +377,8 @@ int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t m
             goto err;
         }
 
-        if (last_fragment && need_dir && !S_ISDIR(new->mode)) {
-            close_inode(prev);
-            close_inode(new);
-            ret = -ENOTDIR;
-            goto err;
-        }
-        // has to be below because we prefer returning ENOENT
-        // devices are not governed by the mountpoint options
-        if (last_fragment && S_ISREG(new->mode)) {
-            if ((sb->mount_options & MOUNT_RDONLY ||
-                sb->funcs->pwrite == NULL)
-                    && flags & O_WRONLY) {
-                close_inode(prev);
-                ret = -EROFS;
-                goto err;
-            }
-        }
+        // above symlink handling because according to POSIX,
+        // O_EXCL shall fail if the final fragment is a symlink regardless of content
         if (last_fragment &&
             flags & O_CREAT && (
                 flags & O_EXCL || flags & O_DIRECTORY
@@ -396,6 +389,80 @@ int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t m
             ret = -EEXIST;
             goto err;
         }
+
+        if (last_fragment && S_ISLNK(new->mode) && flags & O_NOFOLLOW) {
+            close_inode(prev);
+            close_inode(new);
+            ret = -ELOOP;
+            goto err;
+        }
+        if (!(last_fragment && flags & AT_SYMLINK_NOFOLLOW) && S_ISLNK(new->mode)) {
+            // check the symlink for execute permissions for traversing
+            // should be okay according to POSIX, however usually such checks aren't performed on UNIX-likes
+            // this makes permissions on symlinks actually do stuff
+            // (I don't know of any OSes that do this yet)
+            if (inode_check_perm(new, X_OK, AT_EACCESS) != 0) {
+                close_inode(prev);
+                close_inode(new);
+                ret = -EACCES;
+                goto err;
+            }
+            if (!sb->funcs->pread || new->size >= SYMLINK_MAX) {
+                close_inode(prev);
+                close_inode(new);
+                // what do I return here?
+                ret = -ENOENT;
+                goto err;
+            }
+            if (!symlink_pathbuf) {
+                symlink_pathbuf = kalloc(SYMLINK_MAX);
+                if (!symlink_pathbuf) {
+                    close_inode(prev);
+                    close_inode(new);
+                    ret = -ELOOP; // probably nicer for userspace than ENOMEM?
+                    goto err;
+                }
+            }
+            file_descriptor_t fakefd = {
+                .flags = O_RDONLY,
+                .instances = 1,
+                .inode = new,
+                .off = 0,
+            };
+            ret = sb->funcs->pread(&fakefd, symlink_pathbuf, SYMLINK_MAX - 1, 0);
+            close_inode(new);
+            if (ret < 0) {
+                close_inode(prev);
+                goto err;
+            }
+            symlink_pathbuf[ret] = '\0';
+
+            ret = __openat_inode(prev, symlink_pathbuf, last_fragment ? flags : O_SEARCH | O_DIRECTORY, 0, &new, 1, nsym + 1);
+
+            if (ret < 0) {
+                close_inode(prev);
+                goto err;
+            }
+        }
+
+        close_inode(prev);
+
+        if (last_fragment && need_dir && !S_ISDIR(new->mode)) {
+            close_inode(new);
+            ret = -ENOTDIR;
+            goto err;
+        }
+        // has to be below because we prefer returning ENOENT
+        // devices are not governed by the mountpoint options
+        if (last_fragment && S_ISREG(new->mode)) {
+            if ((sb->mount_options & MOUNT_RDONLY ||
+                sb->funcs->pwrite == NULL)
+                    && flags & O_WRONLY) {
+                ret = -EROFS;
+                goto err;
+            }
+        }
+
         if (new->is_mountpoint && !(last_fragment && flags & O_NOXDEV)) {
             sb = new->next_superblock;
             kassert(sb);
@@ -403,25 +470,21 @@ int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t m
             close_inode(new);
 
             if (sb->funcs->lookup == NULL) {
-                close_inode(prev);
                 ret = -EINVAL;
                 goto err;
             }
 
             status = sb->funcs->lookup(sb, NULL, ".", &new, O_SEARCH | O_DIRECTORY);
             if (status < 0) {
-                close_inode(prev);
                 ret = status;
                 goto err;
             }
             if (new == NULL) {
-                close_inode(prev);
                 ret = -ENXIO;
                 goto err;
             }
         }
         if (last_fragment) {
-            close_inode(prev);
             if (inode_check_perm(new, wanted_perms, AT_EACCESS)) {
                 close_inode(new);
                 ret = -EACCES;
@@ -433,7 +496,6 @@ int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t m
                     status = new->backing_superblock->funcs->trunc(new, 0);
                     if (status != 0) {
                         ret = status;
-                        close_inode(prev);
                         close_inode(new);
                         goto err;
                     }
@@ -445,7 +507,6 @@ int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t m
             }
             break;
         }
-        close_inode(prev);
         prev = new;
         final_path = next_slash + 1;
     }
@@ -460,7 +521,7 @@ int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t m
 
     err:
     close_inode(current_root);
-    spinlock_release(&mount_tree_lock);
+    rw_spinlock_release_read(&mount_tree_lock);
     kfree(dup_path);
     return ret;
 }
@@ -481,6 +542,10 @@ int openat_file(inode_t * base, const char * path, unsigned int flags, mode_t mo
     file->flags = flags;
     *out = file;
     return 0;
+}
+
+int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t mode, inode_t ** out, char trusted_path) {
+    return __openat_inode(base, path, flags, mode, out, trusted_path, 0);
 }
 
 int sys_chdir(const char * path) {
@@ -564,6 +629,10 @@ int sys_renameat(int oldfd, const char * old, int newfd, const char * new) {
         kfree(old_dup);
         return -EFAULT;
     }
+    if (old_len == PATH_MAX) {
+        kfree(old_dup);
+        return -ENAMETOOLONG;
+    }
     old_len = cleanup_path(old_dup, old_len);
 
     if (memcmp("//", old_dup, 2) == 0) {
@@ -588,6 +657,11 @@ int sys_renameat(int oldfd, const char * old, int newfd, const char * new) {
         kfree(old_dup);
         kfree(new_dup);
         return -EBUSY;
+    }
+    if (new_len == PATH_MAX) {
+        kfree(old_dup);
+        kfree(new_dup);
+        return -ENAMETOOLONG;
     }
     new_len = cleanup_path(new_dup, new_len);
 
@@ -796,17 +870,17 @@ int sys_renameat(int oldfd, const char * old, int newfd, const char * new) {
     }
     close_inode(prev);
 
-    spinlock_acquire(&mount_tree_lock);
+    rw_spinlock_acquire_read(&mount_tree_lock);
     char mnt = dst ? dst->is_mountpoint : 0;
     close_inode(src);
     close_inode(dst);
     if (mnt) {
-        spinlock_release(&mount_tree_lock);
+        rw_spinlock_release_read(&mount_tree_lock);
         ret = -EBUSY;
         goto err;
     }
     ret = src->backing_superblock->funcs->rename(old_parent, old_frag, new_parent, new_frag);
-    spinlock_release(&mount_tree_lock);
+    rw_spinlock_release_read(&mount_tree_lock);
 
 
     if (ret == 0) {
@@ -852,6 +926,10 @@ int sys_mknodat(int fd, const char *path, mode_t mode, dev_t dev) {
     if (path_len == 0) {
         kfree(safe_path);
         return -ENOENT; // WHYY POSIX, WHYYY
+    }
+    if (path_len == PATH_MAX) {
+        kfree(safe_path);
+        return -ENAMETOOLONG;
     }
 
     char * last_slash = strrchr(safe_path, '/');
@@ -937,6 +1015,9 @@ int sys_linkat(int fd1, const char * path1, int fd2, const char * path2, int fla
     if ((fd1 < 0 || fd1 >= FD_LIMIT_PROCESS) && fd1 != AT_FDCWD) return -EBADF;
     if ((fd2 < 0 || fd2 >= FD_LIMIT_PROCESS) && fd2 != AT_FDCWD) return -EBADF;
 
+    flag &= AT_SYMLINK_FOLLOW;
+    flag  = flag ? 0 : AT_SYMLINK_NOFOLLOW; // peak posixing
+
     inode_t * file = NULL;
     inode_t * file_base = NULL;
     inode_t * base = NULL;
@@ -953,6 +1034,11 @@ int sys_linkat(int fd1, const char * path1, int fd2, const char * path2, int fla
     if (path_len == 0) {
         kfree(safe_path);
         return -ENOENT; // WHYY POSIX, WHYYY
+    }
+
+    if (path_len == PATH_MAX) {
+        kfree(safe_path);
+        return -ENAMETOOLONG;
     }
 
     char * last_slash = strrchr(safe_path, '/');
@@ -1001,7 +1087,7 @@ int sys_linkat(int fd1, const char * path1, int fd2, const char * path2, int fla
     int ret = 0;
 
     if (path1) {
-        ret = openat_inode(file_base, path1, O_PATH, 0, &file, 0);
+        ret = openat_inode(file_base, path1, O_PATH | flag, 0, &file, 0);
         if (ret < 0) {
             kfree(safe_path);
             close_inode(file_base);
@@ -1064,6 +1150,122 @@ int sys_linkat(int fd1, const char * path1, int fd2, const char * path2, int fla
     end:
     kfree(safe_path);
     close_inode(file);
+    close_inode(base);
+    return ret;
+}
+
+int sys_symlinkat(const char * path1, int fd, const char * path2) {
+    if ((fd < 0 || fd >= FD_LIMIT_PROCESS) && fd != AT_FDCWD) return -EBADF;
+
+    inode_t * base = NULL;
+
+    if (path2 == NULL)
+        return -EFAULT;
+
+    size_t path_len = 0, target_len = 0;
+    char * safe_path   = secure_strdup(path2, PATH_MAX, &path_len);
+    char * safe_target = secure_strdup(path1, SYMLINK_MAX, &target_len);
+    if (safe_path == NULL) {
+        kfree(safe_path);
+        kfree(safe_target);
+        return -EFAULT;
+    }
+    if (path_len == 0 || target_len == 0) {
+        kfree(safe_path);
+        kfree(safe_target);
+        return -ENOENT; // WHYY POSIX, WHYYY
+    }
+    if (path_len == PATH_MAX || target_len == SYMLINK_MAX) {
+        kfree(safe_path);
+        kfree(safe_target);
+        return -ENAMETOOLONG;
+    }
+
+    // technically against POSIX (maybe)
+    // "The string pointed to by path1 shall be treated only as a string and shall not be validated as a pathname."
+    //target_len = cleanup_path(safe_target, target_len);
+
+    char * last_slash = strrchr(safe_path, '/');
+    if (last_slash == NULL)
+        last_slash = safe_path;
+    else last_slash++;
+    if (*last_slash == '\0') { // trailing slash
+        kfree(safe_path);
+        kfree(safe_target);
+        return -EINVAL;
+    }
+    if (strcmp(last_slash, ".") == 0 ||
+        strcmp(last_slash, "..") == 0) {
+        kfree(safe_path);
+        kfree(safe_target);
+        return -EINVAL; // maybe EILSEQ? not sure
+    }
+
+    spinlock_acquire(&current_process->lock);
+    if (fd != AT_FDCWD) {
+        file_descriptor_t * file2 = current_process->fds[fd];
+        if (file2 == NULL) {
+            spinlock_release(&current_process->lock);
+            kfree(safe_path);
+            return -EBADF;
+        }
+        kassert(file2->instances > 0);
+        base = file2->inode;
+    } else {
+        base = current_process->pwd;
+    }
+    __atomic_add_fetch(&base->instances, 1, __ATOMIC_ACQUIRE);
+    spinlock_release(&current_process->lock);
+
+    int ret = 0;
+
+    last_slash = strrchr(safe_path, '/');
+    if (last_slash == NULL) {
+        last_slash = safe_path;
+
+        ret = inode_check_perm(base, W_OK, AT_EACCESS);
+        if (ret < 0)
+            goto end;
+
+        do_link:
+        if (!base->backing_superblock ||
+            !base->backing_superblock->funcs ||
+            !base->backing_superblock->funcs->symlink
+        ) {
+            ret = -ENOTSUP; // linux does EPERM
+            goto end;
+        }
+        if (base->backing_superblock->mount_options & MOUNT_RDONLY) {
+            ret = -EROFS;
+            goto end;
+        }
+
+        ret = base->backing_superblock->funcs->symlink(
+            base, last_slash, safe_target, 0777);
+        if (ret == 0) {
+            utimes_inode(base,
+                (struct timespec){.tv_nsec = UTIME_OMIT},
+                (struct timespec){.tv_nsec = UTIME_NOW},
+                (struct timespec){.tv_nsec = UTIME_NOW});
+        }
+        goto end;
+    }
+
+    *last_slash = 0;
+    last_slash++;
+
+    inode_t * final = NULL;
+    ret = openat_inode(base, safe_path, O_WRONLY, 0, &final, 1);
+    if (ret < 0)
+        goto end;
+
+    close_inode(base);
+    base = final;
+    goto do_link;
+
+    end:
+    kfree(safe_path);
+    kfree(safe_target);
     close_inode(base);
     return ret;
 }

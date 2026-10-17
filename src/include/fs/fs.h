@@ -176,7 +176,7 @@ int get_fd_from_inode(inode_t * inode, unsigned short flags);
 char * secure_strdup(const char * path, size_t max_len, size_t *len_out);
 size_t cleanup_path(char * dup_path, size_t pathlen);
 
-int sys_openat(int fd, const char * path, unsigned short flags, mode_t mode);
+int sys_openat(int fd, const char * path, unsigned int flags, mode_t mode);
 // the kernel function itself
 int openat_inode(inode_t * base, const char * path, unsigned int flags, mode_t mode, inode_t ** out, char trusted_path);
 int openat_file(inode_t * base, const char * path, unsigned int flags, mode_t mode, file_descriptor_t ** out, char trusted_path);
@@ -236,6 +236,7 @@ int sys_unlinkat(int fd, const char *path, int flags);
 int sys_renameat(int oldfd, const char * old, int newfd, const char * new);
 int sys_mknodat(int fd, const char *path, mode_t mode, dev_t dev);
 int sys_linkat(int fd1, const char * path1, int fd2, const char * path2, int flag);
+int sys_symlinkat(const char * path1, int fd, const char * path2);
 
 #include <UnstableOS/mount.h>
 long mount_dev(dev_t dev, inode_t * mount_point, unsigned char type, unsigned short options);

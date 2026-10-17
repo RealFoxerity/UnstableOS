@@ -104,7 +104,7 @@ build/memdisk.tar: $(LIBC_HEADERS) $(UTILS_BINS) $(SYSROOT)
 	@$(PROGRESS_LABEL) Generating $@
 	@mkdir -p sysroot/dev sysroot/bin
 	@cp $(UTILS_BINS) sysroot/bin/
-	@tar -C sysroot --group=root --owner=root --format ustar -cf $@ $(shell find sysroot -maxdepth 1 -type d | grep -Ev "sysroot$$" | sed "s#sysroot/##g")
+	@tar -C sysroot --group=root --owner=root --format ustar -cf $@ $(shell find sysroot -maxdepth 1 | tail -n+2 | sed "s#sysroot/##g")
 build/hda.dd:
 	@$(PROGRESS_LABEL) Generating $@
 	@mkdir -p $(dir $@)

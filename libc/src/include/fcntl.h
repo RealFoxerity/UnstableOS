@@ -15,7 +15,7 @@
 #define O_DIRECTORY 0x20
 #define O_EXCL      0x40
 #define O_NOCTTY    0x80
-#define O_NOFOLLOW  0x100 // not yet implemented
+#define O_NOFOLLOW  0x100
 
 // sets tty defaults:
 // eof = ^D; eol = ^@; erase = ^?; intr = ^C; kill = ^U; min = 1; quit = ^\; start = ^Q; stop = ^S; susp = ^Z; time = 0;
@@ -40,13 +40,22 @@
 #define O_NOXDEV    0x8000
 
 #define AT_EACCESS 0x10000
+
+// in addition to the POSIX meaning,
+// when passed into openat()'s flags, acquire a file descriptor to the symlink itself
+// only sane use case is linkat(), fstat(), and inside of readlinkat()
+// beware: such symlink file descriptors will not work for *at functions!
+#define AT_SYMLINK_NOFOLLOW 0x20000
+
+#define AT_SYMLINK_FOLLOW   0x40000
+
 #define AT_FDCWD (-1)
 #define AT_REMOVEDIR 1
 #include "sys/types.h"
 #include "sys/stat.h"
 
-int open(const char * path, unsigned short flags, ...);
-int openat(int fd, const char * path, unsigned short flags, ...);
+int open(const char * path, int oflag, ...);
+int openat(int fd, const char * path, int oflag, ...);
 int creat(const char * path, mode_t mode);
 
 #define F_DUPFD         1

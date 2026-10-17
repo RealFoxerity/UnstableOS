@@ -30,22 +30,20 @@ struct vfs_ops {
     int (*fs_init)   (superblock_t * sb); // called on mount, 0 = success
     int (*fs_deinit) (superblock_t * sb); // called on umount, 0 = success, TODO: error handling in umount
 
-    // resolves symlink, returns string of target file, or NULL on error
-    char * (*resolve_link)(superblock_t * sb, inode_t * link);
-
     // gets/creates the inode of a specified file
     // returns standard errnos or VFS_LOOKUP_ESCAPE on root/..
-    // in the case last/. returns the last pointer without altering anything
     // if last == NULL, last is assumed to be mounted /
-    // implementations should accept "." to mean the current directory
     // implementations need to fill the inode_t struct with enough info for a full stat()
     // flags primarily meant to pass to register inode to use for dev initialization
+    // when opening symlinks, return the target path size in the size field
     int (*lookup)   (superblock_t * sb, inode_t * last, const char * pathname, inode_t ** inode_out, unsigned short flags);
 
     // closing of the very last instance of an inode
     // also should sync (if supported) timestamps, mode, and uid/gid
     int (*release)   (inode_t * inode);
 
+    // pread also acts as readlink, in case fd is a symbolic link, reads back the symlink target path
+    // in the readlink case, it isn't a requirement to support offset other than 0, the kernel will always call it with 0
     ssize_t (*pread) (file_descriptor_t * fd, void * buf, size_t n, off_t offset);
     ssize_t (*pwrite)(file_descriptor_t * fd, const void * buf, size_t n, off_t offset);
 
@@ -67,6 +65,11 @@ struct vfs_ops {
     int (*mknod)     (inode_t * parent, const char * pathname, mode_t mode, dev_t dev);
 
     int (*link)      (inode_t * file, inode_t * parent, const char * pathname);
+    // note: mode is for now only ever 0777 as per usual
+    // we do support "secure symlinks" (currently only for read for readlink and execute for traversal)
+    // but POSIX doesn't define any function that would set the permissions while creating
+    int (*symlink)   (inode_t * parent, const char * pathname, const char * target, mode_t mode);
+
     // implementations should double-check that no race leading to name existing happened
     int (*rename)    (inode_t * old, const char * oldname, inode_t * new, const char * newname);
 
@@ -116,7 +119,7 @@ struct mount_tree {
     struct mount_tree * next; // next mount instance on this level
 } typedef mount_tree;
 
-extern spinlock_t mount_tree_lock;
+extern rw_spinlock_t mount_tree_lock;
 extern struct mount_tree * root_mountpoint;
 
 #endif

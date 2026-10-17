@@ -141,6 +141,12 @@ int fchownat(int fd, const char *path, uid_t owner, gid_t group, int flag);
 int link(const char *path1, const char *path2);
 int linkat(int fd1, const char *path1, int fd2, const char *path2, int flag);
 
+int symlink(const char *path1, const char *path2);
+int symlinkat(const char *path1, int fd, const char *path2);
+
+ssize_t readlink(const char *__restrict path, char *__restrict buf, size_t bufsize);
+ssize_t readlinkat(int fd, const char *__restrict path, char *__restrict buf, size_t bufsize);
+
 char *crypt(const char *key, const char *salt);
 
 char * ttyname(int fildes);

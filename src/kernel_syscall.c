@@ -402,6 +402,9 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
         case SYSCALL_LINKAT:
             return_value = sys_linkat(arg1, (const char *)arg2, arg3, (const char *)arg4, arg5);
             break;
+        case SYSCALL_SYMLINKAT:
+            return_value = sys_symlinkat((const char *)arg1, arg2, (const char *)arg3);
+            break;
         case SYSCALL_UMASK:
             arg1 &= 0777;
             mode_t old_umask = current_process->umask;

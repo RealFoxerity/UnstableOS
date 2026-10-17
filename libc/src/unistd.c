@@ -538,11 +538,42 @@ int link(const char *path1, const char *path2) {
 }
 
 int linkat(int fd1, const char *path1, int fd2, const char *path2, int flag) {
-    int ret = syscall(SYSCALL_LINKAT, fd1, path1, fd1, path2, flag);
+    int ret = syscall(SYSCALL_LINKAT, fd1, path1, fd2, path2, flag);
     if (ret < 0) {
         ___set_errno(-ret);
         return -1;
     }
+    return ret;
+}
+
+int symlink(const char *path1, const char *path2) {
+    return symlinkat(path1, AT_FDCWD, path2);
+}
+int symlinkat(const char *path1, int fd, const char *path2) {
+    int ret = syscall(SYSCALL_SYMLINKAT, path1, fd, path2);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return -1;
+    }
+    return ret;
+}
+
+ssize_t readlink(const char *restrict path, char *restrict buf, size_t bufsize) {
+    return readlinkat(AT_FDCWD, path, buf, bufsize);
+}
+ssize_t readlinkat(int fd, const char *restrict path, char *restrict buf, size_t bufsize) {
+    int symlink = openat(fd, path, O_RDONLY | AT_SYMLINK_NOFOLLOW);
+    if (symlink < 0)
+        return -1;
+    struct stat st;
+    fstat(symlink, &st);
+    if (!S_ISLNK(st.st_mode)) {
+        close(symlink);
+        ___set_errno(EINVAL);
+        return -1;
+    }
+    ssize_t ret = read(symlink, buf, bufsize);
+    close(symlink);
     return ret;
 }
 

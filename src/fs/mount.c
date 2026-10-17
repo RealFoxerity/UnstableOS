@@ -7,7 +7,7 @@
 #include <errno.h>
 
 #include "kernel_sched.h"
-spinlock_t mount_tree_lock = {0};
+rw_spinlock_t mount_tree_lock = {0};
 mount_tree * root_mountpoint = NULL;
 
 long mount_root(dev_t dev, unsigned char type, unsigned short options) {
@@ -16,7 +16,7 @@ long mount_root(dev_t dev, unsigned char type, unsigned short options) {
     kassert(kernel_superblocks[0] == NULL); // lazy way of checking this is the init
     kassert(type < SUPPORTED_FS_COUNT);
     kassert(kernel_task); // to set the kernel's pwd and root
-    spinlock_acquire(&mount_tree_lock);
+    rw_spinlock_acquire_write(&mount_tree_lock);
 
     root_mountpoint = kalloc(sizeof(mount_tree));
     kassert(root_mountpoint);
@@ -64,7 +64,7 @@ long mount_root(dev_t dev, unsigned char type, unsigned short options) {
     root_mountpoint->mountpoint = root_inode;
     root_superblock->mountpoint = root_inode;
 
-    spinlock_release(&mount_tree_lock);
+    rw_spinlock_release_write(&mount_tree_lock);
 
     kernel_task->pwd = kernel_task->root = root_inode;
 
@@ -191,12 +191,12 @@ long sys_umount(const char * mount_path) {
         close_inode(mount_inode);
         return -EINVAL;
     }
-    spinlock_acquire(&mount_tree_lock); // prevents openat_inode from creating a new instance
+    rw_spinlock_acquire_write(&mount_tree_lock); // prevents openat_inode from creating a new instance
 
     superblock_t * target = mount_inode->next_superblock;
 
     if (target->instances > 0) {
-        spinlock_release(&mount_tree_lock);
+        rw_spinlock_release_write(&mount_tree_lock);
         close_inode(mount_inode);
         return -EBUSY;
     }
@@ -219,6 +219,6 @@ long sys_umount(const char * mount_path) {
     current_thread->sa_to_be_handled = old_sig;
     RESTORE_SIGNALS(mask);
 
-    spinlock_release(&mount_tree_lock);
+    rw_spinlock_release_write(&mount_tree_lock);
     return 0;
 }

@@ -41,6 +41,8 @@
 
 // pathname variable values
 #define PATH_MAX 4096
+#define SYMLINK_MAX 1024 // to not waste obscene amounts of memory on lookup
+#define SYMLOOP_MAX 32
 
 // runtime increasable values
 #define NGROUPS_MAX 16

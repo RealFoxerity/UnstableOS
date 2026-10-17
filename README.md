@@ -30,7 +30,7 @@ List of defined syscalls can be found in [<UnstableOS/syscalls.h>](./libc/src/in
 ---
 - PS/2 keyboards and mice
 - RS/232 (serial)
-- Tar as a filesystem, FAT, ext2
+- Tar as a filesystem, FAT, ext2 (missing symlink support)
 - devtmpfs, tmpfs
 - RTC
 - VGA, VBE, BGA
@@ -99,7 +99,7 @@ see [caveats.md](./caveats.md) for info
 - [ ] ISO9660
 - [x] pipes
 - [ ] sockets and named pipes
-- [ ] symlinks
+- [x] symlinks
 - [x] signals
 - [x] proper (linked) `ucontext_t`
 - [ ] signal alternative stacks

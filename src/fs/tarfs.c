@@ -94,7 +94,7 @@ static struct tar_node * create_new_node(const char * path, const char * next_sl
     return new;
 }
 
-static char tar_add_cached_path(struct tar_node * root, const char * path, ustar_hdr * hdr, size_t record_offset) {
+static char tar_add_cached_path(struct tar_node * root, const char * path, ustar_hdr * hdr, off_t record_offset) {
     kassert(root);
     kassert(path);
 
@@ -106,6 +106,7 @@ static char tar_add_cached_path(struct tar_node * root, const char * path, ustar
         oct2int(hdr->dev_major, sizeof(hdr->dev_major)),
         oct2int(hdr->dev_minor, sizeof(hdr->dev_minor))
     );
+    dev &= ~0x8000;
     time_t mtime = oct2int(hdr->last_modified_time, sizeof(hdr->last_modified_time));
 
     switch (hdr->type) {
@@ -119,11 +120,25 @@ static char tar_add_cached_path(struct tar_node * root, const char * path, ustar
         case USTAR_BLOCK_DEV:
             mode = S_IFBLK;
             break;
-        case USTAR_HARD_LINK:
-        case USTAR_SYMBOLIC_LINK:
         case USTAR_CHAR_DEV:
+            mode = S_IFCHR;
+            dev |= 0x8000;
+            break;
+        case USTAR_SYMBOLIC_LINK:
+            mode = S_IFLNK;
+            if (hdr->linked_file_name[99] != '\0') {
+                kprintf("We don't yet support long symlink targets (>99 chars)\n");
+                return -1;
+            }
+
+            // insanely goofy way to make later tarfs_pread math the same for files and symlinks
+            size = strnlen(hdr->linked_file_name, 99);
+            record_offset -= sizeof(ustar_hdr) - offsetof(ustar_hdr, linked_file_name);
+            break;
+        case USTAR_HARD_LINK:
         case USTAR_PIPE:
-            kprintf("We don't support links, fifos, pipes, and char devs: %d", mode);
+        default:
+            kprintf("We don't support hard links and named pipes: %d", hdr->type);
             return -1;
     }
 
@@ -335,8 +350,6 @@ int tarfs_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode
         }
         if (result == NULL) return -ENOENT;
     }
-    if (!S_ISDIR(result->mode) && flags & O_DIRECTORY)
-        return -ENOTDIR;
 
     inode_t new_inode = {
         .id = (off_t)(uintptr_t)result,
@@ -384,7 +397,7 @@ ssize_t tarfs_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) 
     struct tar_node * root = sb->data;
     struct tar_node * this = (void*)(uintptr_t)fd->inode->id;
 
-    if (!S_ISREG(this->mode)) return -EINVAL;
+    if (!S_ISREG(this->mode) && !S_ISLNK(this->mode)) return -EINVAL;
 
     if (!is_valid_node(root, this)) panic("Invalid this/root TARFS node combo!");
 

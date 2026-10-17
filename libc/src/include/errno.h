@@ -51,4 +51,5 @@ int ___get_errno();
 #define ENOTEMPTY 40
 #define EXDEV     41
 #define EMLINK    42
+#define ELOOP     43
 #endif

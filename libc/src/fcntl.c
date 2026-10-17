@@ -4,14 +4,14 @@
 #include "include/errno.h"
 #include <stdarg.h>
 
-int open(const char * path, unsigned short flags, ...) {
+int open(const char * path, int oflag, ...) {
     va_list args;
-    va_start(args, flags);
+    va_start(args, oflag);
 
     mode_t mode = va_arg(args, mode_t);
     va_end(args);
 
-    int ret = syscall(SYSCALL_OPENAT, AT_FDCWD, path, flags, mode);
+    int ret = syscall(SYSCALL_OPENAT, AT_FDCWD, path, oflag, mode);
     if (ret < 0) {
         ___set_errno(-ret);
         return -1;
@@ -22,13 +22,13 @@ int creat(const char * path, mode_t mode) {
     return open(path, O_WRONLY | O_CREAT | O_TRUNC, mode);
 }
 
-int openat(int fd, const char * path, unsigned short flags, ...) {
+int openat(int fd, const char * path, int oflag, ...) {
     va_list args;
-    va_start(args, flags);
+    va_start(args, oflag);
 
     mode_t mode = va_arg(args, mode_t);
 
-    int ret = syscall(SYSCALL_OPENAT, fd, path, flags, mode);
+    int ret = syscall(SYSCALL_OPENAT, fd, path, oflag, mode);
     if (ret < 0) {
         ___set_errno(-ret);
         return -1;

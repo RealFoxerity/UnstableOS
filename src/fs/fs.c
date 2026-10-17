@@ -224,6 +224,8 @@ ssize_t pwrite_file(file_descriptor_t *file, const void *buf, size_t count, off_
     if (file->flags & (O_SEARCH | O_PATH)) return -EBADF;
 
     if (S_ISDIR(file->inode->mode)) return -EISDIR;
+    if (S_ISLNK(file->inode->mode)) return -EINVAL;
+
     if (!(file->flags & O_WRONLY))
         return -EBADF;
 
@@ -615,7 +617,7 @@ int sys_unlinkat(int fd, const char *path, int flags) {
     }
 
     inode_t * unlinked; // only for the directory checking, TODO: prone to races (unlink + mkdir/creat)
-    int ret = openat_inode(unlinked_parent, file_frag, O_PATH | (dir_needed ? O_DIRECTORY : 0), 0, &unlinked, 1);
+    int ret = openat_inode(unlinked_parent, file_frag, O_PATH | AT_SYMLINK_NOFOLLOW | (dir_needed ? O_DIRECTORY : 0), 0, &unlinked, 1);
     if (ret < 0) {
         close_inode(unlinked_parent);
         kfree(safe_path);
@@ -749,6 +751,8 @@ int sys_fstat(int fd, struct stat * buf) {
 }
 
 int sys_fstatat(int fd, const char * __restrict path, struct stat * __restrict buf, int flags) {
+    flags &= AT_SYMLINK_NOFOLLOW;
+
     inode_t * base = NULL;
     inode_t * new = NULL;
 
@@ -767,7 +771,7 @@ int sys_fstatat(int fd, const char * __restrict path, struct stat * __restrict b
         if (test < 0) return test;
     }
 
-    int ret = openat_inode(base, path, O_PATH, 0, &new, 0);
+    int ret = openat_inode(base, path, O_PATH | flags, 0, &new, 0);
     if (base != (inode_t*)AT_FDCWD)
         close_inode(base);
     if (ret < 0) return ret;
@@ -1210,6 +1214,8 @@ int utimes_inode(inode_t * inode, const struct timespec atime, const struct time
 }
 
 int sys_utimensat(int fd, const char *path, const struct timespec times[2], int flag) {
+    flag &= AT_SYMLINK_NOFOLLOW;
+
     inode_t * base = NULL;
     inode_t * new = NULL;
 
@@ -1233,7 +1239,7 @@ int sys_utimensat(int fd, const char *path, const struct timespec times[2], int 
 
     int ret;
     if (path) {
-        ret = openat_inode(base, path, O_WRONLY, 0, &new, 0);
+        ret = openat_inode(base, path, O_WRONLY | flag, 0, &new, 0);
         if (base != (inode_t*)AT_FDCWD)
             close_inode(base);
         if (ret < 0) return ret;
@@ -1350,6 +1356,8 @@ int sys_fchmodat(int fd, const char *path, mode_t mode, int flag) {
 
     mode &= 07777;
 
+    flag &= AT_SYMLINK_NOFOLLOW;
+
     inode_t * base = NULL;
     inode_t * new = NULL;
 
@@ -1372,7 +1380,7 @@ int sys_fchmodat(int fd, const char *path, mode_t mode, int flag) {
     kassert(base);
 
     if (path) {
-        int ret = openat_inode(base, path, O_PATH, 0, &new, 0);
+        int ret = openat_inode(base, path, O_PATH | flag, 0, &new, 0);
         close_inode(base);
         if (ret < 0 || !new) return ret;
     } else
@@ -1425,6 +1433,8 @@ int sys_fchownat(int fd, const char *path, uid_t owner, gid_t group, int flag) {
     if ((fd < 0 || fd >= FD_LIMIT_PROCESS) && fd != AT_FDCWD) return -EBADF;
     if (owner == (uid_t)-1 && group == (gid_t)-1) return 0;
 
+    flag &= AT_SYMLINK_NOFOLLOW;
+
     inode_t * base = NULL;
     inode_t * new = NULL;
 
@@ -1447,7 +1457,7 @@ int sys_fchownat(int fd, const char *path, uid_t owner, gid_t group, int flag) {
     kassert(base);
 
     if (path) {
-        int ret = openat_inode(base, path, O_PATH, 0, &new, 0);
+        int ret = openat_inode(base, path, O_PATH | flag, 0, &new, 0);
         close_inode(base);
         if (ret < 0 || !new) return ret;
     } else

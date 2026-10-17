@@ -356,7 +356,6 @@ int main(int argc, char ** argv) {
                 return 1;
             case '?':
             default:
-                fprintf(stderr, "Invalid option -%c\n", optopt);
                 print_help(argv[0], 0, 0);
                 return 1;
         }

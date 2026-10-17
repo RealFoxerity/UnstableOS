@@ -21,6 +21,9 @@ struct tmpfile_rbtree {
 struct tmpfile_t {
     char name[TMPFS_NAME_MAX+1];
 
+    // here so that open() doesn't have to wait for mapping, this is kinda wasteful though
+    char * symlink_target;
+
     size_t ino;
 
     mode_t mode;
@@ -96,6 +99,7 @@ static void tmpfs_free_file(struct tmpfs_sb * tmpfs, tmpfile_t * file) {
     kassert(!file->children);
 
     tmpfs_free_file_data(tmpfs, file->pages);
+    kfree(file->symlink_target);
     kfree(file);
     __atomic_sub_fetch(&tmpfs->files, 1, __ATOMIC_RELAXED);
 }
@@ -240,11 +244,14 @@ static int tmpfs_release(inode_t * inode) {
     return 0;
 }
 
-static int tmpfs_creat_internal(inode_t * parent, const char * pathname, mode_t mode, inode_t ** inode_out, dev_t dev) {
+static int tmpfs_creat_internal(inode_t * parent, const char * pathname, mode_t mode, inode_t ** inode_out, dev_t dev, const char * symlink_target) {
     kassert(parent);
     kassert(parent->backing_superblock);
     kassert(parent->backing_superblock->data);
     kassert(parent->data);
+
+    if (S_ISLNK(mode) && !symlink_target)
+        return -EFAULT;
 
     struct tmpfs_sb * tmpfs = parent->backing_superblock->data;
     tmpfile_t * dir = parent->data;
@@ -273,11 +280,32 @@ static int tmpfs_creat_internal(inode_t * parent, const char * pathname, mode_t 
         rw_spinlock_release_write(&dir->lock);
         return -ENOSPC;
     }
+
+    size_t symlink_len = 0;
+    char * duped_symlink = NULL;
+    if (S_ISLNK(mode)) {
+        symlink_len = strlen(symlink_target) + 1;
+        duped_symlink = kalloc(symlink_len);
+        if (!duped_symlink) {
+            rw_spinlock_release_write(&dir->lock);
+            kfree(new);
+            return -ENOSPC;
+        }
+        memcpy(duped_symlink, symlink_target, symlink_len);
+    }
+
     __atomic_add_fetch(&tmpfs->files, 1, __ATOMIC_RELAXED);
 
     memset(new, 0, sizeof(tmpfile_t));
     strcpy(new->name, pathname);
     new->ino = __atomic_add_fetch(&tmpfs->last_ino, 1, __ATOMIC_ACQUIRE);
+
+    if (S_ISLNK(mode)) {
+        // we don't include the null byte in the size because posix?
+        // the readlink usage pattern is ret = readlink(...); buf[ret] = 0;
+        new->size = symlink_len - 1;
+        new->symlink_target = duped_symlink;
+    }
 
     new->mode = mode;
     if (S_ISCHR(mode) || S_ISBLK(mode))
@@ -310,20 +338,26 @@ static int tmpfs_creat_internal(inode_t * parent, const char * pathname, mode_t 
 static int tmpfs_creat(inode_t * parent, const char * pathname, mode_t mode, inode_t ** inode_out) {
     mode &= ~S_IFMT;
     mode |= S_IFREG;
-    return tmpfs_creat_internal(parent, pathname, mode, inode_out, 0);
+    return tmpfs_creat_internal(parent, pathname, mode, inode_out, 0, NULL);
 }
 
 static int tmpfs_mkdir(inode_t * parent, const char * pathname, mode_t mode, inode_t ** inode_out) {
     mode &= ~S_IFMT;
     mode |= S_IFDIR;
-    return tmpfs_creat_internal(parent, pathname, mode, inode_out, 0);
+    return tmpfs_creat_internal(parent, pathname, mode, inode_out, 0, NULL);
 }
 
 static int tmpfs_mknod(inode_t * parent, const char * pathname, mode_t mode, dev_t dev) {
     mode &= ~S_IFMT | S_IFCHR | S_IFBLK;
     if (!(mode & (S_IFCHR | S_IFBLK)))
         return -EINVAL;
-    return tmpfs_creat_internal(parent, pathname, mode, NULL, dev);
+    return tmpfs_creat_internal(parent, pathname, mode, NULL, dev, NULL);
+}
+
+static int tmpfs_symlink(inode_t * parent, const char * pathname, const char * target, mode_t mode) {
+    mode &= ~S_IFMT;
+    mode |= S_IFLNK;
+    return tmpfs_creat_internal(parent, pathname, mode, NULL, 0, target);
 }
 
 static int tmpfs_unlink(inode_t * parent, const char * name) {
@@ -477,8 +511,13 @@ static int tmpfs_rename(inode_t * old, const char * oldname, inode_t * new, cons
 }
 
 static ssize_t tmpfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_size, off_t offset) {
+    kassert(fd);
+    kassert(fd->inode);
+    kassert(fd->inode->data);
     if (!dent)
         return -EFAULT;
+    if (!S_ISDIR(fd->inode->mode))
+        return -ENOTDIR;
     if (offset < 0)
         return -ENOENT;
     // it should be somewhat obvious and logical that on a 32 bit machine,
@@ -487,10 +526,6 @@ static ssize_t tmpfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_
         return -ENOENT;
     if (dent_size < sizeof(struct dirent) + 2)
         return -EINVAL;
-
-    kassert(fd);
-    kassert(fd->inode);
-    kassert(fd->inode->data);
 
     char locked = 0;
 
@@ -596,7 +631,7 @@ ssize_t tmpfs_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) 
         return -EFAULT;
 
     if (offset < 0) return -EINVAL;
-    if (!S_ISREG(fd->inode->mode)) return -EINVAL;
+    if (!S_ISREG(fd->inode->mode) && !S_ISLNK(fd->inode->mode)) return -EINVAL;
     if (offset >= fd->inode->size) return 0;
     if (n == 0) return 0;
 #ifdef E2BIG_ON_2G
@@ -609,7 +644,17 @@ ssize_t tmpfs_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) 
         return -EINTR;
 
     tmpfile_t * file = fd->inode->data;
+
     size_t read_bytes = 0;
+
+    if (S_ISLNK(fd->inode->mode)) {
+        if (offset + n > fd->inode->size)
+            n = fd->inode->size - offset;
+        memcpy(buf, file->symlink_target + offset, n);
+        read_bytes = n;
+        return (ssize_t)read_bytes;
+    }
+
 
     rw_spinlock_acquire_read(&file->page_lock);
     while (read_bytes < n && offset < fd->inode->size) {
@@ -830,6 +875,8 @@ const struct vfs_ops tmpfs_op = {
     .creat   = tmpfs_creat,
     .mkdir   = tmpfs_mkdir,
     .mknod   = tmpfs_mknod,
+
+    .symlink = tmpfs_symlink,
 
     .rename  = tmpfs_rename,
 

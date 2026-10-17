@@ -318,8 +318,6 @@ int fat_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_t
     if (ret < 0)
         return (int)ret;
     create_file:
-    if (flags & O_DIRECTORY && !(dentry_buf.attr & FAT_DENTRY_ATTR_SUBDIR))
-        return -ENOTDIR;
 
     inode_t file = {
         .backing_superblock = sb,

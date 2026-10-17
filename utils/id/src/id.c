@@ -63,18 +63,19 @@ int main(int argc, char ** argv) {
                 print_help();
                 return 0;
             default:
-                fprintf(stderr, "%s: Invalid option '%c'\nTry '%s -h' for help\n", argv[0], c, argv[0]);
+                fprintf(stderr, "Try '%s -h' for help\n", argv[0]);
                 return 1;
         }
     }
-
-    if (user && argv[optind]) {
-        fprintf(stderr, "%s: Invalid option '%s'\nTry '%s -h' for help\n", argv[0], argv[optind], argv[0]);
-        return 1;
-    }
-    if (argv[optind]) {
-        user = argv[optind++];
-        goto was_user;
+    if (strcmp(argv[optind - 1], "--") != 0) {
+        if (user && argv[optind]) {
+            fprintf(stderr, "%s: Invalid option '%s'\nTry '%s -h' for help\n", argv[0], argv[optind], argv[0]);
+            return 1;
+        }
+        if (argv[optind]) {
+            user = argv[optind++];
+            goto was_user;
+        }
     }
 
     struct passwd * pwd = NULL;

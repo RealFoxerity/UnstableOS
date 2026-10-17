@@ -310,13 +310,6 @@ int ext2_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_
 
     if (dirent.inode == 0)
         ret = -ENOENT;
-    else if (meta->filetype &&
-        flags & O_DIRECTORY &&
-        dirent.file_type != EXT2_FT_DIR
-    ) {
-        ret = -ENOTDIR;
-        dirent.inode = 0;
-    }
     if (dirent.inode) {
         ret = ext2_get_inode(sb, dirent.inode, &ino);
     }

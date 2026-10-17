@@ -11,6 +11,7 @@ enum syscalls {
     SYSCALL_OPENAT,
     SYSCALL_MKNODAT,
     SYSCALL_LINKAT,
+    SYSCALL_SYMLINKAT,
     SYSCALL_CLOSE,
     SYSCALL_FCNTL,
     SYSCALL_FCHMODAT, // NULL path means act on fd (FCHMOD)
