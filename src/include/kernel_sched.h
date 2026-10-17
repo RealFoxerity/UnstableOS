@@ -12,6 +12,7 @@
 #include "mm/kernel_memory.h"
 #include "fs/fs.h"
 #include "mm/mmap.h"
+#include "rbtree.h"
 
 #if SIGRTMAX - SIGRTMIN > RTSIG_MAX
 #error "Realtime signal ranges larger than realtime signal count!"
@@ -148,6 +149,7 @@ struct rt_siginfo_ll {
 struct file_descriptor_t;
 
 struct process_t {
+    rbtree_t __rb;
     unsigned char ring; // so that drivers and kernel can have their own processes
     struct process_t * parent;
     struct process_t * pgrp_leader; // NULL if orphaned
@@ -272,6 +274,11 @@ void scheduler_print_process(const process_t * process);
 void scheduler_print_processes();
 void reload_pcb(const process_t * pprocess); // only works if in the same cr3 as pprocess
 
+// internally locks and adds to scheduler queue and process_tree
+void sched_add_process(process_t * proc);
+// NULL if not found, caller is required to lock process_tree_lock before calling and unlock after
+process_t * sched_find_process(pid_t pid);
+
 // kernel_sched_sleep_queue.c
 void sleep_sched_tick(size_t ticks);
 long sys_clock_nanosleep(process_t * pprocess, thread_t * thread, clockid_t clock_id, int flags, struct timespec requested, struct timespec * elapsed);
@@ -288,6 +295,8 @@ char kernel_destroy_thread(process_t * parent_process, thread_t * thread);
 // specifying calling thread copies its FPU (and mmx/sse/sse2) state
 thread_t * kernel_create_thread(process_t * parent_process, thread_t * calling_thread, void (* entry_point)(void*), void * arg, size_t stack_guard);
 
+extern rw_spinlock_t process_tree_lock;
+extern rbtree_t * process_tree;
 extern process_t * process_list;
 extern process_t * zombie_list;
 

@@ -56,6 +56,9 @@ __attribute__((naked, noreturn)) void kernel_idle() { // loop to jump to when a 
     );
 }
 
+rbtree_t * process_tree = NULL;
+rw_spinlock_t process_tree_lock = {0};
+
 // process_list->prev = last item in the (doubly) linked list, last item has ->next NULL so we know when we reach the end
 process_t * process_list = NULL;
 process_t * zombie_list = NULL;
@@ -139,6 +142,21 @@ static inline void push_thread_to_end(process_t * pprocess, thread_t * thread) {
     APPEND_DOUBLE_LINKED_LIST(thread, pprocess->threads);
 }
 
+void sched_add_process(process_t * proc) {
+    rw_spinlock_acquire_write(&process_tree_lock);
+    proc->__rb.val = proc->pid;
+    rbtree_add(&process_tree, &proc->__rb);
+    rw_spinlock_release_write(&process_tree_lock);
+
+    spinlock_acquire(&scheduler_lock);
+    APPEND_DOUBLE_LINKED_LIST(proc, process_list)
+    spinlock_release(&scheduler_lock);
+}
+
+process_t * sched_find_process(pid_t pid) {
+    return (process_t*)rbtree_search_exact(process_tree, pid);
+}
+
 #define KERNEL_ARGV0 "kernel/core"
 static inline void register_kernel_task(__gregcontext_t * context) {
     kernel_task = kalloc(sizeof(process_t));
@@ -180,6 +198,9 @@ static inline void register_kernel_task(__gregcontext_t * context) {
         //kernel_task->prev = process_list->prev;
         //process_list->prev = kernel_task;
     }
+
+    kernel_task->__rb.val = kernel_task->pid;
+    rbtree_add(&process_tree, &kernel_task->__rb);
 
     current_process = kernel_task;
     current_thread = kernel_task->threads;

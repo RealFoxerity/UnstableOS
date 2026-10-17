@@ -309,11 +309,11 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     proc->suid = proc->euid;
     proc->sgid = proc->egid;
 
-    // relink to process_list
-    APPEND_DOUBLE_LINKED_LIST(proc, process_list)
-
     paging_unmap_page(new_prog.pd_vaddr);
 
     spinlock_release(&scheduler_lock);
+
+    sched_add_process(proc);
+
     return proc->pid;
 }

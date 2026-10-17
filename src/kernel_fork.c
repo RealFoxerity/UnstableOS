@@ -338,13 +338,11 @@ pid_t sys_fork(__gregcontext_t * ctx) {
 
     new_proc->after_exec = 0;
 
-    // relink the new process
-    APPEND_DOUBLE_LINKED_LIST(new_proc, process_list)
-
     spinlock_release(&scheduler_lock);
     rw_spinlock_release_read(&current_process->vm_lock);
     spinlock_release(&address_spaces_lock);
 
+    sched_add_process(new_proc);
     //scheduler_print_processes();
     return new_proc->pid;
 }

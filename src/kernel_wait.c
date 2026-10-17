@@ -123,10 +123,16 @@ pid_t sys_waitpid(pid_t pid, int * wstatus, int options) {
     if (!found_in_process_list) {
         // remove from the unwaited zombie list
         UNLINK_DOUBLE_LINKED_LIST(child, zombie_list)
-        kfree(child);
-    }
+        spinlock_release(&scheduler_lock);
 
-    spinlock_release(&scheduler_lock);
+        rw_spinlock_acquire_write(&process_tree_lock);
+        process_t * child_node = sched_find_process(child->pid);
+        if (child_node)
+            rbtree_remove(&process_tree, &child_node->__rb);
+        rw_spinlock_release_write(&process_tree_lock);
+        kfree(child);
+    } else
+        spinlock_release(&scheduler_lock);
     return child_pid;
 }
 
@@ -259,9 +265,15 @@ int sys_waitid(idtype_t idtype, id_t id, siginfo_t * infop, int options) {
     if (!found_in_process_list && !(options & WNOWAIT)) {
         // remove from the unwaited zombie list
         UNLINK_DOUBLE_LINKED_LIST(child, zombie_list)
-        kfree(child);
-    }
+        spinlock_release(&scheduler_lock);
 
-    spinlock_release(&scheduler_lock);
+        rw_spinlock_acquire_write(&process_tree_lock);
+        process_t * child_node = sched_find_process(child->pid);
+        if (child_node)
+            rbtree_remove(&process_tree, &child_node->__rb);
+        rw_spinlock_release_write(&process_tree_lock);
+        kfree(child);
+    } else
+        spinlock_release(&scheduler_lock);
     return 0;
 }

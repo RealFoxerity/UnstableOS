@@ -24,18 +24,15 @@ pid_t sys_getpgid(pid_t pid) {
 pid_t sys_getsid(pid_t pid) {
     if (pid == 0) return current_process->session;
 
-    spinlock_acquire(&scheduler_lock);
-    process_t * tested = process_list;
-    while (tested != NULL) {
-        if (tested->pid == pid) break;
-        tested = tested->next;
-    }
-    if (tested != NULL) {
+    rw_spinlock_acquire_read(&process_tree_lock);
+    process_t * proc = sched_find_process(pid);
+    if (!proc) {
         spinlock_release(&scheduler_lock);
-        return tested->session; // found the pid
+        return -ESRCH;
     }
-    spinlock_release(&scheduler_lock);
-    return -ESRCH;
+    pid_t sid = proc->session;
+    rw_spinlock_release_read(&process_tree_lock);
+    return sid;
 }
 
 pid_t sys_setsid() {

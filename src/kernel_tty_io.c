@@ -310,15 +310,11 @@ long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
             if ((pid_t)arg <= 0) return -EINVAL;
 
             int pgid_test = 0;
-            spinlock_acquire(&scheduler_lock);
-            for (process_t * process = process_list; process != NULL; process = process->next) {
-                if (process->pid == (pid_t)arg) {
-                    if (process->session != current_process->session)
-                        pgid_test = 1;
-                    break;
-                }
-            }
-            spinlock_release(&scheduler_lock);
+            rw_spinlock_acquire_read(&process_tree_lock);
+            process_t * proc = sched_find_process((pid_t)arg);
+            if (proc && proc->session != current_process->session)
+                    pgid_test = 1;
+            rw_spinlock_release_read(&process_tree_lock);
 
             if (pgid_test) return -EPERM;
 
