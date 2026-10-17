@@ -312,7 +312,7 @@ static int tmpfs_creat_internal(inode_t * parent, const char * pathname, mode_t 
         new->dev = dev;
 
     new->uid = current_process->euid;
-    new->gid = current_process->gid;
+    new->gid = parent->mode & S_ISGID ? parent->gid : current_process->egid;
 
     new->btime = new->ctime = new->mtime = new->atime = system_time_sec;
 

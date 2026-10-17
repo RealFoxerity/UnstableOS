@@ -912,7 +912,7 @@ int ext2_creat(inode_t * parent, const char * pathname, mode_t mode, inode_t ** 
     struct ext2_metadata * meta = sb->data;
 
     inode_t new = {
-        .uid = parent->mode & S_ISUID ? parent->uid : current_process->euid,
+        .uid = current_process->euid,
         .gid = parent->mode & S_ISGID ? parent->gid : current_process->egid,
         .nlink = 1,
         .atime = system_time_sec,
@@ -975,7 +975,7 @@ int ext2_mkdir(inode_t * parent, const char * pathname, mode_t mode, inode_t ** 
     struct ext2_metadata * meta = sb->data;
 
     inode_t new = {
-        .uid = parent->mode & S_ISUID ? parent->uid : current_process->euid,
+        .uid = current_process->euid,
         .gid = parent->mode & S_ISGID ? parent->gid : current_process->egid,
         .nlink = 2,
         .size = meta->block_size,
@@ -1097,7 +1097,7 @@ int ext2_mknod(inode_t * parent, const char * pathname, mode_t mode, dev_t dev) 
     struct ext2_metadata * meta = sb->data;
 
     inode_t new = {
-        .uid = parent->mode & S_ISUID ? parent->uid : current_process->euid,
+        .uid = current_process->euid,
         .gid = parent->mode & S_ISGID ? parent->gid : current_process->egid,
         .nlink = 1,
         .atime = system_time_sec,
