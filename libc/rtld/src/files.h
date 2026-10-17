@@ -4,6 +4,7 @@
 #define O_RDONLY 0x1
 #define O_WRONLY 0x2
 #define O_RDWR   0x3
+#define O_EXEC   0x4
 #define O_DIRECTORY 0x20
 
 #define AT_FDCWD (-1)

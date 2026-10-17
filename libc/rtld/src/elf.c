@@ -11,7 +11,7 @@
 static unsigned int * dvt = PROGRAM_DVT_VADDR;
 static void * tls_blueprint = PROGRAM_TLS_BLUEPRINT_TOP_VADDR;
 
-static uint32_t ___internal_rand_state = 1;
+static uint32_t ___internal_rand_state = 0;
 #define RAND_MAX 32768
 static int rand() {
     if (__builtin_expect(___internal_rand_state == 0, 0)) {
@@ -354,10 +354,31 @@ struct dso * loadelf(int fd) {
         }
 
         int sofd = openelf(soname,dso->runpath);
-        assert(sofd >= 0);
+        if (sofd < 0) {
+            if (tracing) {
+                dbg_print("\t");
+                dbg_print(soname);
+                dbg_print(" (not found)\n");
+                continue;
+            }
+            dbg_print("rtld: Can't find shared object ");
+            dbg_print(soname);
+            dbg_print(", giving up\n");
+            abort();
+        }
         so = loadelf(sofd);
         so->name = soname;
         close(sofd);
+        if (tracing) {
+            char addrbuf[16];
+            // printed by openelf
+            //print("\t");
+            //print(so->name);
+            print(" (0x");
+            itoax((unsigned long)so->load_base, addrbuf);
+            print(addrbuf);
+            print(")\n");
+        }
 
         link:
         deplist->next = dso->deps;

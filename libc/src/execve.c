@@ -22,6 +22,9 @@ int execve(const char * path, char * const* argv, char * const* envp) {
 static char * find_file(const char * file) {
     if (file == NULL) return NULL;
     if (file[0] == '/') return strdup(file);
+    if (strncmp(file, "./", 2) == 0 ||
+        strncmp(file, "../", 3) == 0)
+        return strdup(file);
 
     char * default_paths = "/bin:/sbin";
     char * paths = getenv("PATH");

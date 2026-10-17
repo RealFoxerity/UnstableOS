@@ -82,7 +82,7 @@ ssize_t exec_safe_argv_dup(char * const* argv, char * const* envp, void * stack_
     ((auxv_t *)&((char **)stack_state)[1 + argc + 1 + envc + 1])[0] = (auxv_t) {.type = AT_EXECFD, .un.val = elf_fd};
     ((auxv_t *)&((char **)stack_state)[1 + argc + 1 + envc + 1])[auxc] = (auxv_t) {.type = AT_NULL};
 
-    *execfd_auxv_out = (auxv_t*)((char **)stack_state)[1 + argc + 1 + envc + 1];
+    *execfd_auxv_out = (auxv_t *)&((char **)stack_state)[1 + argc + 1 + envc + 1];
 
     size_t end_off = 0;
 

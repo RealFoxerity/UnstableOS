@@ -1,5 +1,26 @@
 #include <stddef.h>
 #include "string.h"
+
+static char get_nibble(char value) {
+    if (value >= 10) return 'A' + value - 10;
+    return '0' + value;
+}
+void itoax(unsigned long num, char * out) {
+    int ctr = 0;
+    for (; ; ctr++) {
+        out[ctr] = get_nibble(num % 16);
+        num /= 16;
+        if (num == 0) break;
+    }
+
+    for (int i = 0; i <= ctr/2; i++) {
+        char temp = out[i];
+        out[i] = out[ctr-i];
+        out[ctr-i] = temp;
+    }
+    out[ctr+1] = '\0';
+}
+
 size_t strlen(const char * s) {
     const char * end = s;
     unsigned long n = (unsigned long)-1;

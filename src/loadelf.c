@@ -175,11 +175,9 @@ struct program load_elf(int * status, const char * path, char * const* argv, cha
         PROGRAM_DVT_VADDR, PROGRAM_DVT_SIZE,
         PTE_PDE_PAGE_USER_ACCESS | PTE_PDE_PAGE_WRITABLE);
 
-    // due to the way TLS loading works, the interpreter has to have write access to the TLS blueprint range
-    // normal PIE don't need the write access, so we can mark is as unwritable
     paging_map_to_address_space(address_space,
         PROGRAM_TLS_BLUEPRINT_VADDR,
-        PROGRAM_MAX_TLS_SIZE,PTE_PDE_PAGE_USER_ACCESS | (parsing_interp ? PTE_PDE_PAGE_WRITABLE : 0));
+        PROGRAM_MAX_TLS_SIZE,PTE_PDE_PAGE_USER_ACCESS | PTE_PDE_PAGE_WRITABLE);
 
     paging_map_to_address_space(address_space,
         PROGRAM_PCB_VADDR, PAGE_SIZE_NO_PAE,

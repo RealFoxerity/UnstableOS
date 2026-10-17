@@ -238,7 +238,7 @@ static int __putenv(char * string, char alloced) {
         }
     }
 
-    char ** new_environ = realloc(environ_alloced ? environ : NULL, (i+1) * sizeof(char*));
+    char ** new_environ = realloc(environ_alloced ? environ : NULL, (i + 2) * sizeof(char*));
     if (!new_environ) {
         if (alloced)
             free(string);

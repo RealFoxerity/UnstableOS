@@ -105,7 +105,7 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
             asm volatile("cli");
             if (syscall_number == SYSCALL_ABORT) {
                 // so that we can keep the fall-through for syscall_exit
-                kprintf("Thread %lu of process %lu called abort()!\n", current_thread->tid, current_process->pid);
+                //kprintf("Thread %lu of process %lu called abort()!\n", current_thread->tid, current_process->pid);
                 // idk, but seems reasonable
                 current_process->postmortem_wstatus = 0x100 | (SIGABRT << 12);
                 exited_child_status = (siginfo_t){

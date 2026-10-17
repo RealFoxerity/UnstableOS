@@ -1,6 +1,7 @@
 #ifndef STRING_H
 #define STRING_H
 #include <stddef.h>
+void itoax(unsigned long num, char * out);
 size_t strlen(const char * s);
 size_t strnlen(const char * s, size_t n);
 int strcmp(const char * s1, const char * s2);

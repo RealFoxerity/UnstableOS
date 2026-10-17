@@ -27,7 +27,12 @@ static int _openelf(const char * name, const char * runpath) {
 
         int fd = openat(AT_FDCWD, path_buf, O_RDONLY);
         if (fd >= 0) {
-            //dbg_print(path_buf);
+            if (tracing) {
+                print("\t");
+                print(name);
+                print(" => ");
+                print(path_buf);
+            }
             return fd;
         }
 
@@ -44,7 +49,7 @@ int openelf(const char * name, const char * runpath) {
             //dbg_print(name);
             return fd;
         }
-        goto fail;
+        return -1;
     }
 
     int fd = _openelf(name,ld_path);
@@ -53,9 +58,5 @@ int openelf(const char * name, const char * runpath) {
     }
     if (fd >= 0)
         return fd;
-
-    fail:
-    // failed\n to complete the "Loading dependency `x`..."
-    dbg_print("failed\nrtld: Can't find shared object, giving up\n");
-    abort();
+    return -1;
 }

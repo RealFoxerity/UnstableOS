@@ -6,3 +6,6 @@
 void dbg_print(const char * s) {
     syscall(SYSCALL_WRITE, 2, s, strlen(s));
 }
+void print(const char * s) {
+    syscall(SYSCALL_WRITE, 1, s, strlen(s));
+}

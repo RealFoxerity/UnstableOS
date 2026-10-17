@@ -6,9 +6,11 @@
 
 extern const char * ld_path;
 extern int exec_fd;
+extern int tracing;
 
 long syscall(unsigned long syscall_number, ...);
 void dbg_print(const char * s);
+void print(const char * s);
 void * alloc(unsigned long n);
 __attribute__((noreturn)) void abort();
 
