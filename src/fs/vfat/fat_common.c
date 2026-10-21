@@ -44,7 +44,7 @@ long fat_name_to_short(const char *pathname, char shortname[11]) {
     } else {
         memcpy(shortname, pathname, dot - pathname);
         // can't use strcpy() as that would set the null byte
-        memcpy(shortname + 8, dot + 1, strlen(dot));
+        memcpy(shortname + 8, dot + 1, strlen(dot) - 1);
     }
 
     for (int i = 0; i < 11; i++) {
