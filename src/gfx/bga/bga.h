@@ -20,6 +20,5 @@ enum bga_register_indices {
 
 void bga_write_register(enum bga_register_indices reg, uint16_t value);
 uint16_t bga_read_register(enum bga_register_indices reg);
-void bga_set_bpp(unsigned char bpp);
-
+int bga_set_res(unsigned int x, unsigned int y);
 #endif

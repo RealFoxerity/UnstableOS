@@ -132,6 +132,7 @@ void gfx_unmap_back_framebuffer() {
 void * gfx_realloc_back_framebuffer(size_t width, size_t height) {
     spinlock_acquire(&framebuffer_lock); // needs to disable interrupts
     kfree(back_framebuffer);
+    back_framebuffer = NULL;
 
     if (width * height * sizeof(uint32_t) <= BACK_FRAMEBUFFER_MAX_SIZE &&
         kalloc_get_free_memory() > width * height * sizeof(uint32_t) * 2 &&

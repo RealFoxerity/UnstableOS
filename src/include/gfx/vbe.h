@@ -90,4 +90,5 @@ void vbe_fill_buffered(unsigned int start_x, unsigned int end_x, unsigned start_
 uint32_t vbe_read_framebuffer(unsigned int x, unsigned int y);
 void vbe_hw_shift_pixels(unsigned int pixels);
 void vbe_hw_shift_scanlines(unsigned int scanlines);
+void vbe_swap_region(unsigned int start_x, unsigned int end_x, unsigned int start_y, unsigned int end_y);
 #endif

@@ -6,6 +6,9 @@
 #include "bga.h"
 #include "gfx/vbe.h"
 #include "gfx.h"
+
+#include <errno.h>
+
 #define BGA_VENDOR_ID 0x1234
 #define BGA_PRODUCT_ID 0x1111
 
@@ -48,8 +51,6 @@ static struct VBE_modes_list bga_faked_vbe_mode = {
 };
 
 
-void bga_set_res(unsigned int x, unsigned int y);
-
 static unsigned int bga_max_xres   = 0;
 static unsigned int bga_max_yres   = 0;
 static void * bga_framebuffer_phys = NULL;
@@ -80,15 +81,30 @@ char bga_init(struct pci_device device) {
         kprintf("bga: Device doesn't support at least 32 bpp");
         return -1;
     }
-    bga_set_res(bga_max_xres, bga_max_yres);
+    bga_set_res(
+        bga_max_xres > BGA_MAX_AUTOSET_XRES ? BGA_MAX_AUTOSET_XRES : bga_max_xres,
+        bga_max_yres > BGA_MAX_AUTOSET_YRES ? BGA_MAX_AUTOSET_YRES : bga_max_yres);
 
     return 0;
 }
 
-void bga_set_res(unsigned int x, unsigned int y) {
+long bga_ioctl(file_descriptor_t * file, unsigned long cmd, void * arg);
+struct gfx_funcs bga_funcs = {
+    .clear_screen = vbe_clear,
+    .swap_region = vbe_swap_region,
+    .write_pixel_buffered = vbe_write_pixel_buffered,
+    .fill_buffered = vbe_fill_buffered,
+    .copy_region_unbuffered = vbe_copy_region_unbuffered,
+    .read_framebuffer = vbe_read_framebuffer,
+    .hw_shift_pixels = vbe_hw_shift_pixels,
+    .hw_shift_scanlines = vbe_hw_shift_scanlines,
+    .ioctl = bga_ioctl
+};
+
+int bga_set_res(unsigned int x, unsigned int y) {
     if (x > bga_max_xres || y > bga_max_yres) {
         kprintf("bga: Warning: tried to set a resolution too high\n");
-        return;
+        return -EINVAL;
     }
     kprintf("bga: Setting resolution %ux%u\n", x, y);
 
@@ -120,28 +136,27 @@ void bga_set_res(unsigned int x, unsigned int y) {
 
     // assuming BGA has a larger/the same framebuffer size as VBE, which it should
     extern size_t vbe_framebuffer_size;
-    vbe_framebuffer_size = bga_max_xres * bga_max_yres * 4;
+    vbe_framebuffer_size = x * y * 4;
 
     // having these numbers wrong just means broken video for a short while so no framebuffer locking needed
     // in case of pitch, nothing happens
     // in case of display_width and _height, since that only controls framebuffer access,
     // and we can never have larger resolution than framebuffer has space for (from GETCAPS) nothing happens as well
-    bga_faked_vbe_mode.info.pitch  = bga_max_xres * 4;
-    bga_faked_vbe_mode.info.width  = bga_max_xres;
-    bga_faked_vbe_mode.info.height = bga_max_yres;
-    bga_faked_vbe_mode.info.width  = bga_max_xres * 4;
+    bga_faked_vbe_mode.info.pitch  = x * 4;
+    bga_faked_vbe_mode.info.width  = x;
+    bga_faked_vbe_mode.info.height = y;
 
     extern const struct VBE_modes_list * vbe_current_mode;
     vbe_current_mode = &bga_faked_vbe_mode;
 
-    extern struct gfx_funcs vbe_funcs;
-    current_video_funcs = &vbe_funcs;
+    current_video_funcs = &bga_funcs;
 
-    display_width  = bga_max_xres;
-    display_height = bga_max_yres;
+    display_width  = x;
+    display_height = y;
 
 
     spinlock_release(&gfx_spinlock);
+    return 0;
 }
 
 uint16_t bga_read_register(enum bga_register_indices reg) {

@@ -113,9 +113,14 @@ void vbe_gather_info() {
         if ( vbe_mode_info->bpp % 8 != 0 &&
              vbe_mode_info->bpp != 15)                     continue; // i refuse to do bit operations
         if ( vbe_mode_info->bpp > 32)                      continue; // we don't support better than 32 bits
-        if ( vbe_mode_info->pitch * vbe_mode_info->height * vbe_mode_info->bpp / 8 > LINEAR_FRAMEBUFFER_MAX_SIZE)
+        if ( vbe_mode_info->pitch * vbe_mode_info->height > LINEAR_FRAMEBUFFER_MAX_SIZE)
             continue; // we wouldn't be able to map the framebuffer all in
-
+        if ( vbe_mode_info->pitch * vbe_mode_info->height > vbe_framebuffer_size) {
+            kprintf("VBE: GPU bug: mode %hu would require %zu kB more VRAM than available!\n",
+                *video_modes,
+                (vbe_mode_info->pitch * vbe_mode_info->height - vbe_framebuffer_size) / 1024);
+            continue;
+        }
         /*
         kprintf("VBE: (%hx) %ux%ux%hhu %c, fbaddr %lx\n",
             *video_modes,
