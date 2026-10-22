@@ -47,9 +47,8 @@ static PAGE_DIRECTORY_TYPE * fork_dup_address_space() {
     memset(page_directory, 0, PAGE_SIZE_NO_PAE);
     memcpy(page_directory, KERNEL_ADDRESS_SPACE_VADDR, PAGE_DIRECTORY_ENTRIES * sizeof(PAGE_DIRECTORY_TYPE));
 
-    // we don't directly copy stacks and there isn't anything there after them anyway
     memcpy(page_directory, PDE_ADDR_VIRT,
-        ((unsigned long)(PROGRAM_STACK_VADDR - PTHREAD_THREADS_MAX * PROGRAM_STACK_SIZE) >> 22) * sizeof(PAGE_DIRECTORY_TYPE));
+        ((unsigned long)PROGRAM_STACK_VADDR >> 22) * sizeof(PAGE_DIRECTORY_TYPE));
 
     page_directory[PAGE_DIRECTORY_ENTRIES-1] =
         (unsigned long)page_directory_phys | PTE_PDE_PAGE_WRITABLE | PTE_PDE_PAGE_PRESENT;
@@ -58,7 +57,7 @@ static PAGE_DIRECTORY_TYPE * fork_dup_address_space() {
     int next_mmap_check_i = 0;
     int next_mmap_check_j = 0;
 
-    for (int i = 0; i < (unsigned long)(PROGRAM_STACK_VADDR - PTHREAD_THREADS_MAX * PROGRAM_STACK_SIZE) >> 22; i++) {
+    for (int i = 0; i < (unsigned long)PROGRAM_STACK_VADDR >> 22; i++) {
         if (!(PDE_ADDR_VIRT[i] & PTE_PDE_PAGE_PRESENT)) continue;
 
         // we do this & ~ because the page could get PTE_PDE_PAGE_ACCESSED_DURING_TRANSLATE
@@ -173,57 +172,6 @@ static PAGE_DIRECTORY_TYPE * fork_dup_address_space() {
         paging_unmap_page(new_ptes);
     }
 
-    // duplicate the thread stack
-    // we do new pages for the stack since it would be always page faulting
-
-    int prev_pd_idx = 0; // to not call paging_map_phys_addr_unspecified over and over
-    PAGE_TABLE_TYPE * pt = NULL;
-    for (void * i = current_thread->stack - current_thread->stack_size;
-        i < current_thread->stack;
-        i += PAGE_SIZE_NO_PAE
-    ) {
-        // overcommitted stack
-        PAGE_TABLE_TYPE * stack_pte = paging_get_pte(i);
-        if (stack_pte == NULL || !(*stack_pte & PTE_PDE_PAGE_PRESENT))
-            continue;
-
-
-        void * new_page = pfalloc_dup_page(paging_virt_addr_to_phys(i));
-        kassert(new_page);
-
-        int pd_idx = (unsigned long)i >> 22;
-        if (page_directory[pd_idx] == 0) {
-            page_directory[pd_idx] = (long)pfalloc();
-            kassert(page_directory[pd_idx]);
-            PAGE_TABLE_TYPE * temp = paging_map_phys_addr_unspecified((void*)(long)page_directory[pd_idx], PTE_PDE_PAGE_WRITABLE);
-            kassert(temp);
-            memset(temp, 0, PAGE_TABLE_ENTRIES * sizeof(PAGE_TABLE_TYPE));
-            paging_unmap_page(temp);
-
-            page_directory[pd_idx] |= PTE_PDE_PAGE_PRESENT |
-                                        PTE_PDE_PAGE_WRITABLE |
-                                        PTE_PDE_PAGE_USER_ACCESS;
-        }
-        if (pd_idx != prev_pd_idx) {
-            if (pt != NULL) paging_unmap_page(pt);
-            pt = paging_map_phys_addr_unspecified(
-                (void*)(unsigned long)(page_directory[pd_idx] & ~(PAGE_SIZE_NO_PAE - 1)),
-                PTE_PDE_PAGE_WRITABLE);
-            kassert(pt);
-        }
-
-
-        int pt_idx = (unsigned long)i >> 12;
-        pt_idx &= PAGE_TABLE_ENTRIES - 1;
-
-        pt[pt_idx] = (unsigned long)new_page;
-        pt[pt_idx] |= PTE_PDE_PAGE_PRESENT |
-                        PTE_PDE_PAGE_WRITABLE |
-                        PTE_PDE_PAGE_USER_ACCESS;
-
-    }
-
-    paging_unmap_page(pt);
     paging_unmap_page(page_directory);
     enable_wp();
 
@@ -238,13 +186,17 @@ pid_t sys_fork(__gregcontext_t * ctx) {
     process_t * new_proc = kalloc(sizeof(process_t));
     kassert(new_proc);
 
-    spinlock_acquire(&current_process->lock);
+    spinlock_acquire_interruptible(&current_process->lock);
     memcpy(new_proc, current_process, sizeof(process_t));
     new_proc->lock.state = SPINLOCK_UNLOCKED;
     new_proc->vm_lock = (rw_spinlock_t) {0};
+
+    spinlock_acquire(&scheduler_lock);
     if (current_process->pgrp_leader) {
         __atomic_add_fetch(&current_process->pgrp_leader->pgrp_members, 1, __ATOMIC_RELAXED);
     }
+    spinlock_release(&scheduler_lock);
+
     __atomic_add_fetch(&current_process->pwd->instances, 1, __ATOMIC_ACQUIRE);
     __atomic_add_fetch(&current_process->root->instances, 1, __ATOMIC_ACQUIRE);
     spinlock_release(&current_process->lock);

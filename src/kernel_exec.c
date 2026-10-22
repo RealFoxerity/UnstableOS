@@ -18,7 +18,7 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
     // idea here is to avoid races, so find the fd now, and replace it with the correct value later
     // all races on execve are UB anyway
     int free_fd = -1;
-    spinlock_acquire(&current_process->lock);
+    spinlock_acquire_interruptible(&current_process->lock);
     for (int i = 0; i < FD_LIMIT_PROCESS; i++) {
         if (!current_process->fds[i]) {
             free_fd = i;
@@ -183,7 +183,7 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     kassert(current_process);
 
     int free_fd = -1;
-    spinlock_acquire(&current_process->lock);
+    spinlock_acquire_interruptible(&current_process->lock);
     for (int i = 0; i < FD_LIMIT_PROCESS; i++) {
         if (!current_process->fds[i]) {
             free_fd = i;
@@ -208,7 +208,6 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     char * stack_state = new_prog.stack_image;
     size_t stack_state_sz = new_prog.stack_size;
 
-    spinlock_acquire(&scheduler_lock);
     process_t * proc = kalloc(sizeof(process_t));
     kassert(proc);
 
@@ -219,6 +218,7 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     proc->vm_lock = (rw_spinlock_t){0};
     proc->vm = new_prog.vm;
 
+    spinlock_acquire(&scheduler_lock);
     if (current_process->pgrp_leader) {
         __atomic_add_fetch(&current_process->pgrp_leader->pgrp_members, 1, __ATOMIC_RELAXED);
     }

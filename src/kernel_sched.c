@@ -251,6 +251,27 @@ static void scheduler_remove_process(process_t * process) {
             kfree(process->semaphores[i]);
     }
 
+    // cleanup zombie list of orphaned zombies (no one to wait on them)
+    rw_spinlock_acquire_write(&process_tree_lock);
+    spinlock_acquire(&scheduler_lock);
+    process_t * checked = zombie_list;
+    while (checked != NULL) {
+        if (checked->parent == process) {
+            process_t * next = checked->next;
+
+            UNLINK_DOUBLE_LINKED_LIST(checked, zombie_list)
+
+            rbtree_remove(&process_tree, &checked->__rb);
+            kfree(checked);
+            checked = next;
+            continue;
+        }
+        checked = checked->next;
+    }
+    spinlock_release(&scheduler_lock);
+    rw_spinlock_release_write(&process_tree_lock);
+
+
     //kfree(process);
     // not freed because we want to form a zombie queue for wait()
 }
@@ -449,20 +470,6 @@ void schedule(__gregcontext_t * context) {
             while (checked != NULL) {
                 if (checked->parent == checked_process)
                     checked->parent = init_task;
-                checked = checked->next;
-            }
-            // cleanup zombie list
-            checked = zombie_list;
-            while (checked != NULL) {
-                if (checked->parent == checked_process) {
-                    process_t * next = checked->next;
-
-                    UNLINK_DOUBLE_LINKED_LIST(checked, zombie_list)
-
-                    kfree(checked);
-                    checked = next;
-                    continue;
-                }
                 checked = checked->next;
             }
 

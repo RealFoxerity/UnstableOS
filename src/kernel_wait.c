@@ -110,29 +110,29 @@ pid_t sys_waitpid(pid_t pid, int * wstatus, int options) {
 
     pid_t child_pid = child->pid;
 
-    if (child->do_cleanup) {
-        // clock_t is a 64 bit type, this required cmpxchg8b, not available on i486
-        // __atomic_add_fetch(&current_process->dead_user_clicks, child->user_clicks, __ATOMIC_RELAXED);
-        // __atomic_add_fetch(&current_process->dead_system_clicks, child->system_clicks, __ATOMIC_RELAXED);
-        spinlock_acquire(&current_process->lock);
-        current_process->dead_user_clicks += child->user_clicks;
-        current_process->dead_system_clicks += child->system_clicks;
-        spinlock_release(&current_process->lock);
-    }
-
     if (!found_in_process_list) {
         // remove from the unwaited zombie list
         UNLINK_DOUBLE_LINKED_LIST(child, zombie_list)
-        spinlock_release(&scheduler_lock);
+    }
+    spinlock_release(&scheduler_lock);
 
+    if (!found_in_process_list) {
         rw_spinlock_acquire_write(&process_tree_lock);
-        process_t * child_node = sched_find_process(child->pid);
-        if (child_node)
-            rbtree_remove(&process_tree, &child_node->__rb);
-        rw_spinlock_release_write(&process_tree_lock);
-        kfree(child);
-    } else
-        spinlock_release(&scheduler_lock);
+        process_t * child_node = sched_find_process(child_pid);
+        if (child_node && child == child_node) { // some bizarre race with another wait call
+            rbtree_remove(&process_tree, &child->__rb);
+            rw_spinlock_release_write(&process_tree_lock);
+
+            // clock_t is a 64 bit type, this required cmpxchg8b, not available on i486
+            // __atomic_add_fetch(&current_process->dead_user_clicks, child->user_clicks, __ATOMIC_RELAXED);
+            // __atomic_add_fetch(&current_process->dead_system_clicks, child->system_clicks, __ATOMIC_RELAXED);
+            spinlock_acquire(&current_process->lock);
+            current_process->dead_user_clicks += child->user_clicks;
+            current_process->dead_system_clicks += child->system_clicks;
+            spinlock_release(&current_process->lock);
+            kfree(child);
+        } else rw_spinlock_release_write(&process_tree_lock);
+    }
     return child_pid;
 }
 
@@ -250,30 +250,30 @@ int sys_waitid(idtype_t idtype, id_t id, siginfo_t * infop, int options) {
     if (!(options & WNOWAIT))
         child->pending_waiting = 0;
 
-    if (child->do_cleanup) {
-        // clock_t is a 64 bit type, this required cmpxchg8b, not available on i486
-        // __atomic_add_fetch(&current_process->dead_user_clicks, child->user_clicks, __ATOMIC_RELAXED);
-        // __atomic_add_fetch(&current_process->dead_system_clicks, child->system_clicks, __ATOMIC_RELAXED);
-        spinlock_acquire(&current_process->lock);
-        current_process->dead_user_clicks += child->user_clicks;
-        current_process->dead_system_clicks += child->system_clicks;
-        spinlock_release(&current_process->lock);
-    }
-
     *infop = child->pending_sigchld_info;
 
     if (!found_in_process_list && !(options & WNOWAIT)) {
         // remove from the unwaited zombie list
         UNLINK_DOUBLE_LINKED_LIST(child, zombie_list)
-        spinlock_release(&scheduler_lock);
+    }
+    spinlock_release(&scheduler_lock);
 
+    if (!found_in_process_list && !(options & WNOWAIT)) {
         rw_spinlock_acquire_write(&process_tree_lock);
         process_t * child_node = sched_find_process(child->pid);
-        if (child_node)
-            rbtree_remove(&process_tree, &child_node->__rb);
-        rw_spinlock_release_write(&process_tree_lock);
-        kfree(child);
-    } else
-        spinlock_release(&scheduler_lock);
+        if (child_node && child == child_node) { // some bizarre race with another wait call
+            rbtree_remove(&process_tree, &child->__rb);
+            rw_spinlock_release_write(&process_tree_lock);
+
+            // clock_t is a 64 bit type, this required cmpxchg8b, not available on i486
+            // __atomic_add_fetch(&current_process->dead_user_clicks, child->user_clicks, __ATOMIC_RELAXED);
+            // __atomic_add_fetch(&current_process->dead_system_clicks, child->system_clicks, __ATOMIC_RELAXED);
+            spinlock_acquire(&current_process->lock);
+            current_process->dead_user_clicks += child->user_clicks;
+            current_process->dead_system_clicks += child->system_clicks;
+            spinlock_release(&current_process->lock);
+            kfree(child);
+        } else rw_spinlock_release_write(&process_tree_lock);
+    }
     return 0;
 }
