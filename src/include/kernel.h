@@ -15,6 +15,7 @@
 extern rw_spinlock_t hostname_lock;
 extern char hostname[HOST_NAME_MAX]; // Warning: might not be null terminated!
 extern size_t hostname_len;
+extern const char * kernel_cmdline;
 
 #define __STR_INNER(x) #x
 #define STR(x) __STR_INNER(x)
@@ -113,9 +114,10 @@ if not selected, reschedule only happens on cleanup and non-running thread state
 //#define VBE_EDID_ASSUME_VIRTUAL_ON_FAILURE
 
 // upper limit for the BGA resolution so we don't set something like 16000x12000
-#define BGA_MAX_ALLOWABLE_XRES 1920
-#define BGA_MAX_ALLOWABLE_YRES 1080
-
+#define BGA_MAX_ALLOWABLE_XRES 5120
+#define BGA_MAX_ALLOWABLE_YRES 2700
+#define BGA_MAX_AUTOSET_XRES 1920
+#define BGA_MAX_AUTOSET_YRES 1080
 
 /* POSIX wants EINVAL on invalid request of any kind, and
  * ENOTTY for non-STREAMS based devices

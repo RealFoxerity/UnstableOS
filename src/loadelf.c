@@ -364,7 +364,7 @@ struct program load_elf(int * status, const char * path, char * const* argv, cha
     kfree(copy_buffer);
 
     struct program prog = {
-        .main_executable = parsing_interp ? main_elf : NULL,
+        .main_executable = main_elf,
         .pd_vaddr = address_space,
         .start = (void *)ehdr.program_entry_offset + rela_offset,
         .vm = vmr,
@@ -373,11 +373,12 @@ struct program load_elf(int * status, const char * path, char * const* argv, cha
         .was_suid = main_elf->inode->mode & S_ISUID ? 1 : 0,
         .was_sgid = main_elf->inode->mode & S_ISGID ? 1 : 0,
         .suid = main_elf->inode->uid,
-        .sgid = main_elf->inode->gid
+        .sgid = main_elf->inode->gid,
+        .was_interp = parsing_interp,
     };
 
-    // also handles closing of main_elf if !parsing_interp
-    close_file(file);
+    if (parsing_interp)
+        close_file(file);
 
     if (!parsing_interp)
         execfd->type = AT_NULL;

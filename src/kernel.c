@@ -105,38 +105,6 @@ void kernel_entry_addr_log() {
     kprintf("Kernel loaded at physical address from 0x%p to 0x%p\n", KERNEL_START, KERNEL_END);
 }
 
-#define CPUID_PROCESSOR_LIST_LEN 0x21
-#define CPUID_MANUFACTURER_AMD "AuthenticAMD"
-#define CPUID_MANUFACTURER_INTEL "GenuineIntel"
-const char * cpuid_processor_family_ids_amd[CPUID_PROCESSOR_LIST_LEN] = {
-    [4] = "AMD 486",
-    [5] = "K5/K6",
-    [6] = "Athlon",
-    [0xF] = "Athlon 64",
-    [0x10] = "Phenom",
-    [0x11] = "Turion X2",
-    [0x12] = "Llano",
-    [0x14] = "Bobcat",
-    [0x15] = "Steamroller (K15)",
-    [0x16] = "Jaguar/Puma",
-    [0x17] = "Zen 1/2",
-    [0x18] = "Hygon Dhyana",
-    [0x19] = "Zen 3/4",
-    [0x20] = "Zen 5/6"
-};
-const char * cpuid_processor_family_ids_intel[CPUID_PROCESSOR_LIST_LEN] = {
-    [0x4] = "Intel 486",
-    [0x5] = "Pentium",
-    [0x6] = "Pentium II+/Core/Atom/Xeon",
-    [0x7] = "Itanium (IA-32)",
-    [0xB] = "Xeon Phi",
-    [0xF] = "NetBurst (Pentium 4)",
-    [0x11] = "Itanium 2 (IA-32)",
-    [0x12] = "Intel Core",
-    [0x13] = "Xeon"
-};
-
-
 void kernel_print_cpu_info() {
     if (!is_cpuid_supported()) {
         kprintf("Kernel: CPUID instruction is not supported\n");
@@ -314,6 +282,7 @@ static void setup_features() {
 rw_spinlock_t hostname_lock = {0};
 char hostname[HOST_NAME_MAX] = DEFAULT_HOSTNAME;
 size_t hostname_len = sizeof(DEFAULT_HOSTNAME);
+const char * kernel_cmdline = NULL;
 
 void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     extern char is_klibc;
@@ -346,9 +315,10 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     if (kernel_section_header_table->addr == 0)
         kprintf("Warning: No symbol table provided by bootloader\n");
 
-    kprintf("Kernel cmdline: %s\n", (char*)mbd->cmdline);
+    kernel_cmdline = (char*)mbd->cmdline;
+    kprintf("Kernel cmdline: %s\n", kernel_cmdline);
 
-    if (strcmp((char*)mbd->cmdline, "vga") == 0)
+    if (strcmp(kernel_cmdline, "vga") == 0)
         vga_only = 1;
 
     if (mbd->mods_count > 0) {
@@ -476,6 +446,14 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
         }
         close_inode(dev_inode);
     }
+    if (openat_inode(current_process->root, "/proc", O_DIRECTORY | O_RDONLY, 0, &dev_inode, 0) < 0) {
+        kprintf("No /proc directory in initial memdisk, /proc won't be mounted\n");
+    } else {
+        if (mount_dev(dev_get_ephemeral(), dev_inode, FS_PROCFS, MOUNT_RDONLY) != 0) {
+            kprintf("Error while mounting /proc, /proc won't be mounted\n");
+        }
+        close_inode(dev_inode);
+    }
 
     static char * init_names[] = {
         "/init",
@@ -485,7 +463,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     char success = 0;
     for (int i = 0; i < sizeof(init_names)/sizeof(char*); i++) {
         kprintf("Trying %s\n", init_names[i]);
-        if (sys_spawn(init_names[i], (char *[]){init_names[i], (char*)mbd->cmdline, NULL}, (char * []){"PATH=/bin:/sbin", "PWD=/", "HOME=/",NULL}) >= 0) {
+        if (sys_spawn(init_names[i], (char *[]){init_names[i], (char *)kernel_cmdline, NULL}, (char * []){"PATH=/bin:/sbin", "PWD=/", "HOME=/",NULL}) >= 0) {
             success = 1;
             break;
         }

@@ -78,7 +78,7 @@ enum pstatus_t {
 
 #define FD_LIMIT_PROCESS OPEN_MAX
 
-struct sem_t;
+struct usem_t;
 #include "v8086.h"
 // use check_eintr unless you really only want to check against signals
 #define sa_to_be_handled sa_info_to_be_handled.si_signo
@@ -176,11 +176,10 @@ struct process_t {
 
     void * program_break;
 
-    size_t argc;
     const char ** argv;
     //const char * envp;
 
-    struct sem_t * semaphores[SEM_NSEMS_MAX];
+    struct usem_t * semaphores[SEM_NSEMS_MAX];
 
     struct sigaction sa_handlers[NSIG_MAX];
 
@@ -199,6 +198,9 @@ struct process_t {
     file_descriptor_t * fds[FD_LIMIT_PROCESS];
     unsigned char fd_flags[FD_LIMIT_PROCESS]; // FD_CLOFORK, FD_CLOEXEC
 
+    inode_t * main_elf;
+
+    time_t startup_realtime;
     time_t next_alarm;
 
     clock_t user_clicks, system_clicks;
@@ -213,7 +215,6 @@ struct process_t {
 
     thread_t * threads;
 
-    // always lock with interrupts disabled, this lock is used with locked scheduler in some parts
     spinlock_t lock;
 
     rw_spinlock_t vm_lock;
@@ -240,6 +241,7 @@ struct program {
     gid_t sgid;
     char was_suid : 1;
     char was_sgid : 1;
+    char was_interp : 1; // to register main_executable for at_execfd
 };
 
 
@@ -260,11 +262,11 @@ void thread_queue_add_nonreentrant(thread_queue_t * thread_queue, process_t * pp
 // returns 1 if exited due to timer running out
 char thread_queue_add_with_timeout(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, struct timespec ts);
 
-struct sem_t {
+struct usem_t {
     unsigned long used;
     unsigned long value;
     struct thread_queue waiting_queue;
-} typedef sem_t;
+} typedef usem_t;
 
 
 __attribute__((noreturn)) void kernel_idle();

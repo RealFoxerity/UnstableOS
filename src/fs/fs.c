@@ -1264,7 +1264,7 @@ int inode_check_perm(inode_t * inode, unsigned int amode, int flag) {
     gid_t target_gid = flag & AT_EACCESS ? current_process->egid : current_process->gid;
 
     if (target_uid == 0) {
-        if (amode & X_OK && (inode->mode & 0111) == 0 && !S_ISDIR(inode->mode))
+        if (amode & X_OK && (inode->mode & 0111) == 0 && !(S_ISDIR(inode->mode) || S_ISLNK(inode->mode)))
             goto end;
         ret = 0;
     }

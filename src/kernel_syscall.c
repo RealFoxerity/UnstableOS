@@ -288,8 +288,8 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
             asm volatile("cli"); // TODO: rewrite to be thread safe
             for (int i = 0; i < SEM_NSEMS_MAX; i++) {
                 if (current_process->semaphores[i] == NULL) {
-                    current_process->semaphores[i] = kalloc(sizeof(sem_t));
-                    memset(current_process->semaphores[i], 0, sizeof(sem_t));
+                    current_process->semaphores[i] = kalloc(sizeof(usem_t));
+                    memset(current_process->semaphores[i], 0, sizeof(usem_t));
                 }
                 if (!current_process->semaphores[i]->used) {
                     memset(&current_process->semaphores[i]->waiting_queue, 0, sizeof(thread_queue_t));
@@ -321,7 +321,7 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
                 break;
             }
 
-            kernel_sem_post(current_process, arg1);
+            sys_sem_post(current_process, arg1);
             return_value = 0;
             break;
         case SYSCALL_SEM_WAIT:
@@ -338,7 +338,7 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
                 break;
             }
 
-            kernel_sem_wait(current_process, current_thread, arg1);
+            sys_sem_wait(current_process, current_thread, arg1);
             break;
         case SYSCALL_SEM_DESTROY:
             if (arg1 < 0 || arg1 >= SEM_NSEMS_MAX) {

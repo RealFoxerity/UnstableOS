@@ -120,6 +120,8 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
     kassert(new);
     kassert(new->stack == PROGRAM_STACK_VADDR);
 
+    current_process->argv = (const char**)(new->stack - stack_state_sz + sizeof(int));
+
     kfree(new->kernel_stack - new->kernel_stack_size); // we need to preserve the current stack
     memcpy(new->stack - stack_state_sz, stack_state, stack_state_sz);
     new->context.iret_frame.sp = PROGRAM_STACK_VADDR - stack_state_sz;
@@ -147,6 +149,11 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
     current_process->lock.state = SPINLOCK_UNLOCKED;
     current_process->vm_lock = (rw_spinlock_t){0};
 
+    current_process->startup_realtime = system_time_sec;
+    __atomic_add_fetch(&new_prog.main_executable->inode->instances, 1, __ATOMIC_ACQUIRE);
+    if (!new_prog.was_interp)
+        close_file(new_prog.main_executable);
+    current_process->main_elf = new_prog.main_executable->inode;
     /*
     if (current_process->ring == 0) {
         target += 2*sizeof(void*);
@@ -295,6 +302,8 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     kassert(new_thread);
     kassert(new_thread->stack == PROGRAM_STACK_VADDR);
 
+    current_process->argv = (const char**)(new_thread->stack - stack_state_sz + sizeof(int));
+
     new_thread->sa_mask = current_thread->sa_mask;
     new_thread->in_critical_section = 0;
 
@@ -312,6 +321,12 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     paging_unmap_page(new_prog.pd_vaddr);
 
     spinlock_release(&scheduler_lock);
+
+    proc->startup_realtime = system_time_sec;
+    __atomic_add_fetch(&new_prog.main_executable->inode->instances, 1, __ATOMIC_ACQUIRE);
+    if (!new_prog.was_interp)
+        close_file(new_prog.main_executable);
+    proc->main_elf = new_prog.main_executable->inode;
 
     sched_add_process(proc);
 

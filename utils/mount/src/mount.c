@@ -4,7 +4,7 @@
 int main(int argc, char ** argv) {
     if (argc < 4 || argc > 5) {
         fprintf(stderr, "Usage: %s [fs_type] [srcdev] [mountpoint] <options>\n", argv[0]);
-        fprintf(stderr, "Supported filesystems:\n\ttmpfs\n\tdevfs\n\ttarfs\n\tfat\n\text2\n");
+        fprintf(stderr, "Supported filesystems:\n\ttmpfs\n\tdevfs\n\tprocfs\n\ttarfs\n\tfat\n\text2\n");
         fprintf(stderr, "Supported options:\n\tro\n\trw (default)\n");
         return 1;
     }
@@ -15,6 +15,8 @@ int main(int argc, char ** argv) {
         fs_type = FS_TMPFS;
     else if (strcmp(argv[1], "devfs") == 0)
         fs_type = FS_DEVFS;
+    else if (strcmp(argv[1], "procfs") == 0)
+        fs_type = FS_PROCFS;
     else if (strcmp(argv[1], "tarfs") == 0)
         fs_type = FS_TARFS;
     else if (strcmp(argv[1], "fat") == 0)

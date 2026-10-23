@@ -100,9 +100,9 @@ build/UnstableOS.iso: build/UnstableOS.bin build/memdisk.tar
 		-o build/UnstableOS.iso build/iso \
 		2> /dev/null
 
-build/memdisk.tar: $(LIBC_HEADERS) $(UTILS_BINS) $(SYSROOT)
+build/memdisk.tar: $(UTILS_BINS) $(SYSROOT)
 	@$(PROGRESS_LABEL) Generating $@
-	@mkdir -p sysroot/dev sysroot/bin
+	@mkdir -p sysroot/bin
 	@cp $(UTILS_BINS) sysroot/bin/
 	@tar -C sysroot --group=root --owner=root --format ustar -cf $@ $(shell find sysroot -maxdepth 1 | tail -n+2 | sed "s#sysroot/##g")
 build/hda.dd:

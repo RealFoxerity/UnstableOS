@@ -62,7 +62,7 @@ rtld:
 $(SYSROOT): $(LIBC_LIB) $(LIBC_SO_LIB) $(LIBC_OBJS_CRT) $(LIBM_LIB) $(LIBM_SO_LIB) rtld
 	@$(PROGRESS_LABEL) Creating sysroot
 	# sorry adrian, i really don't know what to do here, you're the makefile magician
-	@mkdir -p $(SYSROOT)/usr/lib $(SYSROOT)/mnt $(SYSROOT)/tmp $(SYSROOT)/dev
+	@mkdir -p $(SYSROOT)/usr/lib $(SYSROOT)/mnt $(SYSROOT)/tmp $(SYSROOT)/dev $(SYSROOT)/proc
 	@cp -rv $(MAKE_ROOT)/rootfs_files/* $(SYSROOT)/
 	@cp -rv $(LIBC_ROOT)/src/include $(SYSROOT)/usr/
 	@cp -v $(LIBC_LIB) $(SYSROOT)/usr/lib/

@@ -28,4 +28,13 @@ void rw_spinlock_release_write(rw_spinlock_t * lock);
 
 // atomically downgrades from write to read lock, use release read after
 void rw_spinlock_downgrade(rw_spinlock_t * lock);
+
+
+struct semaphore_t {
+    unsigned long value;
+} typedef semaphore_t;
+// intended way to initialize is simply (semaphore_t){.value = limit}
+void semaphore_post(semaphore_t * sem);
+void semaphore_wait(semaphore_t * sem);
+
 #endif

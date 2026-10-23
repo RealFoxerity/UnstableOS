@@ -101,4 +101,11 @@ char is_cpuid_supported();
 extern char mtrr_available;
 extern char pat_available;
 extern char fxsave_available;
+
+#define CPUID_PROCESSOR_LIST_LEN 0x21
+#define CPUID_MANUFACTURER_AMD "AuthenticAMD"
+#define CPUID_MANUFACTURER_INTEL "GenuineIntel"
+
+extern const char * cpuid_processor_family_ids_amd[CPUID_PROCESSOR_LIST_LEN];
+extern const char * cpuid_processor_family_ids_intel[CPUID_PROCESSOR_LIST_LEN];
 #endif

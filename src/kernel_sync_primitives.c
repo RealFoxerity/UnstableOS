@@ -10,7 +10,7 @@
 
 #define kprintf(fmt, ...) kprintf("Kernel Sync: "fmt, ##__VA_ARGS__)
 
-static inline void check_deadlock(sem_t * sem, process_t * pprocess) { // tested working for unnamed (i.e. same thread) semaphores
+static inline void check_deadlock(usem_t * sem, process_t * pprocess) { // tested working for unnamed (i.e. same thread) semaphores
     if (sem->waiting_queue.queue.parent_process == NULL &&
         pprocess->threads->next == NULL) { // process has only 1 thread and that thread is now waiting on semaphore
             deadlock:
@@ -147,16 +147,29 @@ void rw_spinlock_downgrade(rw_spinlock_t * lock) {
     CRIT_SEC_END
 }
 
-void kernel_sem_post(process_t * calling_process, int sem_idx) {
+void semaphore_post(semaphore_t * sem) {
+    if (!sem) panic("Tried to post a NULL semaphore");
+    __atomic_add_fetch(&sem->value, 1, __ATOMIC_RELEASE);
+}
+void semaphore_wait(semaphore_t * sem) {
+    if (!sem) panic("Tried to wait a NULL semaphore");
+    unsigned long v;
+    do {
+        v = __atomic_load_n(&sem->value, __ATOMIC_ACQUIRE);
+        if (v == 0) reschedule();
+    } while (!v || !__atomic_compare_exchange_n(&sem->value, &v, v-1, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED));
+}
+
+void sys_sem_post(process_t * calling_process, int sem_idx) {
     kassert(calling_process->semaphores[sem_idx]);
 
     __atomic_fetch_add(&calling_process->semaphores[sem_idx]->value, 1, __ATOMIC_ACQUIRE);
     thread_queue_unblock(&calling_process->semaphores[sem_idx]->waiting_queue);
 }
-void kernel_sem_wait(process_t * calling_process, thread_t * calling_thread, int sem_idx) {
+void sys_sem_wait(process_t * calling_process, thread_t * calling_thread, int sem_idx) {
     kassert(calling_process->semaphores[sem_idx]);
 
-    int old_val;
+    unsigned long old_val;
     while (1) { // basically check whether nothing decremented the value during our attempt, cmpxchg decrements in this case
         old_val = calling_process->semaphores[sem_idx]->value;
 

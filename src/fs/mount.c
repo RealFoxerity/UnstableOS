@@ -9,6 +9,7 @@
 #include "kernel_sched.h"
 rw_spinlock_t mount_tree_lock = {0};
 mount_tree * root_mountpoint = NULL;
+static unsigned long last_fsid = 0; // statvfs will require this
 
 long mount_root(dev_t dev, unsigned char type, unsigned short options) {
     // this is for the kernel init only, it doesn't do proper checking of multiple things, do not call post-init
@@ -78,6 +79,10 @@ long mount_dev(dev_t dev, inode_t * mount_point, unsigned char type, unsigned sh
     kassert(mount_point);
     kassert(type < SUPPORTED_FS_COUNT);
 
+    // procfs folders might disappear on process death, it's not a stable mounting environment
+    if (mount_point->backing_superblock && mount_point->backing_superblock->fs_type == FS_PROCFS)
+        return -EINVAL;
+
     file_descriptor_t * file = NULL;
     int ret                  = open_raw_device(dev, options & MOUNT_RDONLY ? O_RDONLY : O_RDWR, &file);
     if (ret < 0) return ret;
@@ -95,6 +100,8 @@ long mount_dev(dev_t dev, inode_t * mount_point, unsigned char type, unsigned sh
     new_superblock->mountpoint    = mount_point;
     new_superblock->mount_options = options;
     new_superblock->funcs         = fs_operations[type];
+    new_superblock->fsid          = __atomic_add_fetch(&last_fsid, 1, __ATOMIC_ACQUIRE);
+
     kassert(new_superblock->funcs->lookup);
 
     if (new_superblock->funcs->fs_init && (ret = new_superblock->funcs->fs_init(new_superblock)) != 0) {
@@ -148,6 +155,7 @@ long sys_mount(const char * dev_path, const char * mount_path, unsigned char typ
     switch (type) {
         case FS_TMPFS:
         case FS_DEVFS: // devfs doesn't require a device
+        case FS_PROCFS:
             ret = mount_dev(dev_get_ephemeral(), mount_inode, type, options);
             close_inode(mount_inode);
             RESTORE_SIGNALS(mask);

@@ -581,48 +581,6 @@ static ssize_t tmpfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_
     return dent->d_reclen;
 }
 
-#define TMPFS_SCRATCH_START ((void*)0xFF000000)
-#define TMPFS_SCRATCH_PAGES 512
-
-static unsigned int tmpfs_bitmap[TMPFS_SCRATCH_PAGES/(8*sizeof(unsigned int))] = {0};
-
-// increment/decrement page frame counters before/after tmpfs_map/unmap_page
-// done this way so tmpfs_map_page doesn't require file locking (after getting the paddr)
-__attribute__((returns_nonnull)) static void * tmpfs_map_page(void * paddr) {
-    while (1) {
-        for (int i = 0; i < TMPFS_SCRATCH_PAGES/(8*sizeof(unsigned int)); i++) {
-            unsigned int expected = __atomic_load_n(&tmpfs_bitmap[i], __ATOMIC_ACQUIRE);
-            while (~expected) {
-                unsigned int free_idx = bsf(~expected) - 1;
-                unsigned int wanted = expected | (1 << free_idx);
-                if (__atomic_compare_exchange(
-                    &tmpfs_bitmap[i],
-                    &expected, &wanted,
-                    0,
-                    __ATOMIC_RELEASE,  __ATOMIC_RELAXED)
-                ) {
-                    void * target_addr = TMPFS_SCRATCH_START +
-                        (i*8*sizeof(unsigned int) + free_idx) * PAGE_SIZE;
-                    paging_map_phys_addr(paddr, target_addr, PTE_PDE_PAGE_WRITABLE);
-                    return target_addr;
-                }
-            }
-        }
-        // reading a page worth of data is pretty fast
-        // reschedule should be more than enough
-        reschedule();
-    }
-}
-
-static void tmpfs_unmap_page(void * vaddr) {
-    paging_unmap_page(vaddr);
-
-    unsigned int * bucket = tmpfs_bitmap + ((vaddr - TMPFS_SCRATCH_START)/(8*sizeof(unsigned int)));
-    unsigned int idx = (vaddr - TMPFS_SCRATCH_START) % (8*sizeof(unsigned int));
-
-    __atomic_and_fetch(bucket, ~(1 << idx), __ATOMIC_RELEASE);
-}
-
 ssize_t tmpfs_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) {
     kassert(fd);
     kassert(fd->inode);
@@ -681,10 +639,10 @@ ssize_t tmpfs_pread(file_descriptor_t * fd, void * buf, size_t n, off_t offset) 
         if (!paddr)
             return -EIO; // what to return here?
 
-        void * vaddr = tmpfs_map_page(paddr);
+        void * vaddr = paging_map_page_short(paddr);
         memcpy(buf, vaddr + offset % PAGE_SIZE, to_read);
 
-        tmpfs_unmap_page(vaddr);
+        paging_unmap_page_short(vaddr);
         pffree(paddr);
 
         if (check_eintr())
@@ -770,10 +728,10 @@ ssize_t tmpfs_pwrite(file_descriptor_t * fd, const void * buf, size_t n, off_t o
             goto end;
         }
 
-        void * vaddr = tmpfs_map_page(paddr);
+        void * vaddr = paging_map_page_short(paddr);
         memcpy(vaddr + offset % PAGE_SIZE, buf, to_write);
 
-        tmpfs_unmap_page(vaddr);
+        paging_unmap_page_short(vaddr);
         pffree(paddr);
 
         if (check_eintr())

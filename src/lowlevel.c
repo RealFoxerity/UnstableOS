@@ -2,6 +2,33 @@
 #include <stdint.h>
 #include "include/lowlevel.h"
 
+const char * cpuid_processor_family_ids_amd[CPUID_PROCESSOR_LIST_LEN] = {
+    [4] = "AMD 486",
+    [5] = "K5/K6",
+    [6] = "Athlon",
+    [0xF] = "Athlon 64",
+    [0x10] = "Phenom",
+    [0x11] = "Turion X2",
+    [0x12] = "Llano",
+    [0x14] = "Bobcat",
+    [0x15] = "Steamroller (K15)",
+    [0x16] = "Jaguar/Puma",
+    [0x17] = "Zen 1/2",
+    [0x18] = "Hygon Dhyana",
+    [0x19] = "Zen 3/4",
+    [0x20] = "Zen 5/6"
+};
+const char * cpuid_processor_family_ids_intel[CPUID_PROCESSOR_LIST_LEN] = {
+    [0x4] = "Intel 486",
+    [0x5] = "Pentium",
+    [0x6] = "Pentium II+/Core/Atom/Xeon",
+    [0x7] = "Itanium (IA-32)",
+    [0xB] = "Xeon Phi",
+    [0xF] = "NetBurst (Pentium 4)",
+    [0x11] = "Itanium 2 (IA-32)",
+    [0x12] = "Intel Core",
+    [0x13] = "Xeon"
+};
 
 void outb(uint16_t port, uint8_t data) {
     asm volatile (

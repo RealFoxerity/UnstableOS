@@ -72,7 +72,21 @@ void * pfalloc_dup_page(void * page);
 void * pfalloc_ref_inc(void * page);
 
 void paging_map_phys_addr(void * src_phys_addr, void * target_virt_addr, unsigned int flags);
-void * paging_map_phys_addr_unspecified(void * phys_addr, unsigned int flags); // just naively maps a physical address to nearest free virtual address
+// just naively maps a physical address to first free virtual address
+// rather dangerous and somewhat racy functions, however doesn't require scheduling and may be faster
+// only safe use case is to temporarily map for the lifetime of the function
+// otherwise exit/abort/signals *might* unmap it as a sideeffect of process termination
+// it is recommended to lock the scheduler when calling this to be sure
+void * paging_map_phys_addr_unspecified(void * phys_addr, unsigned int flags);
+// equivalent to the above
+// much safer and doesn't require any locking, but it has a limit of max pages mapped and needs a working scheduler
+// should be only used for short(er) term mappings
+// only maps writable without user access
+// the tmpfs driver uses these so overuse for long term mappings will dramatically slow down tmpfs!
+__attribute__((returns_nonnull)) void * paging_map_page_short(void * paddr);
+// only call this to unmap the short term pages to keep the allocator happy
+void paging_unmap_page_short(void * vaddr);
+
 
 void * paging_map(void * target_virt_addr, size_t n, unsigned int flags);
 void * paging_add_page(void * target_virt_addr, unsigned int flags); // adds a singular page, equivalent to paging_map(target_virt_addr, PAGE_SIZE_NO_PAE, flags)

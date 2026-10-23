@@ -84,14 +84,13 @@ void scheduler_print_processes() {
     while (printed != NULL) {
         printed_thread = printed->threads;
         while (printed_thread != NULL) {
-            kprintf("thread %p pid %8lu, tid %lu, cr3 %p, eip %p, kernel esp %p, process esp %p, state %d, command %s\n",
+            kprintf("thread %p pid %8lu, tid %lu, cr3 %p, eip %p, kernel esp %p, process esp %p, state %d\n",
             printed_thread,
             printed->pid, printed_thread->tid,
             printed->address_space_paddr,
             printed_thread->context.iret_frame.ip,
-            printed_thread->context.esp, printed_thread->context.iret_frame.sp, printed_thread->status,
-            printed->argc > 0?(printed->argv != NULL ? (printed->argv[0] != NULL ? printed->argv[0]:"(nil)"):"(nil)"):"(nil)");
-
+            printed_thread->context.esp, printed_thread->context.iret_frame.sp, printed_thread->status
+            );
             printed_thread = printed_thread->next;
         }
         printed = printed->next;
@@ -100,7 +99,6 @@ void scheduler_print_processes() {
 
 void scheduler_print_process(const process_t * process) {
     kprintf("\
-Prog:\t%s\n\
 PID :\t%lu\n\
 PPID:\t%lu\n\
 CPL :\t%d\n\
@@ -109,7 +107,7 @@ GID :\t%lu\n\
 PSig:\t%llx\n\
 TID :\t%lu\n",
 //Saved Context:\n",
-    (process->argv!=NULL?(process->argv[0] != NULL?process->argv[0]:"(nil)"):"(nil)"), process->pid, process->parent->pid, process->ring, process->uid,
+    process->pid, process->parent->pid, process->ring, process->uid,
     process->gid, (unsigned long long)process->sa_pending, current_thread->tid);
     //print_registers(&process->context);
 }
@@ -157,7 +155,6 @@ process_t * sched_find_process(pid_t pid) {
     return (process_t*)rbtree_search_exact(process_tree, pid);
 }
 
-#define KERNEL_ARGV0 "kernel/core"
 static inline void register_kernel_task(__gregcontext_t * context) {
     kernel_task = kalloc(sizeof(process_t));
     if (!kernel_task) panic("Not enough memory for kernel task!");
@@ -185,9 +182,7 @@ static inline void register_kernel_task(__gregcontext_t * context) {
 
     kernel_task->threads->status = SCHED_RUNNING;
 
-    kernel_task->argc = 1;
-    kernel_task->argv = kalloc(sizeof(char*));
-    kernel_task->argv[0] = KERNEL_ARGV0;
+    kernel_task->argv = NULL;
     kernel_task->umask = 022;
     if (process_list == NULL) {
         process_list = kernel_task;
@@ -232,9 +227,13 @@ static void scheduler_remove_process(process_t * process) {
 
     munmap_all(process);
 
-    PAGE_DIRECTORY_TYPE * mapped_as = paging_map_phys_addr_unspecified(process->address_space_paddr, PTE_PDE_PAGE_WRITABLE);
+    // so we can coordinate with procfs on cmdline reading
+    spinlock_acquire_interruptible(&process->lock);
+    PAGE_DIRECTORY_TYPE * mapped_as = paging_map_page_short(process->address_space_paddr);
     paging_destroy_address_space(mapped_as);
-    paging_unmap_page(mapped_as);
+    paging_unmap_page_short(mapped_as);
+    process->address_space_paddr = NULL;
+    spinlock_release(&process->lock);
 
     for (int i = 0; i < FD_LIMIT_PROCESS; i++) {
         if (process->fds[i]) {
@@ -244,7 +243,7 @@ static void scheduler_remove_process(process_t * process) {
 
     close_inode(process->pwd);
     close_inode(process->root);
-
+    close_inode(process->main_elf);
     for (int i = 0; i < SEM_NSEMS_MAX; i++) {
         if (process->semaphores[i] == NULL) continue;
         if (__atomic_sub_fetch(&process->semaphores[i]->used, 1, __ATOMIC_RELEASE) == 0)

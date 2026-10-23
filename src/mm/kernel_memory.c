@@ -266,6 +266,50 @@ void * paging_map_phys_addr_unspecified(void * phys_addr, unsigned int flags) {
     return NULL;
 }
 
+#define SCRATCH_START ((void*)0xFF000000)
+#define SCRATCH_PAGES 2048
+
+static unsigned int scratch_bitmap[SCRATCH_PAGES/(8*sizeof(unsigned int))] = {0};
+
+// increment/decrement page frame counters before/after tmpfs_map/unmap_page
+// done this way so tmpfs_map_page doesn't require file locking (after getting the paddr)
+__attribute__((returns_nonnull)) void * paging_map_page_short(void * paddr) {
+    while (1) {
+        for (int i = 0; i < SCRATCH_PAGES/(8*sizeof(unsigned int)); i++) {
+            unsigned int expected = __atomic_load_n(&scratch_bitmap[i], __ATOMIC_ACQUIRE);
+            while (~expected) {
+                unsigned int free_idx = bsf(~expected) - 1;
+                unsigned int wanted = expected | (1 << free_idx);
+                if (__atomic_compare_exchange(
+                    &scratch_bitmap[i],
+                    &expected, &wanted,
+                    0,
+                    __ATOMIC_RELEASE,  __ATOMIC_RELAXED)
+                ) {
+                    void * target_addr = SCRATCH_START +
+                        (i*8*sizeof(unsigned int) + free_idx) * PAGE_SIZE;
+                    paging_map_phys_addr(paddr, target_addr, PTE_PDE_PAGE_WRITABLE);
+                    return target_addr;
+                }
+            }
+        }
+        // reading a page worth of data is pretty fast
+        // reschedule should be more than enough
+        reschedule();
+    }
+}
+
+void paging_unmap_page_short(void * vaddr) {
+    if (vaddr == NULL)
+        return;
+    paging_unmap_page(vaddr);
+
+    unsigned int * bucket = scratch_bitmap + ((vaddr - SCRATCH_START)/(8*sizeof(unsigned int)));
+    unsigned int idx = (vaddr - SCRATCH_START) % (8*sizeof(unsigned int));
+
+    __atomic_and_fetch(bucket, ~(1 << idx), __ATOMIC_RELEASE);
+}
+
 void * paging_virt_addr_to_phys(void * virt) {
     uint32_t page_directory_idx = (uint32_t)virt >> 22;
     uint32_t page_table_idx = ((uint32_t)virt >> 12) & (PAGE_TABLE_ENTRIES - 1);

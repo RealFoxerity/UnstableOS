@@ -94,6 +94,8 @@ struct superblock_t {
 
     unsigned char fs_type; // no way we support >256 file systems, bookkeeping, alternatively, for kasserts in fs drivers
 
+    unsigned long fsid; // for stuff like statvfs or mntid in /proc/<pid>/fdinfo/<fd>
+
     spinlock_t lock;
 
     unsigned short mount_options;
