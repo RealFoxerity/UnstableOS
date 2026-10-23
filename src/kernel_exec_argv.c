@@ -70,6 +70,8 @@ ssize_t exec_safe_argv_dup(char * const* argv, char * const* envp, void * stack_
     argv_size = vector_check(envp, argv_size, &envc);
     if (argv_size < 0) return argv_size;
 
+    if (argv_size & 0xF)
+        argv_size = (argv_size + 0xF) & ~0xF;
     char * stack_state = kalloc(argv_size);
     kassert(stack_state);
     memset(stack_state, 0, argv_size);
