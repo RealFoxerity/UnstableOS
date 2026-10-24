@@ -37,7 +37,7 @@
 #define ARG_MAX 0x4000 // 16KiB of argv
 
 // due to the way we handle the ring buffer, it's actually PIPE_BUF - 1
-#define PIPE_BUF 512
+#define PIPE_BUF 2048
 
 // pathname variable values
 #define PATH_MAX 4096

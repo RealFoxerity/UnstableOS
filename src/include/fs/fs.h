@@ -138,6 +138,7 @@ struct pipe {
 
     size_t readers; // SIGPIPE
     size_t writers; // EOF on read
+    char named_wait; // named pipes block until there are (at least) 1 reader and 1 writer
 };
 
 void init_fds();
@@ -227,6 +228,7 @@ long fcntl_file(file_descriptor_t * file, int cmd, long arg);
 ssize_t ps2_mouse_pread(file_descriptor_t * file, void * buf, size_t n, off_t offset);
 
 // here because we need to access file_descriptor_t
+int open_pipe(inode_t * pipe, int flags);
 int sys_pipe(int fildes[2], int flags);
 ssize_t pipe_write(const file_descriptor_t * file, const void * s, size_t n);
 ssize_t pipe_read(const file_descriptor_t * file, void * s, size_t n);

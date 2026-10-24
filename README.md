@@ -30,8 +30,8 @@ List of defined syscalls can be found in [<UnstableOS/syscalls.h>](./libc/src/in
 ---
 - PS/2 keyboards and mice
 - RS/232 (serial)
-- Tar as a filesystem, FAT, ext2
-- devtmpfs, tmpfs, procfs
+- Tar as a filesystem, FAT, ext2 (missing mkfifo)
+- devtmpfs, tmpfs (missing mkfifo), procfs
 - RTC
 - VGA, VBE, BGA
 - PCI
@@ -97,8 +97,8 @@ see [caveats.md](./caveats.md) for info
 - [X] VFAT, without LFNs so far
 - [ ] ATAPI
 - [ ] ISO9660
-- [x] pipes
-- [ ] sockets and named pipes
+- [x] pipes, named pipes
+- [ ] sockets
 - [x] symlinks
 - [x] signals
 - [x] proper (linked) `ucontext_t`

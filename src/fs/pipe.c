@@ -59,15 +59,60 @@ int sys_pipe(int fildes[2], int flags) {
     return 0;
 }
 
+int open_pipe(inode_t * pipe, int flags) {
+    if (!(flags & O_RDWR))
+        return 0;
+    kassert(pipe);
+    kassert(S_ISFIFO(pipe->mode));
+    spinlock_acquire(&pipe->lock);
+    if (!pipe->pipe) {
+        struct pipe * new_pipe = kalloc(sizeof(struct pipe));
+        if (!new_pipe) {
+            spinlock_release(&pipe->lock);
+            return -ENOMEM;
+        }
+        memset(new_pipe, 0, sizeof(struct pipe));
+        new_pipe->named_wait = 1;
+        pipe->pipe = new_pipe;
+    }
+    spinlock_release(&pipe->lock);
+
+    spinlock_acquire(&pipe->pipe->pipe_lock);
+    if ((flags & O_RDONLY && __atomic_load_n(&pipe->pipe->readers, __ATOMIC_ACQUIRE) == SIZE_MAX) ||
+        (flags & O_WRONLY && __atomic_load_n(&pipe->pipe->writers, __ATOMIC_ACQUIRE) == SIZE_MAX)) {
+        spinlock_release(&pipe->pipe->pipe_lock);
+        return -EBUSY;
+    }
+    if (flags & O_RDONLY)
+        __atomic_add_fetch(&pipe->pipe->readers, 1, __ATOMIC_ACQUIRE);
+    if (flags & O_WRONLY)
+        __atomic_add_fetch(&pipe->pipe->writers, 1, __ATOMIC_ACQUIRE);
+    if (pipe->pipe->readers > 0 && pipe->pipe->writers > 0) {
+        __atomic_store_n(&pipe->pipe->named_wait, 0, __ATOMIC_RELEASE);
+        thread_queue_unblock_all_nonreentrant(&pipe->pipe->read_queue);
+        thread_queue_unblock_all_nonreentrant(&pipe->pipe->write_queue);
+    }
+    spinlock_release(&pipe->pipe->pipe_lock);
+    return 0;
+}
+
 static int pipe_put_ch(struct pipe * pq, const unsigned char c) {
     kassert(pq->head < PIPE_BUF && pq->tail < PIPE_BUF);
-    if (pq->readers == 0) {
+    while (pq->named_wait) {
+        if (check_eintr()) return 256;
+        asm volatile("cli");
+        thread_queue_add_nonreentrant(&pq->write_queue, current_process, current_thread);
+        current_thread->status = SCHED_INTERR_SLEEP;
+        spinlock_release(&pq->pipe_lock);
+        reschedule();
+        spinlock_acquire_interruptible(&pq->pipe_lock);
+    }
+    // paranoid checking to avoid all kinds of races
+    if (__atomic_load_n(&pq->readers, __ATOMIC_ACQUIRE) == 0) {
         thread_queue_unblock_all(&pq->write_queue); // force SIGPIPE to all
         signal_process(current_process, &(siginfo_t) {.si_signo = SIGPIPE});
         return -2;
     }
-
-    spinlock_acquire_interruptible(&pq->pipe_lock);
     while (FULL(pq)) {
         spinlock_release(&pq->pipe_lock);
         asm volatile("cli"); // avoid thread queue races, TODO: change when adding atomic queues
@@ -78,6 +123,7 @@ static int pipe_put_ch(struct pipe * pq, const unsigned char c) {
         asm volatile("sti");
         reschedule();
 
+        spinlock_acquire_interruptible(&pq->pipe_lock);
         if (__atomic_load_n(&pq->readers, __ATOMIC_ACQUIRE) == 0) {
             thread_queue_unblock_all(&pq->write_queue); // force SIGPIPE to all
             signal_process(current_process, &(siginfo_t) {.si_signo = SIGPIPE});
@@ -86,12 +132,9 @@ static int pipe_put_ch(struct pipe * pq, const unsigned char c) {
         if (check_eintr()) {
             return 256;
         }
-
-        spinlock_acquire_interruptible(&pq->pipe_lock);
     }
     pq->pipe_fifo[pq->tail] = c;
     INC(pq);
-    spinlock_release(&pq->pipe_lock);
     return 0;
 }
 
@@ -103,21 +146,21 @@ ssize_t pipe_write(const file_descriptor_t * file, const void * s, size_t n) {
     kassert(file->inode->pipe);
     kassert(s);
 
-    if (file->inode->pipe->readers < 1) {
-        thread_queue_unblock_all(&file->inode->pipe->write_queue); // force SIGPIPE to all
-        signal_process(current_process, &(siginfo_t) {.si_signo = SIGPIPE});
-        return -EPIPE;
-    }
-
+    spinlock_acquire_interruptible(&file->inode->pipe->pipe_lock);
     for (size_t i = 0; i < n; i++) {
         int out = pipe_put_ch(file->inode->pipe, ((unsigned char*)s)[i]);
         if (out == 256) {
             // outside of pipe_put_ch so that we don't needlessly reschedule over and over again for a single char
+            spinlock_release(&file->inode->pipe->pipe_lock);
             thread_queue_unblock(&file->inode->pipe->read_queue);
             return i == 0 ? -EINTR : i;
         }
-        if (out == -2) return -EPIPE;
+        if (out == -2) {
+            spinlock_release(&file->inode->pipe->pipe_lock);
+            return -EPIPE;
+        }
     }
+    spinlock_release(&file->inode->pipe->pipe_lock);
     thread_queue_unblock(&file->inode->pipe->read_queue);
     return n;
 }
@@ -125,25 +168,23 @@ ssize_t pipe_write(const file_descriptor_t * file, const void * s, size_t n) {
 static int pipe_get_ch(struct pipe * pq) {
     kassert(pq->head < PIPE_BUF && pq->tail < PIPE_BUF);
 
-    if (EMPTY(pq)) {
-        if (pq->writers == 0) return -2;
-        return -1;
-    }
-    if (check_eintr()) return 256;
-
     unsigned char out = 0;
-    spinlock_acquire_interruptible(&pq->pipe_lock);
-    if (EMPTY(pq)) { // race by multiple consumers
+    while (pq->named_wait) {
+        if (check_eintr()) return 256;
+        asm volatile("cli");
+        thread_queue_add_nonreentrant(&pq->read_queue, current_process, current_thread);
+        current_thread->status = SCHED_INTERR_SLEEP;
         spinlock_release(&pq->pipe_lock);
+        reschedule();
+        spinlock_acquire_interruptible(&pq->pipe_lock);
+    }
+    if (EMPTY(pq)) {
         if (__atomic_load_n(&pq->writers, __ATOMIC_ACQUIRE) == 0) return -2;
-
-        thread_queue_unblock(&pq->write_queue); // force writing just in case
         return -1;
     }
 
     out = pq->pipe_fifo[pq->head];
     DEC(pq);
-    spinlock_release(&pq->pipe_lock);
     return out;
 }
 
@@ -164,11 +205,13 @@ ssize_t pipe_read(const file_descriptor_t * file, void * s, size_t n) {
     // this check is then again in pipe_get_ch in the EMPTY branch
     //if (file->inode->pipe->writers == 0) return 0;
 
+    spinlock_acquire_interruptible(&file->inode->pipe->pipe_lock);
     for (unsigned char * i = s; i < (unsigned char*)s + n; i++) {
         int out = pipe_get_ch(file->inode->pipe);
         if (out == 256) {
             thread_queue_unblock(&file->inode->pipe->write_queue);
 
+            spinlock_release(&file->inode->pipe->pipe_lock);
             if (i - (unsigned char *)s == 0) return -EINTR;
             return i - (unsigned char *)s;
         }
@@ -177,19 +220,29 @@ ssize_t pipe_read(const file_descriptor_t * file, void * s, size_t n) {
                 // pipes are by default unbuffered
                 // that would be highly inefficient so we build up a slight buffering system
                 // pipe reading should however block until any byte is received
-                thread_queue_add(&file->inode->pipe->read_queue, current_process, current_thread, SCHED_INTERR_SLEEP);
+
+                thread_queue_unblock_nonreentrant(&file->inode->pipe->write_queue);
+                asm volatile ("cli");
+                thread_queue_add_nonreentrant(&file->inode->pipe->read_queue, current_process, current_thread);
+                current_thread->status = SCHED_INTERR_SLEEP;
+                spinlock_release(&file->inode->pipe->pipe_lock);
+                reschedule();
+                spinlock_acquire_interruptible(&file->inode->pipe->pipe_lock);
 
                 i--;
                 continue;
             }
+            spinlock_release(&file->inode->pipe->pipe_lock);
             return i - (unsigned char *)s;
         }
         if (out == -2) {
+            spinlock_release(&file->inode->pipe->pipe_lock);
             return i - (unsigned char *)s; // also handles EOF
         }
         *i = out;
     }
     // see comment in pipe_write
+    spinlock_release(&file->inode->pipe->pipe_lock);
     thread_queue_unblock(&file->inode->pipe->write_queue);
     return n;
 }

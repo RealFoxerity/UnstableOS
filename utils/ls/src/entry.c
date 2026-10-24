@@ -13,6 +13,7 @@
 #define COLOR_EXEC "\e[32m"
 #define COLOR_SPEC "\e[33m"
 #define COLOR_LINK "\e[96m"
+#define COLOR_FIFO "\e[91m"
 #define COLOR_UNKNOWN "\e[31m"
 #define COLOR_RESET "\e[0m"
 
@@ -35,6 +36,9 @@ void print_file_info(const struct stat * info, const char * name, int dirfd) {
                 break;
             case S_IFLNK:
                 printf("l");
+                break;
+            case S_IFIFO:
+                printf("p");
                 break;
             default:
                 printf("?");
@@ -132,6 +136,9 @@ void print_file_info(const struct stat * info, const char * name, int dirfd) {
                     strcpy(symlink_target, "???");
                 else
                     symlink_target[ret] = '\0';
+                break;
+            case S_IFIFO:
+                printf(COLOR_FIFO);
                 break;
             default:
                 printf(COLOR_UNKNOWN);

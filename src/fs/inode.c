@@ -114,6 +114,13 @@ long register_inode(const inode_t * inode, inode_t ** inode_out, unsigned short 
         // this way at least the file descriptor opened as O_PATH will still be valid
         if ((S_ISCHR(inode->mode) || S_ISBLK(inode->mode)) && !(dev_flags & O_PATH))
             open_dev(new_inode, dev_flags);
+        if (S_ISFIFO(inode->mode)) {
+            status = open_pipe(new_inode, dev_flags);
+            if (status < 0) {
+                __atomic_sub_fetch(&new_inode->instances, 1, __ATOMIC_RELEASE);
+                new_inode = NULL;
+            }
+        }
         goto ret;
     }
 
@@ -142,6 +149,9 @@ long register_inode(const inode_t * inode, inode_t ** inode_out, unsigned short 
          }
      } else
          new_inode->pipe = NULL; // is a union so sets the whole thing as 0
+
+    if (S_ISFIFO(inode->mode))
+        open_pipe(new_inode, dev_flags);
 
     if (new_inode && new_inode->backing_superblock)
         __atomic_add_fetch(&new_inode->backing_superblock->instances, 1, __ATOMIC_ACQUIRE);

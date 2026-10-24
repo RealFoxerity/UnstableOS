@@ -314,7 +314,7 @@ int main(int argc, char ** argv) {
     lseek(in_fd, skip, SEEK_SET);
     if (output != NULL) {
         if ((out_fd = open(output, output_mode, 0777)) == -1) {
-            fprintf(stderr, "%s: Can't open file '%s': %s\n", argv[0], input, strerror(errno));
+            fprintf(stderr, "%s: Can't open file '%s': %s\n", argv[0], output, strerror(errno));
             return 1;
         }
     }
@@ -336,7 +336,11 @@ int main(int argc, char ** argv) {
     unsigned long long written_partial_blocks = 0;
 
     start_time = time(NULL);
-    signal(SIGINT, signal_handler);
+    struct sigaction act = {
+        .sa_flags = 0,
+        .sa_handler = signal_handler
+    };
+    sigaction(SIGINT, &act, NULL);
 
     try_again:
     while (!should_exit &&
@@ -351,6 +355,9 @@ int main(int argc, char ** argv) {
         transform_block(block, read_amount, convs);
 
         if ((write_amount = write(out_fd, block, read_amount)) != bs) {
+            written_partial_blocks ++;
+            if (should_exit)
+                break;
             if (write_amount == 0)
                 break;
             if (write_amount == -1) {
@@ -359,7 +366,6 @@ int main(int argc, char ** argv) {
                 fprintf(stderr, "%llu+%llu records out\n", written_blocks, written_partial_blocks);
                 return 1;
             }
-            written_partial_blocks ++;
         } else
             written_blocks ++;
         written_bytes += write_amount;

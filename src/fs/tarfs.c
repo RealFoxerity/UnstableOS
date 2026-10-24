@@ -120,6 +120,9 @@ static char tar_add_cached_path(struct tar_node * root, const char * path, ustar
         case USTAR_BLOCK_DEV:
             mode = S_IFBLK;
             break;
+        case USTAR_PIPE:
+            mode = S_IFIFO;
+            break;
         case USTAR_CHAR_DEV:
             mode = S_IFCHR;
             dev |= 0x8000;
@@ -136,9 +139,8 @@ static char tar_add_cached_path(struct tar_node * root, const char * path, ustar
             record_offset -= sizeof(ustar_hdr) - offsetof(ustar_hdr, linked_file_name);
             break;
         case USTAR_HARD_LINK:
-        case USTAR_PIPE:
         default:
-            kprintf("We don't support hard links and named pipes: %d", hdr->type);
+            kprintf("We don't support hard links");
             return -1;
     }
 
