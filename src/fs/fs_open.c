@@ -1011,6 +1011,110 @@ int sys_mknodat(int fd, const char *path, mode_t mode, dev_t dev) {
     return ret;
 }
 
+int sys_mkfifoat(int fd, const char *path, mode_t mode) {
+    if ((fd < 0 || fd >= FD_LIMIT_PROCESS) && fd != AT_FDCWD) return -EBADF;
+
+    mode &= ~S_IFMT;
+    mode |= S_IFIFO;
+    inode_t * base = NULL;
+
+    if (path == NULL)
+        return -EBADF;
+
+    size_t path_len = 0;
+    char * safe_path = secure_strdup(path, PATH_MAX, &path_len);
+    if (safe_path == NULL) {
+        kfree(safe_path);
+        return -EFAULT;
+    }
+    if (path_len == 0) {
+        kfree(safe_path);
+        return -ENOENT; // WHYY POSIX, WHYYY
+    }
+    if (path_len == PATH_MAX) {
+        kfree(safe_path);
+        return -ENAMETOOLONG;
+    }
+
+    char * last_slash = strrchr(safe_path, '/');
+    if (last_slash == NULL)
+        last_slash = safe_path;
+    else last_slash++;
+    if (*last_slash == '\0') { // trailing slash
+        kfree(safe_path);
+        return -EINVAL;
+    }
+    if (strcmp(last_slash, ".") == 0 ||
+        strcmp(last_slash, "..") == 0) {
+        kfree(safe_path);
+        return -EINVAL; // maybe EILSEQ? not sure
+    }
+
+    spinlock_acquire(&current_process->lock);
+    if (fd != AT_FDCWD) {
+        file_descriptor_t * file = current_process->fds[fd];
+        if (file == NULL) {
+            spinlock_release(&current_process->lock);
+            kfree(safe_path);
+            return -EBADF;
+        }
+        kassert(file->instances > 0);
+        base = file->inode;
+    } else {
+        base = current_process->pwd;
+    }
+    __atomic_add_fetch(&base->instances, 1, __ATOMIC_ACQUIRE);
+    spinlock_release(&current_process->lock);
+
+    int ret = 0;
+    last_slash = strrchr(safe_path, '/');
+    if (last_slash == NULL) {
+        last_slash = safe_path;
+
+        do_mkfifo:
+        if (!base->backing_superblock ||
+            !base->backing_superblock->funcs ||
+            !base->backing_superblock->funcs->mkfifo
+        ) {
+            ret = -ENOTSUP; // linux does EPERM
+            goto end;
+        }
+        if (base->backing_superblock->mount_options & MOUNT_RDONLY) {
+            ret = -EROFS;
+            goto end;
+        }
+        ret = inode_check_perm(base, W_OK, AT_EACCESS);
+        if (ret < 0)
+            goto end;
+        mode &= ~current_process->umask;
+        ret = base->backing_superblock->funcs->mkfifo(
+            base, last_slash, mode);
+        if (ret == 0)
+            utimes_inode(base,
+                (struct timespec){.tv_nsec = UTIME_OMIT},
+                (struct timespec){.tv_nsec = UTIME_NOW},
+                (struct timespec){.tv_nsec = UTIME_NOW});
+        goto end;
+    }
+
+    *last_slash = 0;
+    last_slash++;
+
+    inode_t * final = NULL;
+    ret = openat_inode(base, safe_path, O_DIRECTORY | O_WRONLY, 0, &final, 1);
+    if (ret < 0)
+        goto end;
+
+    close_inode(base);
+    base = final;
+    goto do_mkfifo;
+
+    end:
+    kfree(safe_path);
+    close_inode(base);
+    return ret;
+}
+
 int sys_linkat(int fd1, const char * path1, int fd2, const char * path2, int flag) {
     if ((fd1 < 0 || fd1 >= FD_LIMIT_PROCESS) && fd1 != AT_FDCWD) return -EBADF;
     if ((fd2 < 0 || fd2 >= FD_LIMIT_PROCESS) && fd2 != AT_FDCWD) return -EBADF;

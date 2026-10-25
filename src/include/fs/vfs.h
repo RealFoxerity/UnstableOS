@@ -63,6 +63,7 @@ struct vfs_ops {
     int (*mkdir)     (inode_t * parent, const char * pathname, mode_t mode, inode_t ** inode_out);
     // only for the device mknod, put S_IFBLK or S_IFCHR into mode
     int (*mknod)     (inode_t * parent, const char * pathname, mode_t mode, dev_t dev);
+    int (*mkfifo)    (inode_t * parent, const char * pathname, mode_t mode);
 
     int (*link)      (inode_t * file, inode_t * parent, const char * pathname);
     // note: mode is for now only ever 0777 as per usual

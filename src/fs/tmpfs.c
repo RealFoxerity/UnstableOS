@@ -353,6 +353,11 @@ static int tmpfs_mknod(inode_t * parent, const char * pathname, mode_t mode, dev
         return -EINVAL;
     return tmpfs_creat_internal(parent, pathname, mode, NULL, dev, NULL);
 }
+static int tmpfs_mkfifo(inode_t * parent, const char * pathname, mode_t mode) {
+    mode &= ~S_IFMT;
+    mode |= S_IFIFO;
+    return tmpfs_creat_internal(parent, pathname, mode, NULL, 0, NULL);
+}
 
 static int tmpfs_symlink(inode_t * parent, const char * pathname, const char * target, mode_t mode) {
     mode &= ~S_IFMT;
@@ -833,6 +838,7 @@ const struct vfs_ops tmpfs_op = {
     .creat   = tmpfs_creat,
     .mkdir   = tmpfs_mkdir,
     .mknod   = tmpfs_mknod,
+    .mkfifo  = tmpfs_mkfifo,
 
     .symlink = tmpfs_symlink,
 

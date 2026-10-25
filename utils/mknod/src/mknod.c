@@ -18,6 +18,8 @@ int main(int argc, char ** argv) {
         mode |= S_IFBLK;
     } else if (strcmp(argv[2], "c") == 0) {
         mode |= S_IFCHR;
+    } else if (strcmp(argv[2], "p") == 0) {
+        mode |= S_IFIFO;
     } else {
         fprintf(stderr, "Unknown type %s\n", argv[2]);
         return 1;

@@ -239,6 +239,7 @@ int sys_dup3(int oldfd, int newfd, int flags);
 int sys_unlinkat(int fd, const char *path, int flags);
 int sys_renameat(int oldfd, const char * old, int newfd, const char * new);
 int sys_mknodat(int fd, const char *path, mode_t mode, dev_t dev);
+int sys_mkfifoat(int fd, const char *path, mode_t mode);
 int sys_linkat(int fd1, const char * path1, int fd2, const char * path2, int flag);
 int sys_symlinkat(const char * path1, int fd, const char * path2);
 

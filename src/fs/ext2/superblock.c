@@ -341,11 +341,6 @@ int ext2_lookup(superblock_t * sb, inode_t * last, const char * pathname, inode_
         if (S_ISCHR(new_inode.mode))
             new_inode.device |= 0x8000;
 
-        if (S_ISFIFO(ino.mode)) {
-            ret = -ENXIO;
-            dkprintf("Named pipes are not yet supported\n");
-            goto end;
-        }
         if (S_ISSOCK(ino.mode)) {
             ret = -ENXIO;
             dkprintf("Named sockets are not yet supported\n");
@@ -1129,8 +1124,67 @@ int ext2_mknod(inode_t * parent, const char * pathname, mode_t mode, dev_t dev) 
     }
     rw_spinlock_acquire_write(&meta->access_lock);
     if (__atomic_load_n(&parent->nlink, __ATOMIC_ACQUIRE) == 0) {
-        rw_spinlock_release_write(&meta->access_lock);
+        ret = -ENOENT;
+        goto err;
+    }
+    off_t new_inode = ext2_creat_internal(sb, &ino, &e2new, parent->id, pathname);
+    if (new_inode < 0)
+        ret = (int)new_inode;
+    else
+        ret = 0;
 
+    err:
+    rw_spinlock_release_write(&meta->access_lock);
+    RESTORE_SIGNALS(sig);
+    return ret;
+}
+
+int ext2_mkfifo(inode_t * parent, const char * pathname, mode_t mode) {
+    if (strcmp(pathname, ".") == 0 || strcmp(pathname, "..") == 0)
+        return -EINVAL;
+    mode &= ~S_IFMT;
+    mode |= S_IFIFO;
+    kassert(parent);
+    if (!S_ISDIR(parent->mode))
+        return -ENOTDIR;
+    if (parent->nlink == 0)
+        return -ENOENT;
+
+    kassert(pathname);
+    superblock_t * sb = parent->backing_superblock;
+    kassert(sb);
+    kassert(sb->data);
+    struct ext2_metadata * meta = sb->data;
+
+    inode_t new = {
+        .uid = current_process->euid,
+        .gid = parent->mode & S_ISGID ? parent->gid : current_process->egid,
+        .nlink = 1,
+        .atime = system_time_sec,
+        .ctime = system_time_sec,
+        .mtime = system_time_sec,
+        .btime = system_time_sec,
+        .backing_superblock = sb,
+        .mode = mode,
+        .io_block_size = (blksize_t)meta->block_size,
+    };
+
+    struct ext2_inode e2new, ino;
+    ext2_inodet_to_ext2inode(&new, &e2new);
+
+    if (check_eintr())
+        return -EINTR;
+    sigset_t sig = PAUSE_SIGNALS();
+
+    int ret = ext2_get_inode(sb, parent->id, &ino);
+    if (ret < 0) {
+        ret = -ENOENT;
+        goto err;
+    }
+    rw_spinlock_acquire_write(&meta->access_lock);
+    if (__atomic_load_n(&parent->nlink, __ATOMIC_ACQUIRE) == 0) {
+        ret = -ENOENT;
+        goto err;
     }
     off_t new_inode = ext2_creat_internal(sb, &ino, &e2new, parent->id, pathname);
     if (new_inode < 0)
@@ -1694,6 +1748,7 @@ const struct vfs_ops ext2_op = {
     .creat = ext2_creat,
     .mkdir = ext2_mkdir,
     .mknod = ext2_mknod,
+    .mkfifo = ext2_mkfifo,
     .link = ext2_link,
     .symlink = ext2_symlink,
     .rename = ext2_rename,
