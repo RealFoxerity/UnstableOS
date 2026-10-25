@@ -309,7 +309,7 @@ static int __openat_inode(inode_t * base, const char * path, unsigned int flags,
             ret = -EACCES;
             goto err;
         }
-        long status = sb->funcs->lookup(sb, prev, final_path, &new, last_fragment ? flags : 0);
+        long status = sb->funcs->lookup(sb, prev, *final_path ? final_path : ".", &new, last_fragment ? flags : 0);
 
         if (status == -ENOENT) {
             if (last_fragment &&

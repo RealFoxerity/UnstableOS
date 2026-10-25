@@ -248,6 +248,7 @@ long mount_dev(dev_t dev, inode_t * mount_point, unsigned char type, unsigned sh
 long mount_root(dev_t dev, unsigned char type, unsigned short options);
 long sys_mount(const char * dev_path, const char * mount_path, unsigned char type, unsigned short options);
 long sys_umount(const char * mount_path);
+long sys_swaproot(const char * new_root, const char * old_root_mnt);
 
 off_t generic_seek(file_descriptor_t *file, off_t off, int whence, off_t max_off);
 

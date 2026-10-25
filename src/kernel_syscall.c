@@ -808,6 +808,10 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
             VM_UNLOCK(arg1);
             return_value = 0;
             break;
+
+        case SYSCALL_SWAPROOT:
+            return_value = sys_swaproot((const char *)arg1, (const char *)arg2);
+            break;
         default:
             return_value = -ENOSYS;
             break;

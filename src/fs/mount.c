@@ -230,3 +230,113 @@ long sys_umount(const char * mount_path) {
     rw_spinlock_release_write(&mount_tree_lock);
     return 0;
 }
+
+
+long sys_swaproot(const char * new_root, const char * old_root_mnt) {
+    static spinlock_t swap_lock = {0};
+
+    if (!new_root || !old_root_mnt) return -EFAULT;
+    if (current_process->euid != 0)
+        return -EPERM;
+
+    spinlock_acquire(&swap_lock);
+
+    inode_t * new = NULL;
+    // this could be done without O_PATH (sb->mountpoint), but I think that it's cleaner like this
+    int ret = openat_inode((inode_t *)AT_FDCWD, new_root, O_RDONLY | O_DIRECTORY | O_NOXDEV, 0, &new, 0);
+    if (ret < 0 || new == NULL) {
+        spinlock_release(&swap_lock);
+        return ret;
+    }
+
+    if (!new->is_mountpoint || new->backing_superblock == new->next_superblock) {
+        spinlock_release(&swap_lock);
+        close_inode(new);
+        return -EINVAL;
+    }
+
+    inode_t * new_dev;
+    ret = openat_inode(new, ".", O_RDONLY | O_DIRECTORY, 0, &new_dev, 1);
+    if (ret < 0 || new_dev == NULL) {
+        spinlock_release(&swap_lock);
+        close_inode(new);
+        return -EINVAL;
+    }
+    if (new_dev->backing_superblock != new->next_superblock) {
+        spinlock_release(&swap_lock);
+        close_inode(new);
+        close_inode(new_dev);
+        return -EINVAL;
+    }
+
+
+    inode_t * newold = NULL;
+    // this could be done without O_PATH (sb->mountpoint), but I think that it's cleaner like this
+    ret = openat_inode((inode_t*)AT_FDCWD, old_root_mnt, O_RDONLY | O_DIRECTORY | O_NOXDEV, 0, &newold, 0);
+    if (ret < 0 || newold == NULL) {
+        spinlock_release(&swap_lock);
+        close_inode(new);
+        close_inode(new_dev);
+        return ret;
+    }
+    if (newold->backing_superblock != new_dev->backing_superblock) {
+        spinlock_release(&swap_lock);
+        close_inode(newold);
+        close_inode(new);
+        close_inode(new_dev);
+        return -EINVAL;
+    }
+    if (newold->is_mountpoint) {
+        mount_race:
+        spinlock_release(&swap_lock);
+        close_inode(newold);
+        close_inode(new);
+        close_inode(new_dev);
+        return -EBUSY;
+    }
+
+    // scawy part >_<
+    inode_t * old_root = root_mountpoint->mountpoint;
+    rw_spinlock_acquire_write(&mount_tree_lock);
+    if (newold->is_mountpoint) {
+        rw_spinlock_release_write(&mount_tree_lock);
+        goto mount_race;
+    }
+
+    // unlink old mount points
+    __atomic_store_n(&new->is_mountpoint, 0, __ATOMIC_RELEASE);
+    __atomic_store_n(&new->next_superblock, NULL, __ATOMIC_RELEASE);
+    __atomic_store_n(&old_root->is_mountpoint, 0, __ATOMIC_RELEASE);
+    __atomic_store_n(&old_root->next_superblock, NULL, __ATOMIC_RELEASE);
+
+    // relink new_dev as the new root
+    __atomic_store_n(&new_dev->is_mountpoint, 1, __ATOMIC_RELEASE);
+    __atomic_store_n(&new_dev->next_superblock, new_dev->backing_superblock, __ATOMIC_RELEASE);
+    __atomic_store_n(&new_dev->backing_superblock->mountpoint, new_dev, __ATOMIC_RELEASE);
+    __atomic_store_n(&root_mountpoint->mountpoint, new_dev, __ATOMIC_RELEASE);
+
+    // relink old_root to newold
+    __atomic_store_n(&newold->is_mountpoint, 1, __ATOMIC_RELEASE);
+    __atomic_store_n(&newold->next_superblock, old_root->backing_superblock, __ATOMIC_RELEASE);
+    __atomic_store_n(&newold->next_superblock->mountpoint, newold, __ATOMIC_RELEASE);
+
+
+    spinlock_acquire(&scheduler_lock);
+    for (process_t * proc = process_list; proc; proc = proc->next) {
+        if (proc->root == old_root) {
+            __atomic_sub_fetch(&proc->root->instances, 1, __ATOMIC_RELEASE);
+            proc->root = new_dev;
+            __atomic_add_fetch(&proc->root->instances, 1, __ATOMIC_ACQUIRE);
+        }
+    }
+    spinlock_release(&scheduler_lock);
+
+    rw_spinlock_release_write(&mount_tree_lock);
+
+    spinlock_release(&swap_lock);
+    // we on purpose leak newold and new_dev to achieve the +1 for mount points
+    close_inode(new); // our open
+    close_inode(new); // previous mountpoint
+    close_inode(old_root); // previous mountpoint
+    return 0;
+}
