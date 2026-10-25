@@ -96,27 +96,45 @@ struct tm * localtime_r(const time_t * __restrict timer, struct tm * __restrict 
     return gmtime_r(timer, result);
 }
 
-time_t mktime(struct tm * timeptr) {
-    struct tm dup = *timeptr;
-    dup.tm_year -= 70;
-    if (dup.tm_year < 0) {
-        dup.tm_sec *= -1;
-        dup.tm_min *= -1;
-        dup.tm_hour *= -1;
-        dup.tm_yday *= -1;
-    }
 
-    return (
-        (
-            (
-                dup.tm_year * 8766 +
-                dup.tm_yday * 24 +
-                dup.tm_hour
-            ) * 60 +
-            dup.tm_min
-        ) * 60 +
-        dup.tm_sec
-    );
+static time_t year_to_time(long long year, char * is_leap) {
+    char __is_leap;
+    if (!is_leap)
+        is_leap = &__is_leap;
+    year -= 70; // posix tm is 1900 based
+
+    long long leaps = (year + (year < 0 ? -2 : 2)) / 4;
+    leaps -= year < 0 ? (year - 30) / 100 : (year + 70)  / 100;
+    leaps += year < 0 ? (year - 30) / 400 : (year + 370) / 400;
+    //leaps -= year < 0 ? (year - 2030) / 4000 : (year + 1970) / 4000;
+    *is_leap = ((year - 2) % 4 == 0) &&
+        ((year - 30) % 100 != 0 || (year - 30) % 400 == 0)
+        /*&& (year - 2030) % 4000 != 0 */;
+    if (*is_leap && year >= 0) leaps--;
+    return (year * 365 + leaps) * 24 * 60 * 60;
+}
+
+static time_t date_to_time(int mon, int day, char is_leap) {
+    if (mon > 11)
+        return 0;
+    static int days_in_month[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    for (int i = 0; i < mon; i++)
+        day += days_in_month[i];
+    if (is_leap && mon >= 2) day++;
+    return (day - 1) * 24 * 60 * 60;
+}
+
+time_t mktime(struct tm * timeptr) {
+    char is_leap;
+    time_t ret = year_to_time(timeptr->tm_year, &is_leap);
+    if (timeptr->tm_yday)
+        ret += timeptr->tm_yday * 24 * 60 * 60;
+    else
+        ret += date_to_time(timeptr->tm_mon, timeptr->tm_mday, is_leap);
+    ret += timeptr->tm_hour * 60 * 60;
+    ret += timeptr->tm_min * 60;
+    ret += timeptr->tm_sec;
+    return ret;
 }
 
 char * asctime(const struct tm * timeptr) {
