@@ -290,6 +290,15 @@ int setenv(const char *envname, const char *envval, int overwrite) {
     return __putenv(new_var, 1);
 }
 
+int clearenv() {
+    char ** old_env = environ;
+    while (*old_env) {
+        change_env_ptr(*old_env, NULL);
+        *old_env++ = NULL;
+    }
+    return 0;
+}
+
 #include <wchar.h>
 
 int mbtowc(wchar_t *restrict pwc, const char *restrict s, size_t n) {

@@ -58,7 +58,7 @@ static int __getgrent_r(FILE * f, struct group * gr, char ** line, size_t * n, c
         new[entries - 1] = NULL;
         for (size_t i = 0; i < entries - 1; i++, mem++) {
             new[i] = mem;
-            mem = strchr(mem, '\0');
+            mem = strchr(mem, ',');
             if (!mem) {
                 new[i+1] = NULL; // huh?
                 break;

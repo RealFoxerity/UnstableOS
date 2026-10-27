@@ -320,7 +320,7 @@ int getgroups(int gidsetsize, gid_t grouplist[]) {
         ___set_errno(-ret);
         return -1;
     }
-    return 0;
+    return ret;
 }
 int setgroups(int gidsetsize, gid_t grouplist[]) {
     int ret = syscall(SYSCALL_SETGROUPS, gidsetsize, grouplist);

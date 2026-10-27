@@ -212,6 +212,7 @@ int sys_setgroups(int gidsetsize, const gid_t * grouplist) {
         return -EPERM;
     spinlock_acquire(&current_process->lock);
     memcpy(current_process->sup_groups, grouplist, gidsetsize * sizeof(gid_t));
+    current_process->ngroup = gidsetsize;
     spinlock_release(&current_process->lock);
     return 0;
 }

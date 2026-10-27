@@ -55,6 +55,7 @@ char * secure_getenv(const char *name);
 int unsetenv(const char *name);
 int putenv(char *string);
 int setenv(const char *envname, const char *envval, int overwrite);
+int clearenv();
 
 int getsubopt(char **__restrict optionp, char * const *__restrict keylistp, char **__restrict valuep);
 
