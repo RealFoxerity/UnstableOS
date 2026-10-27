@@ -255,10 +255,12 @@ struct dso * loadelf(int fd) {
                 dbg_print("rtld: Unimplemented: RELRO (DT_TEXTREL) is not currently supported!\n");
                 abort();
 
+            case DT_BIND_NOW:
+                dso->dt_flags |= DF_BINDNOW;
+                break;
             case DT_NEEDED: // will be handled in the next stage
             case DT_SONAME:
             case DT_DEBUG:
-            case DT_BIND_NOW:
             case DT_SYMTAB_SHNDX:
             default:
                 break;

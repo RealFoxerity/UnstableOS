@@ -7,7 +7,7 @@
 extern const char * ld_path;
 extern int exec_fd;
 extern int tracing;
-
+extern int binding;
 long syscall(unsigned long syscall_number, ...);
 void dbg_print(const char * s);
 void print(const char * s);

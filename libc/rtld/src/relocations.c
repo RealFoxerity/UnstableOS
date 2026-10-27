@@ -20,7 +20,7 @@ static void itoa(unsigned int num, char * out) {
 }
 
 // commented out relocations are ones for linking, not dynamic linking, and thus irrelevant
-static void do_rela(const struct rela_entry * rela, const struct dso * dso) {
+static void * do_rela(const struct rela_entry * rela, const struct dso * dso) {
     struct symbol_table_entry dummy = {
         .value = 0,
         .size = 0,
@@ -41,7 +41,7 @@ static void do_rela(const struct rela_entry * rela, const struct dso * dso) {
         struct symbol_table_entry * ste = dso->symtab + ELF32_R_SYM(rela->info) * dso->symtab_ent_size;
         sr = lookup_symbol(ste, dso);
         if (!sr.ste && ELF32_ST_BIND(ste->info) == STB_WEAK)
-            return;
+            return NULL;
         assert(sr.ste);
         assert(sr.dso);
         symbol = sr.ste->value + sr.dso->load_base;
@@ -135,7 +135,7 @@ static void do_rela(const struct rela_entry * rela, const struct dso * dso) {
             dbg_print("\n");
             abort();
     }
-
+    return *target;
 }
 
 static void _process_rel(const struct dso * dso, struct rel_section rels) {
@@ -158,16 +158,69 @@ static void _process_rela(const struct dso * dso, struct rel_section relas) {
     }
 }
 
+/* the application does
+ * call func@plt
+ *
+ * .func_plt:
+ * jmp *func_got
+ * pushl offset
+ * jmp .plt0
+ *
+ * .plt0:
+ * pushl got+4
+ * jmp *got+8
+ *
+ * .func_got:
+ * jmp .func_plt+4 <- originally into the pushl offset instruction, we have to change to the relocated entry
+ *
+ * this all leads to the stack frame
+ * args
+ * return ip
+ * offset <- into the pltrel table
+ * got+4 (the dso *)
+ */
+struct regs {unsigned long regs[8];};
+static __attribute__((used)) void * lazy_resolver(struct regs _, struct dso * dso, unsigned long off) {
+    // addend is always ignored for JUMP_SLOT so no need for ifs
+    // MT safe because worst case we write the same value twice
+    return do_rela(dso->pltrel.reltable_start + off, dso);
+}
+
+static __attribute__((naked)) void lazy_resolver_entry() {
+    asm volatile (
+        "pusha;"
+        "call lazy_resolver;"
+        "movl %eax, -4(%esp);"
+        "popa;"
+        "addl $8, %esp;" // get rid of the dso and offset args
+        "jmp *-0x2C(%esp);");
+}
+
 static void _relocate_dso(struct dso * dso) {
     _process_rel(dso, dso->rel);
     _process_rela(dso, dso->rela);
 
-    if (dso->pltrel_type == DT_RELA) {
+    ((void**)dso->got)[0] = dso->dynamic;
+    ((void**)dso->got)[1] = dso;
+    ((void**)dso->got)[2] = lazy_resolver_entry;
+
+    if (dso->pltrel_type == DT_RELA)
         dso->pltrel.entry_size = dso->rela.entry_size ? dso->rela.entry_size : sizeof(struct rela_entry);
-        _process_rela(dso, dso->pltrel);
-    } else {
+    else
         dso->pltrel.entry_size = dso->rel.entry_size ? dso->rel.entry_size : sizeof(struct rel_entry);
-        _process_rel(dso, dso->pltrel);
+
+    if (binding || dso->dt_flags & DF_BINDNOW) {
+        if (dso->pltrel_type == DT_RELA)
+            _process_rela(dso, dso->pltrel);
+        else
+            _process_rel(dso, dso->pltrel);
+    } else {
+        if (!dso->pltrel.reltable_start)
+            return;
+        for (int i = 0; i < dso->pltrel.reltable_size/dso->pltrel.entry_size; i++) {
+            struct rela_entry * rela = dso->pltrel.reltable_start + dso->pltrel.entry_size * i;
+            *(void**)(dso->load_base + rela->offset) += (uintptr_t)dso->load_base;
+        }
     }
 }
 

@@ -6,8 +6,6 @@
 ### Potential future features
 - Handling of dynamic TLS where possible, \
 currently everything gets statically mapped (behind the TCB into the base image) 
-- Lazy binding, currently always resolve everything even without DT_BIND_NOW \
-Lazy binding was avoided because of thread-safety concerns
 
 ### List of dynamic relocations
 - [x] `R_386_NONE`
