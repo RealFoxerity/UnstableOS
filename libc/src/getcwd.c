@@ -19,7 +19,7 @@ char *getcwd(char *buf, size_t size) {
 
     int curr_dir_fd = -1, parent_dir_fd = -1;
 
-    curr_dir_fd = open(".", O_SEARCH | O_DIRECTORY);
+    curr_dir_fd = open(".", O_RDONLY | O_DIRECTORY);
     if (curr_dir_fd == -1) return NULL;
 
 
@@ -36,7 +36,7 @@ char *getcwd(char *buf, size_t size) {
         curr_dir_ino = statbuf.st_ino;
         curr_dir_dev = statbuf.st_dev;
 
-        parent_dir_fd = openat(curr_dir_fd, "..", O_SEARCH | O_DIRECTORY);
+        parent_dir_fd = openat(curr_dir_fd, "..", O_RDONLY | O_DIRECTORY);
         if (this_dir == NULL)
             close(curr_dir_fd);
         else
