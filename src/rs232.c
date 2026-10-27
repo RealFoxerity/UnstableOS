@@ -7,10 +7,20 @@
 #include "kernel.h"
 #include "kernel_sched.h"
 #include <errno.h>
+#include <limits.h>
 
 // no locks needed as that's managed by the tty layer's ioctl locking
 
 #define RS232_IO_TIMEOUT 1024
+
+// lasts about 284 msec (71 full reschedules) on 115200 baud
+// needed because the uart chip has a max of 12, that provides us a grand total of 0.83 msec (or 0.2 reschedules)
+// that would make it a loss of about 1 - 12/(12 + n*4*(baud/8/1000)), where n is runnable threads
+// aka for 4 runnable threads and 115200 baud, a loss of 95%
+// generally we need n*4*(baud/8/1000) to be less than buffer size,
+// so in this 4 thread hypothetical, the buffer size needs to be at least 231
+// 4096, as perhaps given away by the first line of this comment, means 71 runnable threads
+#define SERIAL_BUF_SZ 4096
 
 #define kprintf(fmt, ...) kprintf("RS-232 driver: "fmt, ##__VA_ARGS__)
 
@@ -44,48 +54,63 @@ const static unsigned int baudrate_divisors[CBAUD + 1] = {
     [B115200]   = 1
 };
 
-static char com_states[COM_PORTS] = {COM_UNINITIALIZED};
+struct com_port {
+    enum com_state state;
+    char pending_hup;
+    char pending_break;
+    // first parity error char, drain everything from this as parmarked
+    // SERIAL_BUF_SZ if no parmrk
+    size_t pending_parmrk;
+    unsigned char * buf; // never freed
+    size_t head, tail;
+};
+static struct com_port com_ports[COM_PORTS] = {0};
 static uint8_t line_status_regs[COM_PORTS] = {0};  // to find the differences on line status interrupts, primarily for break
+static spinlock_t com_lock = {0};
+
 char com_init(unsigned char com, unsigned int termios_baudrate, enum com_data_bits data_bits, enum com_stop_bits stop_bits, enum com_parity parity, enum com_fifo buffered_bytes) {
     if (com >= COM_PORTS) {
-        kprintf("Invalid COM port to initialize specified (%d)!\n", com);
+        //kprintf("Invalid COM port to initialize specified (%d)!\n", com);
         return COM_ERR_INVALID_PORT;
     }
 
     // hangup
     if (termios_baudrate == 0) {
         // turn off interrupts, drop DCD/DTR
+        spinlock_acquire_interruptible(&com_lock);
         outb(com_addresses[com] + COM_DELTA_MODEM_CONTROL, 0);
         outb(com_addresses[com] + COM_DELTA_IRQ_EN, 0);
-        com_states[com] = COM_UNINITIALIZED;
+        __atomic_store_n(&com_ports[com].state, COM_UNINITIALIZED, __ATOMIC_RELEASE);
+        spinlock_release(&com_lock);
         return 0;
     }
     if (termios_baudrate >= CBAUD + 1 || !baudrate_divisors[termios_baudrate]) {
-        kprintf("Invalid baudrate specified for COM%d!\n", com);
+        //kprintf("Invalid baudrate specified for COM%d!\n", com);
         return COM_ERR_INVALID_BAUDRATE;
     }
 
     if (data_bits > COM_DATA_BITS_8) {
-        kprintf("Invalid data bits count for COM%d!\n", com);
+        //kprintf("Invalid data bits count for COM%d!\n", com);
         return COM_ERR_INVALID_DATA_BITS;
     }
 
     if (stop_bits > COM_STOP_BITS_2) {
-        kprintf("Invalid stop bits count for COM%d!\n", com);
+        //kprintf("Invalid stop bits count for COM%d!\n", com);
         return COM_ERR_INVALID_STOP_BITS;
     }
 
     if (parity > COM_PARITY_SPACE) {
-        kprintf("Invalid parity for COM%d!\n", parity);
+        //kprintf("Invalid parity for COM%d!\n", parity);
         return COM_ERR_INVALID_PARITY;
     }
 
     if (buffered_bytes > COM_BUFFER_14) {
-        kprintf("Invalid requested buffered byte count for COM%d!\n", com);
+        //kprintf("Invalid requested buffered byte count for COM%d!\n", com);
         return COM_ERR_INVALID_CACHING;
     }
-    kprintf("Initializing port %d with baud rate %u\n", com, COM_MAX_BAUDRATE / baudrate_divisors[termios_baudrate]);
+    //kprintf("Initializing port %d with baud rate %u\n", com, COM_MAX_BAUDRATE / baudrate_divisors[termios_baudrate]);
 
+    spinlock_acquire_interruptible(&com_lock);
     // set the baud rate
     uint8_t brlow  = termios_baudrate &  0xFF;
     uint8_t brhigh = termios_baudrate >> 8;
@@ -112,13 +137,23 @@ char com_init(unsigned char com, unsigned int termios_baudrate, enum com_data_bi
     for (int i = 0; i < RS232_IO_TIMEOUT; i++) io_wait();
     if (inb(com_addresses[com]) != 0x06) {
         kprintf("COM%d failed self test!\n", com);
+        spinlock_release(&com_lock);
         return 1;
     }
 
     uint8_t modem_control = COM_MCR_OUT1 | COM_MCR_OUT2 | COM_MCR_DTR;
     outb(com_addresses[com] + COM_DELTA_MODEM_CONTROL, modem_control);
     outb(com_addresses[com] + COM_DELTA_IRQ_EN, COM_IRQ_EN_RECV_DATA_AVAIL | COM_IRQ_EN_RECV_LINE_STATUS | COM_IRQ_EN_MODEM_STATUS);
-    com_states[com] = COM_INITIALIZED;
+    extern char early_init;
+    if (!com_ports->buf && !early_init)
+        com_ports->buf = kalloc(SERIAL_BUF_SZ);
+    __atomic_store_n(&com_ports[com].head, 0, __ATOMIC_RELEASE);
+    __atomic_store_n(&com_ports[com].tail, 0, __ATOMIC_RELEASE);
+    __atomic_store_n(&com_ports[com].pending_hup, 0, __ATOMIC_RELEASE);
+    __atomic_store_n(&com_ports[com].pending_break, 0, __ATOMIC_RELEASE);
+    __atomic_store_n(&com_ports[com].pending_parmrk, SERIAL_BUF_SZ, __ATOMIC_RELEASE);
+    __atomic_store_n(&com_ports[com].state, COM_INITIALIZED, __ATOMIC_RELEASE);
+    spinlock_release(&com_lock);
     return 0;
 }
 
@@ -147,17 +182,21 @@ int com_ctl(tty_t * tty, struct termios * tio) {
 
 void com_brk(tty_t * tty, int set) {
     kassert(tty);
+    spinlock_acquire_interruptible(&com_lock);
     uint8_t lcr = inb(com_addresses[tty->com_port] + COM_DELTA_LINE_CONTROL);
     lcr &= ~COM_LCR_BREAK;
     lcr |= set ? COM_LCR_BREAK : 0;
     outb(com_addresses[tty->com_port] + COM_DELTA_LINE_CONTROL, lcr);
+    spinlock_release(&com_lock);
 }
 void com_hup(tty_t * tty) {
     kassert(tty);
+    spinlock_acquire_interruptible(&com_lock);
     // turn off interrupts, drop DCD/DTR
     outb(com_addresses[tty->com_port] + COM_DELTA_MODEM_CONTROL, 0);
     outb(com_addresses[tty->com_port] + COM_DELTA_IRQ_EN, 0);
-    com_states[tty->com_port] = COM_UNINITIALIZED;
+    __atomic_store_n(&com_ports[tty->com_port].state, COM_UNINITIALIZED, __ATOMIC_RELEASE);
+    spinlock_release(&com_lock);
 }
 static inline char com_ready_to_write(unsigned char com) {
     return inb(com_addresses[com] + COM_DELTA_LINE_STATUS) & COM_LSR_TX_HOLDING_REGISTER_EMPTY;
@@ -170,7 +209,7 @@ static inline char com_ready_to_recv(unsigned char com) {
 #define DEC(tq) ((tq)->head = ((tq)->head+1)%MAX_CANON)
 
 size_t tty_com_write(tty_t * tty) { // assumes tty queue to be locked
-    if (com_states[(int)tty->com_port] == COM_UNINITIALIZED) return 0;
+    if (__atomic_load_n(&com_ports[tty->com_port].state, __ATOMIC_ACQUIRE) == COM_UNINITIALIZED) return 0;
 
     size_t written = 0;
     while (!EMPTY(&tty->oqueue)) {
@@ -187,7 +226,7 @@ long com_write(unsigned char com, const char * data, unsigned long len) {
         kprintf("Invalid COM port to write to specified (%d)!\n", com);
         return -1;
     }
-    if (com_states[com] == COM_UNINITIALIZED) return 0;
+    if (__atomic_load_n(&com_ports[com].state, __ATOMIC_ACQUIRE) == COM_UNINITIALIZED) return 0;
 
     for (unsigned long i = 0; i < len; i++) {
         for (int _ = 0; _ < RS232_IO_TIMEOUT && !com_ready_to_write(com); _++) {}
@@ -196,83 +235,134 @@ long com_write(unsigned char com, const char * data, unsigned long len) {
     return len;
 }
 
+#define FULL(tq) (((tq)->head == 0 && (tq)->tail == MAX_CANON - 1) || (tq)->tail == (tq)->head - 1)
 
-static spinlock_t com_driver_lock = {0};
+static void push_char(unsigned char com, unsigned char c) {
+    if (__atomic_load_n(&com_ports[com].state, __ATOMIC_ACQUIRE) == COM_UNINITIALIZED) return;
+    if (!com_ports[com].buf)
+        return;
+    struct com_port * cp = com_ports + com;
+
+    size_t head = __atomic_load_n(&cp->head, __ATOMIC_ACQUIRE);
+    size_t tail = __atomic_load_n(&cp->tail, __ATOMIC_ACQUIRE);
+
+    if ((head == 0 && tail == SERIAL_BUF_SZ - 1) || tail == head - 1)
+        return; // full
+    cp->buf[tail] = c;
+    __atomic_store_n(&cp->tail, (tail + 1) % SERIAL_BUF_SZ, __ATOMIC_RELEASE);
+}
+
+static int get_char(unsigned char com) {
+    if (__atomic_load_n(&com_ports[com].state, __ATOMIC_ACQUIRE) == COM_UNINITIALIZED) return -1;
+    if (!com_ports[com].buf)
+        return -1;
+    struct com_port * cp = com_ports + com;
+
+    size_t head = __atomic_load_n(&cp->head, __ATOMIC_ACQUIRE);
+    size_t tail = __atomic_load_n(&cp->tail, __ATOMIC_ACQUIRE);
+    size_t parmarked_head = __atomic_load_n(&cp->pending_parmrk, __ATOMIC_ACQUIRE);
+    if (head == tail) {
+        __atomic_store_n(&cp->pending_parmrk, SERIAL_BUF_SZ, __ATOMIC_RELEASE);
+        return -1; // empty
+    }
+    int ret = cp->buf[head];
+    __atomic_store_n(&cp->head, (head + 1) % SERIAL_BUF_SZ, __ATOMIC_RELEASE);
+    if (head >= parmarked_head)
+        ret |= 0x100;
+    return ret;
+}
+
+static spinlock_t com_driver_lock = {0}; // basically only used like a barrier
 static thread_t * com_driver_thread = NULL;
-static volatile int com_pending = -1;
+static char com_pending_ports[COM_PORTS] = {0};
+
 static __attribute__((noreturn)) void com_driver_loop() {
     while (1) {
-        if (__builtin_expect(com_pending == -1, 0)) {
-            spinlock_acquire(&com_driver_lock);
-            if (com_pending != -1) {
-                spinlock_release(&com_driver_lock);
+        next:
+        for (unsigned char com_pending = 0; com_pending < COM_PORTS; com_pending++) {
+            if (!__atomic_load_n(&com_pending_ports[com_pending], __ATOMIC_ACQUIRE))
                 continue;
+
+            if (__atomic_exchange_n(&com_ports[com_pending].pending_hup, 0, __ATOMIC_ACQUIRE))
+                tty_recv_hang_up(GET_DEV(DEV_MAJ_TTY, DEV_TTY_S0 + com_pending));
+            if (__atomic_exchange_n(&com_ports[com_pending].pending_break, 0, __ATOMIC_ACQUIRE))
+                tty_recv_break(GET_DEV(DEV_MAJ_TTY, DEV_TTY_S0 + com_pending));
+
+            int c;
+            while ((c = get_char(com_pending)) != -1) {
+                more_readin:
+                tty_write_to_tty(&(char){c & 0xFF}, 1, GET_DEV(DEV_MAJ_TTY, DEV_TTY_S0 + com_pending), c & 0x100 ? 1 : 0);
             }
+            spinlock_acquire(&com_driver_lock);
+            c = get_char(com_pending);
+            if (c == -1)
+                __atomic_store_n(&com_pending_ports[com_pending], 0, __ATOMIC_RELEASE);
             spinlock_release(&com_driver_lock);
-
-            com_driver_thread->status = SCHED_UNINTERR_SLEEP;
-            reschedule();
-        } else {
-            spinlock_acquire_interruptible(&com_driver_lock);
-
-            uint8_t new_status = 0, diff = 0;
-            char parmarked = 0;
-            switch ((inb(com_addresses[com_pending] + COM_DELTA_IIR) & COM_IIR_INTERRUPT_STATE_MASK) >> 1) {
-                case 0: // modem status
-                    new_status = inb(com_addresses[com_pending] + COM_DELTA_MODEM_STATUS);
-
-                    if (new_status & COM_MSR_DELTA_CARRIER_DETECT &&
-                        !(new_status & COM_MSR_DCD))
-                        tty_recv_hang_up(GET_DEV(DEV_MAJ_TTY, DEV_TTY_S0 + com_pending));
-                    break;
-                case 3: // line status
-                    new_status = inb(com_addresses[com_pending] + COM_DELTA_LINE_STATUS);
-                    diff = new_status ^ line_status_regs[com_pending];
-
-                    if (new_status & (
-                        COM_LSR_PARITY_ERROR |
-                        COM_LSR_FRAMING_ERROR |
-                        COM_LSR_IMPENDING_ERROR))
-                            parmarked = 1;
-                    // the double condition to not throw brkint on end of break
-                    if (diff & COM_LSR_BREAK_INDICATOR &&
-                        new_status & COM_LSR_BREAK_INDICATOR)
-                        tty_recv_break(GET_DEV(DEV_MAJ_TTY, DEV_TTY_S0 + com_pending));
-                    line_status_regs[com_pending] = new_status;
-                    break;
-
-                case 1: // transmit fifo empty
-                case 2: // received data
-                default:
-                    break;
-            }
-
-            // in case stuff remains in the fifo on status interrupts
-            while (com_ready_to_recv(com_pending)) {
-                unsigned char data = inb(com_addresses[(int)com_pending]);
-                tty_write_to_tty((char*)&data, 1, GET_DEV(DEV_MAJ_TTY, DEV_TTY_S0 + com_pending), parmarked);
-                io_wait(); // just in case
-            }
-
-            asm volatile ("cli;");
-            pic_send_eoi(PIC_INTERR_COM1);
-            pic_send_eoi(PIC_INTERR_COM2);
-
-            pic_unmask_irq(PIC_INTERR_COM1);
-            pic_unmask_irq(PIC_INTERR_COM2);
-
-            com_pending = -1;
-            spinlock_release(&com_driver_lock);
+            if (c >= 0)
+                goto more_readin;
         }
+        spinlock_acquire(&com_driver_lock); // needs the cli! cannot be interrupted otherwise deadlock with ISR!
+        for (unsigned char com_pending = 0; com_pending < COM_PORTS; com_pending++) {
+            if (__atomic_load_n(&com_pending_ports[com_pending], __ATOMIC_ACQUIRE)) {
+                spinlock_release(&com_driver_lock);
+                goto next;
+            }
+        }
+        com_driver_thread->status = SCHED_UNINTERR_SLEEP;
+        spinlock_release(&com_driver_lock);
+        reschedule();
     }
 }
 
-void com_recv_byte(char com) { // called by interrupt
+static void handle_intr(unsigned char com) {
+    uint8_t new_status = 0, diff = 0;
+    switch ((inb(com_addresses[com] + COM_DELTA_IIR) & COM_IIR_INTERRUPT_STATE_MASK) >> 1) {
+        case 0:
+            new_status = inb(com_addresses[com] + COM_DELTA_MODEM_STATUS);
+
+            if (new_status & COM_MSR_DELTA_CARRIER_DETECT &&
+                !(new_status & COM_MSR_DCD))
+                __atomic_store_n(&com_ports[com].pending_hup, 1, __ATOMIC_RELEASE);
+            break;
+        case 3: // line status
+            new_status = inb(com_addresses[com] + COM_DELTA_LINE_STATUS);
+            diff = new_status ^ line_status_regs[com];
+
+            if (new_status & (
+                COM_LSR_PARITY_ERROR |
+                COM_LSR_FRAMING_ERROR |
+                COM_LSR_IMPENDING_ERROR))
+                __atomic_compare_exchange(
+                    &com_ports[com].pending_parmrk,
+                    &(size_t){SERIAL_BUF_SZ}, &com_ports[com].tail,
+                    0, __ATOMIC_RELEASE, __ATOMIC_RELAXED);
+            // the double condition to not throw brkint on end of break
+            if (diff & COM_LSR_BREAK_INDICATOR &&
+                new_status & COM_LSR_BREAK_INDICATOR)
+                __atomic_store_n(&com_ports[com].pending_break, 1, __ATOMIC_RELEASE);
+            line_status_regs[com] = new_status;
+            break;
+
+        case 1: // transmit fifo empty
+        case 2: // received data
+        default:
+            break;
+    }
+    if (!com_ports[com].buf)
+        return;
+    while (com_ready_to_recv(com)) {
+        unsigned char data = inb(com_addresses[com]);
+        push_char(com, data);
+        io_wait(); // just in case
+    }
+
+}
+void com_recv_byte(unsigned char com) { // called by interrupt
     if (com < 0 || com >= COM_PORTS) {
         kprintf("Invalid COM port specified from interrupt handler (%d)!\n", com);
         return;
     }
-    if (inb(com_addresses[com_pending] + COM_DELTA_IIR) & COM_IIR_NO_PENDING)
+    if (inb(com_addresses[com] + COM_DELTA_IIR) & COM_IIR_NO_PENDING)
         return;
 
     if (com_driver_thread == NULL) {
@@ -280,20 +370,15 @@ void com_recv_byte(char com) { // called by interrupt
         com_driver_thread = kernel_create_thread(kernel_task, current_thread, (void (*)(void*))com_driver_loop, NULL, 0);
         spinlock_release(&scheduler_lock);
     }
-    // so that we can do interruptible spinlocks
-    switch (com) {
-        case 0:
-        case 1:
-            pic_mask_irq(PIC_INTERR_COM1);
-            pic_mask_irq(PIC_INTERR_COM2);
-        default: break;
-    }
-    asm volatile ("sti");
 
-    while (com_pending != -1) {com_driver_thread->status = SCHED_RUNNABLE; reschedule();}
+    handle_intr(com);
 
-    spinlock_acquire(&com_driver_lock);
-    com_pending = com;
+    spinlock_acquire(&com_driver_lock); // so we don't race on ->status
+    __atomic_store_n(&com_pending_ports[com], 1, __ATOMIC_RELEASE);
     com_driver_thread->status = SCHED_RUNNABLE;
     spinlock_release(&com_driver_lock);
+    if (com == 0)
+        pic_send_eoi(PIC_INTERR_COM1);
+    if (com == 1)
+        pic_send_eoi(PIC_INTERR_COM2);
 }

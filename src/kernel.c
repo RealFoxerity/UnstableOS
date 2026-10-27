@@ -296,6 +296,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
 
     vga_init_graphics(); // preliminary setup to get any gfx output
 
+    // early init, no kalloc so write-only
     com_init(0, B115200, COM_DATA_BITS_8, COM_STOP_BITS_1, COM_PARITY_NONE, COM_BUFFER_1);
     com_init(1, B115200, COM_DATA_BITS_8, COM_STOP_BITS_1, COM_PARITY_NONE, COM_BUFFER_1);
 
@@ -415,6 +416,11 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     dev_initialize_static_devices();
 
     early_init = 0;
+
+    // reinit to now allocate the read buffer
+    com_init(0, B115200, COM_DATA_BITS_8, COM_STOP_BITS_1, COM_PARITY_NONE, COM_BUFFER_1);
+    com_init(1, B115200, COM_DATA_BITS_8, COM_STOP_BITS_1, COM_PARITY_NONE, COM_BUFFER_1);
+
 
     if (initrd_start + initrd_len > (void*)IDENT_MAPPING_MAX_ADDR)
         panic("initrd too large");
