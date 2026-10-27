@@ -249,6 +249,7 @@ static int __putenv(char * string, char alloced) {
         memcpy(new_environ, environ, i * sizeof(char*));
     environ_alloced = 1;
     new_environ[i] = string;
+    new_environ[i + 1] = NULL;
     environ = new_environ;
     if (alloced)
         change_env_ptr(NULL, string);
