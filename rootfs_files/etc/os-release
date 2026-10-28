@@ -1,0 +1,10 @@
+NAME="UnstableOS"
+ID=unstableos
+PRETTY_NAME="UnstableOS 0.01 (Kuzco)"
+VERSION="0.01 (Kuzco)"
+VERSION_ID=0.01
+VERSION_CODENAME="Kuzco"
+BUILD_ID=rolling
+RELEASE_TYPE="development"
+HOME_URL="https://github.com/RealFoxerity/UnstableOS"
+ANSI_COLOR=95

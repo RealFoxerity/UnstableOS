@@ -258,11 +258,8 @@ int main(int argc, char ** argv) {
     }
 
     if (!opts.noissue && issue_fd >= 0) {
-        char copybuf[1024];
-        size_t read_bytes;
-        while ((read_bytes = read(issue_fd, copybuf, sizeof(copybuf))) > 0) {
-            fwrite(copybuf, 1, read_bytes, stdout);
-        }
+        extern void print_issue(int fd);
+        print_issue(issue_fd);
         close(issue_fd);
     }
 

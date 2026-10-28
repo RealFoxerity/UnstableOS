@@ -1,0 +1,3 @@
+\d \t
+\S{ANSI_COLOR}\S{PRETTY_NAME}\e{reset} - \l @ \b
+
