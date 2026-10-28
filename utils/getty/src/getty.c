@@ -60,7 +60,7 @@ const int baud_lookup[CBAUD + 1] = {
 };
 speed_t read_baud(const char * baud) {
     char * end;
-    speed_t speed = strtol(baud, &end, 10);
+    unsigned int speed = strtol(baud, &end, 10);
     if (!end || *end)
         return (speed_t)-1;
     int j = 0;
