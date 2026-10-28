@@ -80,7 +80,7 @@ long mount_dev(dev_t dev, inode_t * mount_point, unsigned char type, unsigned sh
     kassert(type < SUPPORTED_FS_COUNT);
 
     // procfs folders might disappear on process death, it's not a stable mounting environment
-    if (mount_point->backing_superblock && mount_point->backing_superblock->fs_type == FS_PROCFS)
+    if (mount_point->backing_superblock && mount_point->backing_superblock->fs_type == FS_procfs)
         return -EINVAL;
 
     file_descriptor_t * file = NULL;
@@ -128,10 +128,28 @@ long mount_dev(dev_t dev, inode_t * mount_point, unsigned char type, unsigned sh
     return 0;
 }
 
-long sys_mount(const char * dev_path, const char * mount_path, unsigned char type, unsigned short options) {
-    if (type >= SUPPORTED_FS_COUNT) return -ENODEV;
+long sys_mount(const char * dev_path, const char * mount_path, const char * type, unsigned short options) {
+    if (!type || !mount_path) return -EFAULT;
     if (current_process->euid != 0)
         return -EPERM;
+
+    size_t len = 0;
+    type = secure_strdup(type, 10, &len);
+    if (type == NULL)
+        return -EFAULT;
+
+    enum supported_filesystems fs = -1;
+
+    for (int i = 0; i < SUPPORTED_FS_COUNT; i++) {
+        if (!strcmp(type, fs_names[i])) {
+            fs = i;
+            break;
+        }
+    }
+
+    kfree((void*)type);
+    if (fs == -1)
+        return -ENODEV;
 
     inode_t * mount_inode = NULL, * dev_inode = NULL;
     int ret = openat_inode((inode_t*)AT_FDCWD, mount_path, O_RDONLY | O_DIRECTORY | O_NOXDEV, 0, &mount_inode, 0);
@@ -152,11 +170,11 @@ long sys_mount(const char * dev_path, const char * mount_path, unsigned char typ
         return -EINTR;
     }
 
-    switch (type) {
-        case FS_TMPFS:
-        case FS_DEVFS: // devfs doesn't require a device
-        case FS_PROCFS:
-            ret = mount_dev(dev_get_ephemeral(), mount_inode, type, options);
+    switch (fs) {
+        case FS_tmpfs:
+        case FS_devfs: // devfs doesn't require a device
+        case FS_procfs:
+            ret = mount_dev(dev_get_ephemeral(), mount_inode, fs, options);
             close_inode(mount_inode);
             RESTORE_SIGNALS(mask);
             return ret;
@@ -177,7 +195,7 @@ long sys_mount(const char * dev_path, const char * mount_path, unsigned char typ
                 RESTORE_SIGNALS(mask);
                 return -ENODEV;
             }
-            ret = mount_dev(dev_inode->device, mount_inode, type, options);
+            ret = mount_dev(dev_inode->device, mount_inode, fs, options);
             close_inode(dev_inode);
             close_inode(mount_inode);
             RESTORE_SIGNALS(mask);

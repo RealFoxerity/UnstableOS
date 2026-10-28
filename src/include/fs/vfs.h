@@ -109,7 +109,21 @@ struct vfs_ops {
     time_t min_btime, min_ctime, min_mtime, min_atime;
 };
 
-#include <UnstableOS/mount.h>
+#define SUPPORTED_FS_COUNT 6
+#define FSTYPES \
+    X(tarfs) \
+    X(tmpfs) \
+    X(devfs) \
+    X(procfs) \
+    X(fat) \
+    X(ext2)
+
+#define X(a) FS_ ## a,
+enum supported_filesystems {
+    FSTYPES
+};
+#undef X
+extern const char * fs_names[SUPPORTED_FS_COUNT];
 extern const struct vfs_ops * fs_operations[SUPPORTED_FS_COUNT]; // defined in vfs.c, assigned in files belonging to individual fs
 
 // this entire structure is basically just for record keeping

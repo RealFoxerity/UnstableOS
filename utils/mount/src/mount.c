@@ -1,6 +1,8 @@
 #include <UnstableOS/mount.h>
 #include <string.h>
 #include <stdio.h>
+#include <errno.h>
+
 int main(int argc, char ** argv) {
     if (argc < 4 || argc > 5) {
         fprintf(stderr, "Usage: %s [fs_type] [srcdev] [mountpoint] <options>\n", argv[0]);
@@ -8,25 +10,7 @@ int main(int argc, char ** argv) {
         fprintf(stderr, "Supported options:\n\tro\n\trw (default)\n");
         return 1;
     }
-    int fs_type = 0;
     int options = 0;
-
-    if (strcmp(argv[1], "tmpfs") == 0)
-        fs_type = FS_TMPFS;
-    else if (strcmp(argv[1], "devfs") == 0)
-        fs_type = FS_DEVFS;
-    else if (strcmp(argv[1], "procfs") == 0)
-        fs_type = FS_PROCFS;
-    else if (strcmp(argv[1], "tarfs") == 0)
-        fs_type = FS_TARFS;
-    else if (strcmp(argv[1], "fat") == 0)
-        fs_type = FS_FAT;
-    else if (strcmp(argv[1], "ext2") == 0)
-        fs_type = FS_EXT2;
-    else {
-        fprintf(stderr, "mount: Unknown file system type %s\n", argv[1]);
-        return 1;
-    }
 
     if (argc == 5) {
         if (strcmp(argv[4], "rw") == 0)
@@ -39,8 +23,13 @@ int main(int argc, char ** argv) {
         }
     }
 
-    int ret = mount(argv[2], argv[3], fs_type, options);
-    if (ret < 0)
+    if (mount(argv[2], argv[3], argv[1], options) < 0) {
+        if (errno == ENODEV) {
+            fprintf(stderr, "mount: Unsupported filesystem type\n");
+            return 1;
+        }
         perror("mount");
-    return ret;
+        return 1;
+    }
+    return 0;
 }

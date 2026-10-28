@@ -51,5 +51,5 @@ ssize_t tarfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_
 int tarfs_stat(inode_t * file, struct stat * buf);
 
 #include "vfs.h"
-extern const struct vfs_ops tar_op;
+extern const struct vfs_ops tarfs_op;
 #endif

@@ -434,12 +434,12 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
         kassert(memdisk_from_range(initrd_start, initrd_len) != (dev_t)-1);
 
         kassert(open_raw_device_fd(GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0), O_RDONLY) >= 0);
-        mount_root(GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0), FS_TARFS, MOUNT_RDONLY);
+        mount_root(GET_DEV(DEV_MAJ_MEM, DEV_MEM_MEMDISK0), FS_tarfs, MOUNT_RDONLY);
     } else {
         if (dev_ops_lookup(GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE0 + 1)).seek != (void*)1) {
-            mount_root(GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE0 + 1), FS_FAT, MOUNT_RDONLY);
+            mount_root(GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE0 + 1), FS_fat, MOUNT_RDONLY);
         } else {
-            mount_root(GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE0), FS_FAT, MOUNT_RDONLY);
+            mount_root(GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE0), FS_fat, MOUNT_RDONLY);
         }
     }
 
@@ -447,7 +447,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     if (openat_inode(current_process->root, "/dev", O_DIRECTORY | O_RDONLY, 0, &dev_inode, 0) < 0) {
         kprintf("No /dev directory in initial memdisk, /dev won't be mounted\n");
     } else {
-        if (mount_dev(dev_get_ephemeral(), dev_inode, FS_DEVFS, MOUNT_RDONLY) != 0) {
+        if (mount_dev(dev_get_ephemeral(), dev_inode, FS_devfs, MOUNT_RDONLY) != 0) {
             kprintf("Error while mounting /dev, /dev won't be mounted\n");
         }
         close_inode(dev_inode);
@@ -455,7 +455,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     if (openat_inode(current_process->root, "/proc", O_DIRECTORY | O_RDONLY, 0, &dev_inode, 0) < 0) {
         kprintf("No /proc directory in initial memdisk, /proc won't be mounted\n");
     } else {
-        if (mount_dev(dev_get_ephemeral(), dev_inode, FS_PROCFS, MOUNT_RDONLY) != 0) {
+        if (mount_dev(dev_get_ephemeral(), dev_inode, FS_procfs, MOUNT_RDONLY) != 0) {
             kprintf("Error while mounting /proc, /proc won't be mounted\n");
         }
         close_inode(dev_inode);

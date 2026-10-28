@@ -1,15 +1,15 @@
 #include "fs/vfs.h"
-#include "fs/tarfs.h"
-#include "fs/tmpfs.h"
-#include "fs/devfs.h"
-#include "fs/procfs.h"
-#include "fs/fat.h"
-#include "fs/ext2.h"
+
+#define X(a) extern const struct vfs_ops a ## _op;
+FSTYPES
+#undef X
+#define X(a) [FS_ ## a] = &a ## _op,
 const struct vfs_ops * fs_operations[SUPPORTED_FS_COUNT] = {
-    [FS_TARFS] = &tar_op,
-    [FS_TMPFS] = &tmpfs_op,
-    [FS_DEVFS] = &devfs_op,
-    [FS_PROCFS]= &procfs_op,
-    [FS_FAT]   = &fat_op,
-    [FS_EXT2]  = &ext2_op,
+    FSTYPES
 };
+#undef X
+#define X(a) [FS_ ## a] = #a,
+const char * fs_names[SUPPORTED_FS_COUNT] = {
+    FSTYPES
+};
+#undef X

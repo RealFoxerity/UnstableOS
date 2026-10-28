@@ -18,7 +18,7 @@
 // the file using them; maybe redo to have some form of reverse lookup?
 
 
-const struct vfs_ops tar_op = {
+const struct vfs_ops tarfs_op = {
     .fs_init = tar_load_fs,
     .fs_deinit = tar_unload_fs,
     .lookup = tarfs_lookup,

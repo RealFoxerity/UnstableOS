@@ -3,9 +3,9 @@
 #include <unistd.h>
 #include <errno.h>
 
-int mount(const char * dev_path, const char * mountpoint, unsigned char type, unsigned short options) {
-    if (mountpoint == NULL) {
-        ___set_errno(EINVAL);
+int mount(const char * dev_path, const char * mountpoint, const char * type, unsigned short options) {
+    if (mountpoint == NULL || type == NULL) {
+        ___set_errno(EFAULT);
         return -1;
     }
     long ret = syscall(SYSCALL_MOUNT, dev_path, mountpoint, type, options);

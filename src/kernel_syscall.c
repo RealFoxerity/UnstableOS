@@ -380,7 +380,7 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
             return_value = sys_setpgid(arg1, arg2);
             break;
         case SYSCALL_MOUNT:
-            return_value = sys_mount((const char*)arg1, (const char*)arg2, (unsigned char)arg3, (unsigned short)arg4);
+            return_value = sys_mount((const char*)arg1, (const char*)arg2, (const char*)arg3, (unsigned short)arg4);
             break;
         case SYSCALL_UMOUNT:
             return_value = sys_umount((const char*)arg1);
