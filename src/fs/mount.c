@@ -74,7 +74,17 @@ long mount_root(dev_t dev, unsigned char type, unsigned short options) {
 
 // TODO: actually do stuff with the mount_root
 
+long mount_file(file_descriptor_t * file, inode_t * mount_point, unsigned char type, unsigned short options);
 long mount_dev(dev_t dev, inode_t * mount_point, unsigned char type, unsigned short options) {
+    file_descriptor_t * file = NULL;
+    int ret                  = open_raw_device(dev, options & MOUNT_RDONLY ? O_RDONLY : O_RDWR, &file);
+    if (ret < 0) return ret;
+    kassert(file);
+
+    return mount_file(file, mount_point, type, options);
+}
+
+long mount_file(file_descriptor_t * file, inode_t * mount_point, unsigned char type, unsigned short options) {
     kassert(root_mountpoint);
     kassert(mount_point);
     kassert(type < SUPPORTED_FS_COUNT);
@@ -82,11 +92,8 @@ long mount_dev(dev_t dev, inode_t * mount_point, unsigned char type, unsigned sh
     // procfs folders might disappear on process death, it's not a stable mounting environment
     if (mount_point->backing_superblock && mount_point->backing_superblock->fs_type == FS_procfs)
         return -EINVAL;
-
-    file_descriptor_t * file = NULL;
-    int ret                  = open_raw_device(dev, options & MOUNT_RDONLY ? O_RDONLY : O_RDWR, &file);
-    if (ret < 0) return ret;
-    kassert(file);
+    if (!file)
+        return -EINVAL;
 
     superblock_t * new_superblock = get_free_superblock();
     if (new_superblock == NULL) {
@@ -94,7 +101,7 @@ long mount_dev(dev_t dev, inode_t * mount_point, unsigned char type, unsigned sh
         return -ENOMEM;
     }
 
-    new_superblock->device        = dev;
+    new_superblock->device        = S_ISBLK(file->inode->mode) ? file->inode->device : dev_get_ephemeral();
     new_superblock->fd            = file;
     new_superblock->fs_type       = type;
     new_superblock->mountpoint    = mount_point;
@@ -104,6 +111,7 @@ long mount_dev(dev_t dev, inode_t * mount_point, unsigned char type, unsigned sh
 
     kassert(new_superblock->funcs->lookup);
 
+    long ret;
     if (new_superblock->funcs->fs_init && (ret = new_superblock->funcs->fs_init(new_superblock)) != 0) {
         close_file(file);
         new_superblock->is_mounted = 0;
@@ -189,13 +197,27 @@ long sys_mount(const char * dev_path, const char * mount_path, const char * type
                 RESTORE_SIGNALS(mask);
                 return ret;
             }
-            if (!(S_ISBLK(dev_inode->mode) || S_ISCHR(dev_inode->mode))) {
+            if (!(S_ISBLK(dev_inode->mode) || S_ISREG(dev_inode->mode))) {
                 close_inode(mount_inode);
                 close_inode(dev_inode);
                 RESTORE_SIGNALS(mask);
-                return -ENODEV;
+                return -EINVAL;
             }
-            ret = mount_dev(dev_inode->device, mount_inode, fs, options);
+            if (S_ISBLK(dev_inode->mode)) {
+                ret = mount_dev(dev_inode->device, mount_inode, fs, options);
+            } else {
+                spinlock_acquire(&kernel_fd_lock);
+                file_descriptor_t * fd = get_free_fd();
+                spinlock_release(&kernel_fd_lock);
+                if (fd == NULL) {
+                    ret = -ENFILE;
+                } else {
+                    fd->inode = dev_inode;
+                    fd->flags = O_RDONLY | ((options & MOUNT_RDONLY) ? 0 : O_WRONLY);
+                    __atomic_add_fetch(&dev_inode->instances, 1, __ATOMIC_RELEASE);
+                    ret = mount_file(fd, mount_inode, fs, options);
+                }
+            }
             close_inode(dev_inode);
             close_inode(mount_inode);
             RESTORE_SIGNALS(mask);

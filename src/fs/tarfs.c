@@ -234,7 +234,7 @@ int tar_load_fs(superblock_t * sb) {
 
     if (tarfs_size < sizeof(ustar_hdr)) {
         kprintf("Tar archive truncated!\n");
-        return -1;
+        return -EIO;
     }
 
     ssize_t read_bytes = 0;
@@ -266,7 +266,7 @@ int tar_load_fs(superblock_t * sb) {
             kfree(path);
             tar_free_node(sb->data);
             kprintf("Tar archive corrupted/not in USTAR format!\n");
-            return -1;
+            return -EIO;
         }
         memcpy(path, hdr.file_name, sizeof(hdr.file_name));
         memcpy(path + sizeof(hdr.file_name), hdr.filename_prefix, sizeof(hdr.filename_prefix));
@@ -283,7 +283,7 @@ int tar_load_fs(superblock_t * sb) {
         if (tar_add_cached_path(sb->data, path, &hdr, curr_offset-512) != 0) {
             kprintf("Failed to build internal tar structures - failed on path %s!\n", path);
             tar_free_node(sb->data);
-            return -1;
+            return -EIO;
         }
 
         seek_file(tar_fd, archive_length, SEEK_CUR);
