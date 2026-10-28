@@ -19,6 +19,7 @@ void show_help() {
                 "\tcd [path] - changes current directory\n"
                 "\tchroot [path] - changes the root directory for this process\n"
                 "\texit [exitcode] - exits\n"
+                "\texec cmd - replaces the shell with a new process\n"
                 );
 }
 
@@ -31,22 +32,6 @@ int main(int argc, char ** argv) {
     signal(SIGTTOU, SIG_IGN);
     signal(SIGTTIN, SIG_IGN);
 
-    if (getpid() == 1) {
-        // stuff like setsid() in combination with our wait() in ysh means that if we're the init
-        // we'll be waiting on everything setsided
-        relaunch:
-        switch (fork()) {
-            case -1:
-            case  0:
-                break;
-            default:
-                signal(SIGQUIT, SIG_IGN);
-                while (!(wait(&(int){0}) == -1 && errno == ECHILD)) {}
-                printf("\n!!! ysh: Warning: tried to exit init shell, relaunching\n");
-                signal(SIGQUIT, SIG_DFL);
-                goto relaunch;
-        }
-    }
     printf("\n\nArguments:\n");
     for (int i = 0; i < argc; i++) {
         printf("%s ", argv[i]);
@@ -113,66 +98,103 @@ int main(int argc, char ** argv) {
 
             pid_t last_pid = 0; // return codes are based on the last process in a given pipeline
             pid_t read_pid = 0;
+            pid_t pgrp_pid = 0;
+
             int wstatus = 0;
             int last_wstatus = -1;
 
             int last_read_fd = -1; // what fd to dup2 to STDIN_FILENO in a forked process
 
-            // used CLOEXEC both here and in the parser to avoid needing to close each descriptor in the fork branch
-            // (just in case to not leak extra descriptors)
-            for (size_t arg_idx = 0; argvs[arg_idx] != NULL; arg_idx++) {
-                int pipe_fds[2] = {-1, -1};
-                if (argvs[arg_idx + 1] != NULL) {
-                    if (pipe2(pipe_fds, O_CLOEXEC) == -1) {
-                        printf("ysh: error on argv[0]: %s: pipe2(): %s\n", argvs[arg_idx][0], strerror(errno));
-                        goto command_cleanup;
-                    }
-                }
-
-                switch (read_pid = fork()) {
-                    case -1:
-                        printf("ysh: error on argv[0]: %s: fork(): %s\n", argvs[arg_idx][0], strerror(errno));
-                        close(pipe_fds[0]);
-                        close(pipe_fds[1]);
-                        goto command_cleanup;
-
-                    case 0:
-                        if (last_read_fd != -1)
-                            dup2(last_read_fd, STDIN_FILENO);
-
-                        for (struct redirection * redirect = redirs[arg_idx]; redirect->redir_type != REDIR_END; redirect++)
-                            dup2(redirect->fd_r, redirect->fd_l);
-
-                        if (pipe_fds[1] != -1)
-                            dup2(pipe_fds[1], STDOUT_FILENO);
-
-                        signal(SIGINT,  SIG_DFL);
-                        signal(SIGTSTP, SIG_DFL);
-                        signal(SIGTTOU, SIG_DFL);
-                        signal(SIGTTIN, SIG_DFL);
-
-                        execvp(argvs[arg_idx][0], argvs[arg_idx]);
-                        printf("ysh: %s: %s\n", argvs[arg_idx][0], strerror(errno));
-                        exit(127);
-
-                    default:
-                        if (argvs[arg_idx + 1] == NULL)
-                            last_pid = read_pid;
-                        close(pipe_fds[1]);
-                        close(last_read_fd);
-                        last_read_fd = pipe_fds[0];
-
-                        // close now to have as much free FDs for pipes
-                        for (struct redirection * redirect = redirs[arg_idx]; redirect->redir_type != REDIR_END; redirect++) {
-                            if (redirect->redir_type == REDIR_FD_FILE) {
-                                close(redirect->fd_r);
-                                redirect->fd_r = -1;
-                            }
-                        }
+            int doing_exec = 0;
+            if (argvs[0] && argvs[0][0] && !strcmp(argvs[0][0], "exec")) {
+                doing_exec = 1;
+                if (argvs[1]) {
+                    printf("exec doesn't work with pipes\n");
+                    goto cleanup;
                 }
             }
+            // job control shell
+            switch (doing_exec ? 0 : (pgrp_pid = fork())) {
+                case -1:
+                    fprintf(stderr, "ysh: fork(): %s\n", strerror(errno));
+                    break;
+                case 0:
+                    setpgid(0, 0);
+                    tcsetpgrp(STDIN_FILENO,  getpid());
+                    tcsetpgrp(STDOUT_FILENO, getpid());
+                    tcsetpgrp(STDERR_FILENO, getpid());
+                    // used CLOEXEC both here and in the parser to avoid needing to close each descriptor in the fork branch
+                    // (just in case to not leak extra descriptors)
+                    for (size_t arg_idx = 0; argvs[arg_idx] != NULL; arg_idx++) {
+                        int pipe_fds[2] = {-1, -1};
+                        if (argvs[arg_idx + 1] != NULL) {
+                            if (pipe2(pipe_fds, O_CLOEXEC) == -1) {
+                                printf("ysh: error on argv[0]: %s: pipe2(): %s\n", argvs[arg_idx][0], strerror(errno));
+                                exit(127);
+                            }
+                        }
 
-            command_cleanup:
+                        switch (doing_exec ? 0 : (read_pid = fork())) {
+                            case -1:
+                                printf("ysh: error on argv[0]: %s: fork(): %s\n", argvs[arg_idx][0], strerror(errno));
+                                close(pipe_fds[0]);
+                                close(pipe_fds[1]);
+                                exit(127);
+
+                            case 0:
+                                if (last_read_fd != -1)
+                                    dup2(last_read_fd, STDIN_FILENO);
+
+                                for (struct redirection * redirect = redirs[arg_idx]; redirect->redir_type != REDIR_END; redirect++)
+                                    dup2(redirect->fd_r, redirect->fd_l);
+                                if (doing_exec && !argvs[arg_idx][doing_exec])
+                                    goto cleanup; // the 'exec 4</file' usage
+                                if (pipe_fds[1] != -1)
+                                    dup2(pipe_fds[1], STDOUT_FILENO);
+
+                                signal(SIGINT,  SIG_DFL);
+                                signal(SIGTSTP, SIG_DFL);
+                                signal(SIGTTOU, SIG_DFL);
+                                signal(SIGTTIN, SIG_DFL);
+
+                                execvp(argvs[arg_idx][doing_exec], argvs[arg_idx] + doing_exec);
+                                printf("ysh: %s: %s\n", argvs[arg_idx][doing_exec], strerror(errno));
+                                if (doing_exec) {
+                                    signal(SIGINT,  SIG_IGN);
+                                    signal(SIGTSTP, SIG_IGN);
+                                    signal(SIGTTOU, SIG_IGN);
+                                    signal(SIGTTIN, SIG_IGN);
+                                    goto cleanup;
+                                }
+                                exit(127);
+
+                            default:
+                                if (argvs[arg_idx + 1] == NULL)
+                                    last_pid = read_pid;
+                                close(pipe_fds[1]);
+                                close(last_read_fd);
+                                last_read_fd = pipe_fds[0];
+
+                                // close now to have as much free FDs for pipes
+                                for (struct redirection * redirect = redirs[arg_idx]; redirect->redir_type != REDIR_END; redirect++) {
+                                    if (redirect->redir_type == REDIR_FD_FILE) {
+                                        close(redirect->fd_r);
+                                        redirect->fd_r = -1;
+                                    }
+                                }
+                        }
+                    }
+                    while (1) {
+                        read_pid = waitpid(-pgrp_pid, &wstatus, 0);
+                        if (read_pid == -1 && errno == ECHILD) break;
+                        if (read_pid == last_pid) last_wstatus = wstatus;
+                    }
+                    exit(WEXITSTATUS(last_wstatus));
+
+                default:
+            }
+
+            cleanup:
             free((void*)argvs[0]);
             free(argvs);
 
@@ -188,10 +210,14 @@ int main(int argc, char ** argv) {
             free(redirs);
 
             while (1) {
-                read_pid = wait(&wstatus);
+                // wait specifically on the job control shell
+                read_pid = waitpid(pgrp_pid, &wstatus, 0);
                 if (read_pid == -1 && errno == ECHILD) break;
-                if (read_pid == last_pid) last_wstatus = wstatus;
+                if (read_pid == pgrp_pid) last_wstatus = wstatus;
             }
+            tcsetpgrp(STDIN_FILENO,  getpgrp());
+            tcsetpgrp(STDOUT_FILENO, getpgrp());
+            tcsetpgrp(STDERR_FILENO, getpgrp());
             continue;
         }
     }
