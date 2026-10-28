@@ -16,7 +16,7 @@ else
 UTILS_BUILD_DIR := $(MAKE_ROOT)/build/utils
 endif
 
-UTILS := basename cat chmod chown clear dd dirname echo id ldd link ln login ls mkdir mkfifo mknod mount pwd rename readlink rm rmdir setsid sleep stty swaproot tty umount xxd ysh zrezset
+UTILS := basename cat chmod chown clear dd dirname echo getty id ldd link ln login ls mkdir mkfifo mknod mount pwd rename readlink rm rmdir setsid sleep stty swaproot tty umount xxd ysh zrezset
 UTILS_BINS = $(patsubst %, $(UTILS_BUILD_DIR)/%, $(UTILS))
 
 UTILS_CFLAGS := $(CFLAGS) -Ofast -g -MMD -MP
