@@ -198,7 +198,7 @@ ssize_t procfs_pread_main(file_descriptor_t * fd, void * buf, size_t n, off_t of
                 uptime_frac);
             break;
         case PROCFS_version:
-            len = snprintf(temp, PROCFS_BUFSIZ, KERNEL_VERSION " (compiled with love at "__TIMESTAMP__")\n");
+            len = snprintf(temp, PROCFS_BUFSIZ, KERNEL_FULL_NAME " (compiled with love at "__DATE__" "__TIME__")\n");
             break;
         case PROCFS_cpuinfo:
             len = get_cpuinfo(temp);

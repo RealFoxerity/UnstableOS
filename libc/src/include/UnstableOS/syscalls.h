@@ -124,6 +124,8 @@ enum syscalls {
     SYSCALL_GETHOSTNAME,
     SYSCALL_SETHOSTNAME,
 
+    SYSCALL_UNAME,
+
     SYSCALL_SWAPROOT = 255, // new root, path to put old root
 };
 

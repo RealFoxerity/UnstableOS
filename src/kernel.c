@@ -300,7 +300,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     com_init(0, B115200, COM_DATA_BITS_8, COM_STOP_BITS_1, COM_PARITY_NONE, COM_BUFFER_1);
     com_init(1, B115200, COM_DATA_BITS_8, COM_STOP_BITS_1, COM_PARITY_NONE, COM_BUFFER_1);
 
-    kprintf("Running " KERNEL_VERSION ", compiled at "__TIMESTAMP__"\n");
+    kprintf("Running " KERNEL_FULL_NAME ", compiled at "__DATE__" "__TIME__"\n");
 
     kernel_entry_addr_log();
 

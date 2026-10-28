@@ -13,8 +13,9 @@
 #include "fs/fs.h"
 #include <pthread.h>
 #include "kernel_gdt_idt.h"
-#include "sys/mman.h"
+#include <sys/mman.h>
 #include "lowlevel.h"
+#include <sys/utsname.h>
 
 #define kprintf(fmt, ...) kprintf("Kernel Routines: "fmt, ##__VA_ARGS__)
 
@@ -809,6 +810,17 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
             return_value = 0;
             break;
 
+        case SYSCALL_UNAME:
+            VM_LOCK(arg1);
+            if (!paging_check_address_range((void*)arg1, sizeof(struct utsname), 1, in_kernel)) {
+                return_value = -EFAULT;
+                VM_UNLOCK(arg1);
+                break;
+            }
+            extern int sys_uname(struct utsname * name);
+            return_value = sys_uname((void*)arg1);
+            VM_UNLOCK(arg1);
+            break;
         case SYSCALL_SWAPROOT:
             return_value = sys_swaproot((const char *)arg1, (const char *)arg2);
             break;

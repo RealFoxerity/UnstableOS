@@ -9,7 +9,9 @@
 #define RTC_TIMER_RESOLUTION_HZ 1024
 #define RTC_TIME_RESOLUTION_USEC (1000000 / RTC_TIMER_RESOLUTION_HZ)
 
-#define KERNEL_VERSION "UnstableOS v0.01"
+#define KERNEL_NAME "UnstableOS"
+#define KERNEL_VERSION "0.01"
+#define KERNEL_FULL_NAME KERNEL_NAME" "KERNEL_VERSION
 #define DEFAULT_HOSTNAME "UnstableOS"
 #include "kernel_spinlock.h"
 extern rw_spinlock_t hostname_lock;
