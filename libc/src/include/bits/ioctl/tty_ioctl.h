@@ -27,4 +27,8 @@
 
 #define TIOCGWINSZ __IOCTL_NO(DEV_MAJ_TTY, 10) // tcgetwinsize
 #define TIOCSWINSZ __IOCTL_NO(DEV_MAJ_TTY, 11) // tcsetwinsize
+
+// if fd was our CTTY, drop the CTTY, if we are session leader, drop the CTTY of the entire session
+#define TIOCNOTTY  __IOCTL_NO(DEV_MAJ_TTY, 12)
+
 #endif

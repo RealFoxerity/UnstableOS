@@ -161,7 +161,7 @@ long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
             if (current_process->session != terminals[MINOR(dev)]->session ||
                 current_process->pgrp    == terminals[MINOR(dev)]->foreground_pgrp)
                     break;
-            if (current_process->sa_handlers[SIGTTOU].sa_handler == SIG_IGN) break;
+            if (current_process->sa_handlers[SIGTTOU-1].sa_handler == SIG_IGN) break;
             if (current_thread ->sa_mask & GET_SIG_MASK(SIGTTOU))            break;
 
             if (current_process->prgp_orphan) return -EIO;
@@ -361,6 +361,27 @@ long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
             __atomic_store_n(&terminals[MINOR(dev)]->height, ws->ws_row, __ATOMIC_RELEASE);
             if (sig)
                 signal_process_group(terminals[MINOR(dev)]->foreground_pgrp, &(siginfo_t) {.si_signo = SIGWINCH});
+            return 0;
+
+        case TIOCNOTTY:
+            spinlock_acquire(&current_process->lock);
+            if (current_process->ctty == dev)
+                current_process->ctty = 0;
+            if (current_process->session == current_process->pid) {
+                signal_process_group(terminals[MINOR(dev)]->foreground_pgrp, &(siginfo_t) {.si_signo = SIGHUP});
+                signal_process_group(terminals[MINOR(dev)]->foreground_pgrp, &(siginfo_t) {.si_signo = SIGCONT});
+
+                terminals[MINOR(dev)]->foreground_pgrp = terminals[MINOR(dev)]->session = 0; // not sure whether this is correct
+
+                spinlock_acquire(&scheduler_lock);
+                for (process_t * proc = process_list; proc; proc = proc->next)
+                    if (proc->session == current_process->session)
+                        proc->ctty = 0;
+                spinlock_release(&scheduler_lock);
+
+                terminals[MINOR(dev)]->foreground_pgrp = terminals[MINOR(dev)]->session = 0; // one last time in case a race somehow happened
+            }
+            spinlock_release(&current_process->lock);
             return 0;
         default:
             return -EINVAL;
