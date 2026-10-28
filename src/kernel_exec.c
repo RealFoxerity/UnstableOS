@@ -302,7 +302,7 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
     kassert(new_thread);
     kassert(new_thread->stack == PROGRAM_STACK_VADDR);
 
-    current_process->argv = (const char**)(new_thread->stack - stack_state_sz + sizeof(int));
+    proc->argv = (const char**)(new_thread->stack - stack_state_sz + sizeof(int));
 
     new_thread->sa_mask = current_thread->sa_mask;
     new_thread->in_critical_section = 0;
