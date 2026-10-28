@@ -675,7 +675,7 @@ int ttyname_r(int fildes, char *name, size_t namesize) {
         return -1;
 
     strcpy(name, "/dev/");
-    dev2string(st.st_rdev, name + strlen("/dev/"));
+    dev2string(st.st_rdev | (S_ISCHR(st.st_mode) ? 0x8000 : 0), name + strlen("/dev/"));
     return 0;
 }
 
