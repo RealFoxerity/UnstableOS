@@ -70,10 +70,8 @@ char *getcwd(char *buf, size_t size) {
                 return NULL;
             }
 
-            if (fstatat(curr_dir_fd, dent->d_name, &statbuf, 0) == -1) {
-                closedir(this_dir);
-                return NULL;
-            }
+            if (fstatat(curr_dir_fd, dent->d_name, &statbuf, 0) == -1)
+                continue; // could be an invalid symlink
             if (statbuf.st_ino == curr_dir_ino && statbuf.st_dev == curr_dir_dev) break;
         }
 
