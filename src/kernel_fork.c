@@ -295,7 +295,8 @@ pid_t sys_fork(__gregcontext_t * ctx) {
     spinlock_release(&address_spaces_lock);
 
     new_proc->startup_realtime = system_time_sec;
-    __atomic_add_fetch(&new_proc->main_elf->instances, 1, __ATOMIC_ACQUIRE);
+    if (new_proc->main_elf)
+        __atomic_add_fetch(&new_proc->main_elf->instances, 1, __ATOMIC_ACQUIRE);
     sched_add_process(new_proc);
     //scheduler_print_processes();
     return new_proc->pid;

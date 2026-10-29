@@ -64,6 +64,13 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
 
     munmap_all(current_process);
 
+    spinlock_acquire(&current_process->lock);
+    inode_t * old_elf = current_process->main_elf;
+    current_process->main_elf = NULL;
+    spinlock_release(&current_process->lock);
+    if (old_elf)
+        close_inode(old_elf);
+
     spinlock_acquire(&scheduler_lock);
 
     current_process->do_cleanup = 0;

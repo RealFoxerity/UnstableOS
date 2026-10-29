@@ -243,7 +243,8 @@ static void scheduler_remove_process(process_t * process) {
 
     close_inode(process->pwd);
     close_inode(process->root);
-    close_inode(process->main_elf);
+    if (process->main_elf)
+        close_inode(process->main_elf);
     for (int i = 0; i < SEM_NSEMS_MAX; i++) {
         if (process->semaphores[i] == NULL) continue;
         if (__atomic_sub_fetch(&process->semaphores[i]->used, 1, __ATOMIC_RELEASE) == 0)
