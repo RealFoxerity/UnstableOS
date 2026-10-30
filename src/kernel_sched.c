@@ -580,7 +580,11 @@ void schedule(__gregcontext_t * context) {
                     // we need this to access the TCB and PCB
                     paging_apply_address_space(checked_process->address_space_paddr);
 
-                    checked_thread->tcb->tid = 0; // simplify EOWNERDEAD and a bunch of other checks in userspace
+                    if (current_thread->tcb &&
+                        paging_get_pte(checked_thread->tcb) != NULL // bug? either way, userspace's problem
+                    ) {
+                        checked_thread->tcb->tid = 0; // simplify EOWNERDEAD and a bunch of other checks in userspace
+                    }
                     futex_wake_owner_dead(checked_process, checked_thread->tid);
 
                     // we could get this from the tcb, but frankly, I don't trust the userspace
