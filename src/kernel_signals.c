@@ -300,7 +300,7 @@ static void signal_dispatch_process(process_t * signaled, siginfo_t * sig) {
 
 // lock scheduler beforehand or have interrupts disabled
 void __signal_process(process_t * signaled, siginfo_t * sig) {
-    if (sig->si_signo <  0 || sig->si_signo > NSIG_MAX) return;
+    if (sig->si_signo <= 0 || sig->si_signo > NSIG_MAX) return;
     if (signaled->pid == 0 || signaled->ring == 0) return; // we don't want to signal the kernel
     if (signaled->do_cleanup) return; // no point in sending signals to a process pending for cleanup
 
@@ -309,7 +309,7 @@ void __signal_process(process_t * signaled, siginfo_t * sig) {
 }
 
 void signal_process(process_t * signaled, siginfo_t * sig) {
-    if (sig->si_signo <  0 || sig->si_signo > NSIG_MAX) return;
+    if (sig->si_signo <= 0 || sig->si_signo > NSIG_MAX) return;
     if (signaled->pid == 0 || signaled->ring == 0) return; // we don't want to signal the kernel
     if (signaled->do_cleanup) return; // no point in sending signals to a process pending for cleanup
 
@@ -362,8 +362,8 @@ void signal_retry_process(process_t * signaled) {
 }
 
 void signal_thread(process_t * group, thread_t * thread, siginfo_t * sig) {
-    if (sig->si_signo < 0 || sig->si_signo > NSIG_MAX) return;
-    if (group->pid == 0   || group->ring == 0) return; // we don't want to signal the kernel
+    if (sig->si_signo <= 0 || sig->si_signo > NSIG_MAX) return;
+    if (group->pid == 0    || group->ring == 0) return; // we don't want to signal the kernel
 
     //kprintf("signaling pid %ld, tid %ld, with %d\n", group->pid, thread->tid, sig->si_signo);
     spinlock_acquire(&scheduler_lock);
@@ -687,7 +687,7 @@ void sys_sigreturn(__gregcontext_t * ctx) {
 }
 
 int sys_sigaction(int sig, struct sigaction * __restrict act, struct sigaction * __restrict oact) {
-    if (sig < 0 || sig > NSIG_MAX) return -EINVAL;
+    if (sig <= 0 || sig > NSIG_MAX) return -EINVAL;
     switch (sig) {
         case SIGKILL:
         case SIGSTOP:
