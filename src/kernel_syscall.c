@@ -824,6 +824,11 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
         case SYSCALL_SWAPROOT:
             return_value = sys_swaproot((const char *)arg1, (const char *)arg2);
             break;
+
+
+        case SYSCALL_HALT:
+            return_value = sys_halt(arg1);
+            break;
         default:
             return_value = -ENOSYS;
             break;

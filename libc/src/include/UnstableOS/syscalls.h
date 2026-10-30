@@ -127,6 +127,7 @@ enum syscalls {
     SYSCALL_UNAME,
 
     SYSCALL_SWAPROOT = 255, // new root, path to put old root
+    SYSCALL_HALT,
 };
 
 #endif

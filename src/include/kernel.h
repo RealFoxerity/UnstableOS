@@ -82,6 +82,7 @@ void __attribute__((format(printf, 1, 2))) kprintf(const char *format, ...);
 void __attribute__((noreturn)) panic(char * reason);
 
 void kernel_reset_system(); // kernel_ps2.c
+int sys_halt(int how);
 
 dev_t dev_get_ephemeral();
 
