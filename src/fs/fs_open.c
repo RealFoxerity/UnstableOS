@@ -191,7 +191,7 @@ static int __openat_inode(inode_t * base, const char * path, unsigned int flags,
     mode &= ~current_process->umask;
     mode &= ~S_IFMT;
 
-    kassert(root_mountpoint);
+    kassert(root_superblock);
     int ret = 0;
 
     size_t pathlen;
@@ -229,7 +229,7 @@ static int __openat_inode(inode_t * base, const char * path, unsigned int flags,
     char need_dir = dup_path[pathlen - 1] == '/';
 
     // resolving the mount point
-    rw_spinlock_acquire_read(&mount_tree_lock);
+    rw_spinlock_acquire_read(&mount_lock);
 
     char * final_path = dup_path;
 
@@ -258,7 +258,7 @@ static int __openat_inode(inode_t * base, const char * path, unsigned int flags,
 
     inode_t * prev = base, * new = NULL;
 
-    if (prev->is_mountpoint && prev != root_mountpoint->mountpoint) {
+    if (prev->is_mountpoint && prev != root_superblock->mountpoint) {
         sb = prev->next_superblock;
     }
     else {
@@ -272,14 +272,14 @@ static int __openat_inode(inode_t * base, const char * path, unsigned int flags,
     kassert(sb->funcs->lookup);
 
     // so that prev is never null, simplifying chroot checks
-    if (prev->is_mountpoint && prev != root_mountpoint->mountpoint) {
+    if (prev->is_mountpoint && prev != root_superblock->mountpoint) {
         inode_t * prev_back = prev;
         sb->funcs->lookup(sb, NULL, ".", &prev, O_SEARCH | O_DIRECTORY);
         if (preincremented)
             close_inode(prev_back);
     }
 
-    kassert(prev->is_mountpoint == 0 || prev == root_mountpoint->mountpoint);
+    kassert(prev->is_mountpoint == 0 || prev == root_superblock->mountpoint);
 
     unsigned int wanted_perms = 0;
     wanted_perms |= (flags & O_RDONLY) ? 4 : 0;
@@ -521,7 +521,7 @@ static int __openat_inode(inode_t * base, const char * path, unsigned int flags,
 
     err:
     close_inode(current_root);
-    rw_spinlock_release_read(&mount_tree_lock);
+    rw_spinlock_release_read(&mount_lock);
     kfree(dup_path);
     return ret;
 }
@@ -870,17 +870,17 @@ int sys_renameat(int oldfd, const char * old, int newfd, const char * new) {
     }
     close_inode(prev);
 
-    rw_spinlock_acquire_read(&mount_tree_lock);
+    rw_spinlock_acquire_read(&mount_lock);
     char mnt = dst ? dst->is_mountpoint : 0;
     close_inode(src);
     close_inode(dst);
     if (mnt) {
-        rw_spinlock_release_read(&mount_tree_lock);
+        rw_spinlock_release_read(&mount_lock);
         ret = -EBUSY;
         goto err;
     }
     ret = src->backing_superblock->funcs->rename(old_parent, old_frag, new_parent, new_frag);
-    rw_spinlock_release_read(&mount_tree_lock);
+    rw_spinlock_release_read(&mount_lock);
 
 
     if (ret == 0) {

@@ -7,36 +7,24 @@
 #include <errno.h>
 
 #include "kernel_sched.h"
-rw_spinlock_t mount_tree_lock = {0};
-mount_tree * root_mountpoint = NULL;
+rw_spinlock_t mount_lock = {0};
+superblock_t * root_superblock = NULL;
+superblock_t * mounts = NULL;
 static unsigned long last_fsid = 0; // statvfs will require this
 
 long mount_root(dev_t dev, unsigned char type, unsigned short options) {
     // this is for the kernel init only, it doesn't do proper checking of multiple things, do not call post-init
-    kassert(root_mountpoint == NULL);
+    kassert(root_superblock == NULL);
     kassert(kernel_superblocks[0] == NULL); // lazy way of checking this is the init
     kassert(type < SUPPORTED_FS_COUNT);
     kassert(kernel_task); // to set the kernel's pwd and root
-    rw_spinlock_acquire_write(&mount_tree_lock);
+    rw_spinlock_acquire_write(&mount_lock);
 
-    root_mountpoint = kalloc(sizeof(mount_tree));
-    kassert(root_mountpoint);
-
-    memset(root_mountpoint, 0, sizeof(mount_tree));
-    /*
-        root_mountpoint->path = kalloc(2);
-        kassert(root_mountpoint->path);
-        root_mountpoint->path[0] = '/';
-        root_mountpoint->path[1] = '\0';
-    */
-    root_mountpoint->path = kalloc(1); // due to the way we handle open(), we can't have / as the mountpoint path
-    kassert(root_mountpoint->path);
-    root_mountpoint->path[0] = '\0';
 
     file_descriptor_t * file = NULL;
     kassert(open_raw_device(dev, (options&MOUNT_RDONLY) ? O_RDONLY : O_RDWR, &file) == 0);
     
-    superblock_t * root_superblock = get_free_superblock();
+    root_superblock = get_free_superblock();
     kassert(root_superblock);
 
     root_superblock->device = dev;
@@ -62,10 +50,11 @@ long mount_root(dev_t dev, unsigned char type, unsigned short options) {
     root_inode->instances += 2; // because pwd and root for kernel task
     spinlock_release(&root_inode->lock);
 
-    root_mountpoint->mountpoint = root_inode;
     root_superblock->mountpoint = root_inode;
-
-    rw_spinlock_release_write(&mount_tree_lock);
+    root_superblock->mountpoint = root_inode;
+    root_superblock->prev = root_superblock;
+    mounts = root_superblock;
+    rw_spinlock_release_write(&mount_lock);
 
     kernel_task->pwd = kernel_task->root = root_inode;
 
@@ -85,7 +74,7 @@ long mount_dev(dev_t dev, inode_t * mount_point, unsigned char type, unsigned sh
 }
 
 long mount_file(file_descriptor_t * file, inode_t * mount_point, unsigned char type, unsigned short options) {
-    kassert(root_mountpoint);
+    kassert(root_superblock);
     kassert(mount_point);
     kassert(type < SUPPORTED_FS_COUNT);
 
@@ -112,27 +101,28 @@ long mount_file(file_descriptor_t * file, inode_t * mount_point, unsigned char t
     kassert(new_superblock->funcs->lookup);
 
     long ret;
+    rw_spinlock_acquire_write(&mount_lock);
+    if (__atomic_load_n(&mount_point->is_mountpoint, __ATOMIC_ACQUIRE)) {
+        rw_spinlock_release_write(&mount_lock);
+        close_file(file);
+        new_superblock->is_mounted = 0;
+        return -EBUSY;
+    }
     if (new_superblock->funcs->fs_init && (ret = new_superblock->funcs->fs_init(new_superblock)) != 0) {
+        rw_spinlock_release_write(&mount_lock);
         close_file(file);
         new_superblock->is_mounted = 0;
         return ret;
     }
 
-    spinlock_acquire(&mount_point->lock);
     // mountpoints have an implicit +1 in the instance counter
-    __atomic_add_fetch(&mount_point->instances, 1, __ATOMIC_ACQUIRE);
-
+    __atomic_add_fetch(&mount_point->instances, 1, __ATOMIC_RELEASE);
     mount_point->next_superblock = new_superblock;
-    // ensure next_superblock is assigned before is_mountpoint so that we don't race in openat_inode
-    __atomic_thread_fence(__ATOMIC_RELEASE);
-    mount_point->is_mountpoint   = 1;
-    spinlock_release(&mount_point->lock);
+    __atomic_store_n(&mount_point->is_mountpoint, 1, __ATOMIC_RELEASE);
 
-    /*
-    spinlock_acquire(&mount_tree_lock);
+    APPEND_DOUBLE_LINKED_LIST(new_superblock, mounts);
 
-    spinlock_release(&mount_tree_lock);
-    */
+    rw_spinlock_release_write(&mount_lock);
     return 0;
 }
 
@@ -239,12 +229,18 @@ long sys_umount(const char * mount_path) {
         close_inode(mount_inode);
         return -EINVAL;
     }
-    rw_spinlock_acquire_write(&mount_tree_lock); // prevents openat_inode from creating a new instance
+    rw_spinlock_acquire_write(&mount_lock); // prevents openat_inode from creating a new instance
+
+    if (!__atomic_load_n(&mount_inode->is_mountpoint, __ATOMIC_ACQUIRE)) {
+        rw_spinlock_release_write(&mount_lock);
+        close_inode(mount_inode);
+        return -EINVAL;
+    }
 
     superblock_t * target = mount_inode->next_superblock;
 
     if (target->instances > 0) {
-        rw_spinlock_release_write(&mount_tree_lock);
+        rw_spinlock_release_write(&mount_lock);
         close_inode(mount_inode);
         return -EBUSY;
     }
@@ -262,12 +258,14 @@ long sys_umount(const char * mount_path) {
     if (target->fd)
         close_file(target->fd);
 
+    APPEND_DOUBLE_LINKED_LIST(target, mounts);
+
     target->is_mounted = 0;
 
     current_thread->sa_to_be_handled = old_sig;
     RESTORE_SIGNALS(mask);
 
-    rw_spinlock_release_write(&mount_tree_lock);
+    rw_spinlock_release_write(&mount_lock);
     return 0;
 }
 
@@ -336,10 +334,10 @@ long sys_swaproot(const char * new_root, const char * old_root_mnt) {
     }
 
     // scawy part >_<
-    inode_t * old_root = root_mountpoint->mountpoint;
-    rw_spinlock_acquire_write(&mount_tree_lock);
+    inode_t * old_root = root_superblock->mountpoint;
+    rw_spinlock_acquire_write(&mount_lock);
     if (newold->is_mountpoint) {
-        rw_spinlock_release_write(&mount_tree_lock);
+        rw_spinlock_release_write(&mount_lock);
         goto mount_race;
     }
 
@@ -353,7 +351,7 @@ long sys_swaproot(const char * new_root, const char * old_root_mnt) {
     __atomic_store_n(&new_dev->is_mountpoint, 1, __ATOMIC_RELEASE);
     __atomic_store_n(&new_dev->next_superblock, new_dev->backing_superblock, __ATOMIC_RELEASE);
     __atomic_store_n(&new_dev->backing_superblock->mountpoint, new_dev, __ATOMIC_RELEASE);
-    __atomic_store_n(&root_mountpoint->mountpoint, new_dev, __ATOMIC_RELEASE);
+    __atomic_store_n(&root_superblock, new_dev->backing_superblock, __ATOMIC_RELEASE);
 
     // relink old_root to newold
     __atomic_store_n(&newold->is_mountpoint, 1, __ATOMIC_RELEASE);
@@ -369,9 +367,13 @@ long sys_swaproot(const char * new_root, const char * old_root_mnt) {
             __atomic_add_fetch(&proc->root->instances, 1, __ATOMIC_ACQUIRE);
         }
     }
+    inode_t * old_kernel_cwd = kernel_task->pwd;
+    __atomic_add_fetch(&kernel_task->root->instances, 1, __ATOMIC_RELEASE);
+    __atomic_store(&kernel_task->pwd, &kernel_task->root, __ATOMIC_RELEASE);
     spinlock_release(&scheduler_lock);
 
-    rw_spinlock_release_write(&mount_tree_lock);
+    rw_spinlock_release_write(&mount_lock);
+    close_inode(old_kernel_cwd);
 
     spinlock_release(&swap_lock);
     // we on purpose leak newold and new_dev to achieve the +1 for mount points

@@ -126,15 +126,7 @@ enum supported_filesystems {
 extern const char * fs_names[SUPPORTED_FS_COUNT];
 extern const struct vfs_ops * fs_operations[SUPPORTED_FS_COUNT]; // defined in vfs.c, assigned in files belonging to individual fs
 
-// this entire structure is basically just for record keeping
-struct mount_tree {
-    char * path; // the complete relative path from last mountpoint (/ -> mnt/drivea)
-    inode_t * mountpoint; // to get next_superblock and for cleanup
-    struct mount_tree * inner; // first mount instance in this mountpoint
-    struct mount_tree * next; // next mount instance on this level
-} typedef mount_tree;
-
-extern rw_spinlock_t mount_tree_lock;
-extern struct mount_tree * root_mountpoint;
-
+extern rw_spinlock_t mount_lock;
+extern superblock_t * root_superblock;
+extern superblock_t * mounts;
 #endif

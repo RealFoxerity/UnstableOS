@@ -106,6 +106,8 @@ struct superblock_t {
     inode_t * mountpoint; // the mountpoint in the previous fs, extremely useful for traversing paths
 
     char is_mounted; // mark as unused so that we don't have to memset() at every unmount
+
+    struct superblock_t *next, *prev;
 } typedef superblock_t;
 
 extern file_descriptor_t ** kernel_fds;
