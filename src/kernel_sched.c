@@ -251,9 +251,19 @@ static void scheduler_remove_process(process_t * process) {
             kfree(process->semaphores[i]);
     }
 
+    if (process->parent->sa_handlers[SIGCHLD - 1].sa_handler == SIG_IGN ||
+        process->parent->sa_handlers[SIGCHLD - 1].sa_flags & SA_NOCLDWAIT)
+        process->nozombie = 1;
+
     // cleanup zombie list of orphaned zombies (no one to wait on them)
     rw_spinlock_acquire_write(&process_tree_lock);
     spinlock_acquire(&scheduler_lock);
+
+    if (process->nozombie) {
+        UNLINK_DOUBLE_LINKED_LIST(process, zombie_list)
+        rbtree_remove(&process_tree, &process->__rb);
+    }
+
     process_t * checked = zombie_list;
     while (checked != NULL) {
         if (checked->parent == process) {
@@ -473,14 +483,6 @@ void schedule(__gregcontext_t * context) {
                 checked = checked->next;
             }
 
-            if (checked_process->sa_handlers[SIGCHLD - 1].sa_handler == SIG_IGN ||
-                checked_process->sa_handlers[SIGCHLD - 1].sa_flags & SA_NOCLDWAIT) {
-                    kfree(checked_process);
-                    goto scheduler_start;
-                }
-
-            APPEND_DOUBLE_LINKED_LIST(checked_process, zombie_list)
-
             // wake up parent process
             thread_t * checked_thread = parent->threads;
             while (checked_thread != NULL) {
@@ -490,6 +492,15 @@ void schedule(__gregcontext_t * context) {
                 }
                 checked_thread = checked_thread->next;
             }
+            if (checked_process->nozombie) {
+                parent->dead_user_clicks   += checked_process->user_clicks;
+                parent->dead_system_clicks += checked_process->system_clicks;
+                kfree(checked_process);
+                goto scheduler_start;
+            }
+
+            APPEND_DOUBLE_LINKED_LIST(checked_process, zombie_list)
+
             goto scheduler_start; // internal reschedule()
         }
         if (checked_process->next_alarm && checked_process->next_alarm <= uptime_clicks) {

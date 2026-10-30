@@ -209,6 +209,11 @@ struct process_t {
     char is_stopped;
     char do_cleanup; // 1 = cleanup requested, 2 = thread to destroy dispatched, 3 = destroyed
     char pending_waiting; // 1 = pending_sigchld_info changed from last time we ran waitpid
+
+    // 1 = the parent ignores SIGCHLD or has SA_NOCLDWAIT
+    // and the process reaper has freed this process from the process tree
+    // needed because rbtree_remove isn't possible in the scheduler proper
+    char nozombie;
     siginfo_t pending_sigchld_info; // for complete waitid() info
 
     int postmortem_wstatus;
