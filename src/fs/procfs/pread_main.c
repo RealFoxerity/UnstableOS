@@ -206,6 +206,8 @@ ssize_t procfs_pread_main(file_descriptor_t * fd, void * buf, size_t n, off_t of
         case PROCFS_self:
             len = snprintf(temp, PROCFS_BUFSIZ, "%ld", current_process->pid);
             break;
+        case PROCFS_mounts:
+            return procfs_pread_mounts(fd, buf, n, offset);
         default:
             return -EINVAL;
     }

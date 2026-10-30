@@ -180,6 +180,7 @@ int get_fd_from_inode(inode_t * inode, unsigned short flags);
 
 char * secure_strdup(const char * path, size_t max_len, size_t *len_out);
 size_t cleanup_path(char * dup_path, size_t pathlen);
+int get_dir_name(inode_t * dir, char out[PATH_MAX]);
 
 int sys_openat(int fd, const char * path, unsigned int flags, mode_t mode);
 // the kernel function itself

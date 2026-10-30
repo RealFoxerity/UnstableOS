@@ -17,7 +17,8 @@
     X(cmdline, 3) \
     X(version, 4) \
     X(cpuinfo, 5) \
-    X(self, 6)
+    X(self, 6) \
+    X(mounts, 7)
 
 #define X(m, v) PROCFS_##m = (v),
 enum main_files {
@@ -41,7 +42,6 @@ enum proc_files {
 };
 #undef X
 
-#define PROCFS_FOLDER_MOUNTS 1
 #define PROCFS_PROC_FOLDER_FD 1
 #define PROCFS_PROC_FOLDER_FDINFO 2
 
@@ -54,4 +54,5 @@ ssize_t procfs_pread_main(file_descriptor_t * fd, void * buf, size_t n, off_t of
 ssize_t procfs_pread_proc(file_descriptor_t * fd, void * buf, size_t n, off_t offset);
 // if comm = 1, then read only argv[0]
 ssize_t procfs_pread_cmdline(process_t * proc, void * buf, size_t n, off_t offset, char comm);
+ssize_t procfs_pread_mounts(file_descriptor_t * fd, void * buf, size_t n, off_t offset);
 #endif

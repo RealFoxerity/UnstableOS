@@ -24,15 +24,6 @@ static const char * proc_file_names[] = {
 };
 #undef X
 
-#define PROCFS_FOLDER_MOUNTS 1
-#define PROCFS_PROC_FOLDER_FD 1
-#define PROCFS_PROC_FOLDER_FDINFO 2
-
-#define INO_GET_PID(ino) ((ino) >> 32)
-#define INO_GET_FOLDER(ino) (((ino) >> 16) & 0xFF)
-#define INO_GET_FILE(ino) ((ino) & 0xFFFF)
-#define GET_INO(pid, folder, file) (((off_t)(pid)<<32) | ((folder) << 16) | (file))
-
 static int procfs_init(superblock_t * sb) {
     sb->mount_options |= MOUNT_RDONLY;
     return 0;
@@ -91,11 +82,6 @@ static int procfs_lookup(superblock_t * sb, inode_t * last, const char * pathnam
             rw_spinlock_release_read(&process_tree_lock);
             if (!proc)
                 return -ENOENT;
-            return register_inode(&new, inode_out, flags);
-        }
-        if (strcmp(pathname, "mounts") == 0) {
-            new.id = GET_INO(0, PROCFS_FOLDER_MOUNTS, 0);
-            new.mode = 0555 | S_IFDIR;
             return register_inode(&new, inode_out, flags);
         }
         for (int i = 0; i < sizeof(main_file_names) / sizeof(main_file_names[0]); i++) {
@@ -285,10 +271,6 @@ static ssize_t procfs_readdir(file_descriptor_t * fd, struct dirent * dent, size
         dent->d_off = offset;
         dent->d_type = DT_DIR;
         goto end;
-    }
-    if (pid == 0 && folder == PROCFS_FOLDER_MOUNTS) {
-        kprintf("TODO: procfs mounts readdir\n");
-        return 0;
     }
     if (pid == 0 && folder)
         return 0;

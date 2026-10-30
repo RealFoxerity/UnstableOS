@@ -90,7 +90,7 @@ long mount_file(file_descriptor_t * file, inode_t * mount_point, unsigned char t
         return -ENOMEM;
     }
 
-    new_superblock->device        = S_ISBLK(file->inode->mode) ? file->inode->device : dev_get_ephemeral();
+    new_superblock->device        = S_ISBLK(file->inode->mode) ? file->inode->device : -1;
     new_superblock->fd            = file;
     new_superblock->fs_type       = type;
     new_superblock->mountpoint    = mount_point;
@@ -172,7 +172,7 @@ long sys_mount(const char * dev_path, const char * mount_path, const char * type
         case FS_tmpfs:
         case FS_devfs: // devfs doesn't require a device
         case FS_procfs:
-            ret = mount_dev(dev_get_ephemeral(), mount_inode, fs, options);
+            ret = mount_dev(-1, mount_inode, fs, options);
             close_inode(mount_inode);
             RESTORE_SIGNALS(mask);
             return ret;

@@ -4,6 +4,21 @@
 #include <errno.h>
 
 int main(int argc, char ** argv) {
+    if (argc == 1) {
+        FILE * mounts = fopen("/proc/mounts", "r");
+        if (!mounts) {
+            fprintf(stderr, "mount: /proc/mounts: %s\n", strerror(errno));
+            return 1;
+        }
+
+        char buf[4096];
+        size_t n;
+        while ((n = fread(buf, 1, 4096, mounts)) > 0)
+            fwrite(buf, 1, n, stdout);
+
+        return 0;
+    }
+
     if (argc < 4 || argc > 5) {
         fprintf(stderr, "Usage: %s [fs_type] [srcdev] [mountpoint] <options>\n", argv[0]);
         fprintf(stderr, "Supported filesystems:\n\ttmpfs\n\tdevfs\n\tprocfs\n\ttarfs\n\tfat\n\text2\n");

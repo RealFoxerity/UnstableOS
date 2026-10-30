@@ -203,7 +203,7 @@ long open_dev(inode_t * inode, unsigned short flags) {
     kassert(inode);
     kassert(S_ISCHR(inode->mode) || S_ISBLK(inode->mode));
 
-    if (MAJOR(inode->device) == DEV_MAJ_EPHEMERAL) return 0; // these devices are placeholders anyway
+    if (inode->device == (dev_t)-1) return 0; // these devices are placeholders anyway
 
     struct dev_operations dev_ops = dev_ops_lookup(inode->device);
     if (dev_ops.seek == (void*)1) return -ENXIO;
@@ -226,7 +226,7 @@ long close_dev(inode_t * inode) {
     kassert(inode);
     kassert(S_ISCHR(inode->mode) || S_ISBLK(inode->mode));
 
-    if (MAJOR(inode->device) == DEV_MAJ_EPHEMERAL) return 0;
+    if (inode->device == (dev_t)-1) return 0; // these devices are placeholders anyway
 
     struct dev_operations dev_ops = dev_ops_lookup(inode->device);
     if (dev_ops.seek == (void*)1) return -ENODEV;

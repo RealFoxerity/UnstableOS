@@ -186,7 +186,7 @@ static int __openat_inode(inode_t * base, const char * path, unsigned int flags,
         return -EFAULT;
     }
     if (flags & (O_PATH | O_SEARCH)) {
-        flags &= O_PATH | O_DIRECTORY | O_SEARCH | O_CLOEXEC | O_CLOFORK | AT_SYMLINK_NOFOLLOW;
+        flags &= O_PATH | O_DIRECTORY | O_SEARCH | O_CLOEXEC | O_CLOFORK | AT_SYMLINK_NOFOLLOW | O_NOXDEV;
     }
     mode &= ~current_process->umask;
     mode &= ~S_IFMT;
