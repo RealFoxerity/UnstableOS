@@ -130,7 +130,7 @@ int bga_set_res(unsigned int x, unsigned int y) {
     //gfx_realloc_back_framebuffer(bga_max_xres, bga_max_yres);
     gfx_unmap_back_framebuffer();
 
-    gfx_remap_framebuffer(bga_framebuffer_phys, bga_max_xres * bga_max_yres * 4, 0);
+    gfx_remap_framebuffer(bga_framebuffer_phys, x * y * 4, 0);
 
     bga_write_register(BGA_REG_ENABLE, 1 | BGA_LFB_ENABLE);
 
