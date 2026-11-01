@@ -114,7 +114,7 @@ static void * do_rela(const struct rela_entry * rela, const struct dso * dso) {
         //case R_386_TLS_IE_32:
         //case R_386_TLS_LE_32:
         case R_386_TLS_DTPMOD32:
-            *(unsigned long*)target = dso->dvtid;
+            *(unsigned long*)target = sr.dso->dvtid;
             break;
         case R_386_TLS_DTPOFF32:
             *(unsigned long*)target = sr.ste->value + rela->addend;
