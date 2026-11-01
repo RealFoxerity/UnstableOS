@@ -64,6 +64,11 @@ spinlock_t console_buffer_lock = {0};
 char cursor_busy = 0;
 char cursor_currently_visible = 0;
 
+
+// 1 indexed
+int scroll_region_start = 0; // 0 disabled
+int scroll_region_end   = 0;
+
 void console_cursor_hide() {
     if (!cursor_busy && cursor_currently_visible) {
         // because we run these from the RTC interrupt, we could be in
@@ -297,29 +302,60 @@ static void console_set_char(int x, int y, char c, char italic, char overline, c
         console_redraw_range(0, console_buffer_w - 1, 0, console_buffer_h - 1);
 }
 
-static void console_scroll(int lines) {
+static void console_scroll() {
     console_cursor_hide();
     cursor_busy = 1;
-    gfx_hw_scroll_scanlines(console_font_height*FONT_MULTIPLIER);
-    current_video_funcs->fill_buffered(0, display_width - 1,
-        display_height - console_font_height*FONT_MULTIPLIER, display_height - 1,
-        console_color_bg, 1
-    );
-    current_video_funcs->swap_region(0, display_width - 1,
-        display_height - console_font_height*FONT_MULTIPLIER, display_height - 1
-    );
+    if (!scroll_region_start) {
+        gfx_hw_scroll_scanlines(console_font_height*FONT_MULTIPLIER);
 
+        current_video_funcs->fill_buffered(0, display_width - 1,
+            display_height - console_font_height*FONT_MULTIPLIER, display_height - 1,
+            console_color_bg, 1
+        );
+        current_video_funcs->swap_region(0, display_width - 1,
+            display_height - console_font_height*FONT_MULTIPLIER, display_height - 1
+        );
+    } else {
+        current_video_funcs->copy_region_unbuffered(
+            0, scroll_region_start * console_font_height * FONT_MULTIPLIER,
+            display_width, (scroll_region_end - scroll_region_start) * console_font_height * FONT_MULTIPLIER,
+            0, (scroll_region_start - 1) * console_font_height * FONT_MULTIPLIER);
+        current_video_funcs->fill_buffered(0, display_width - 1,
+            (scroll_region_end - 1) * console_font_height * FONT_MULTIPLIER, scroll_region_end * console_font_height * FONT_MULTIPLIER - 1,
+            console_color_bg, 1
+        );
+
+        current_video_funcs->swap_region(0, display_width - 1,
+            scroll_region_start * console_font_height * FONT_MULTIPLIER, scroll_region_end * console_font_height * FONT_MULTIPLIER - 1
+        );
+    }
     if (current_process == NULL || console_buffer == NULL) return; // scheduler not initialized -> early boot -> no heap
 
     spinlock_acquire(&console_buffer_lock);
-    memcpy(console_buffer,
-        console_buffer + lines * console_buffer_w,
-        (console_buffer_h - lines) * console_buffer_w * sizeof(struct character_cell)
-    );
-    memset(console_buffer + (console_buffer_h - lines) * console_buffer_w,
-        0,
-        lines * console_buffer_w * sizeof(struct character_cell)
-    );
+    if (scroll_region_start > display_height_chars / FONT_MULTIPLIER)
+        scroll_region_start = display_height_chars / FONT_MULTIPLIER;
+    if (scroll_region_end > display_height_chars / FONT_MULTIPLIER)
+        scroll_region_end = display_height_chars / FONT_MULTIPLIER;
+
+    if (!scroll_region_start) {
+        memcpy(console_buffer,
+            console_buffer + console_buffer_w,
+            (console_buffer_h - 1) * console_buffer_w * sizeof(struct character_cell)
+        );
+        memset(console_buffer + (console_buffer_h - 1) * console_buffer_w,
+            0,
+            console_buffer_w * sizeof(struct character_cell)
+        );
+    } else {
+        memcpy(console_buffer + (scroll_region_start - 1) * console_buffer_w,
+            console_buffer + scroll_region_start * console_buffer_w,
+            (scroll_region_end - scroll_region_start) * console_buffer_w * sizeof(struct character_cell)
+        );
+        memset(console_buffer + (scroll_region_end - scroll_region_start) * console_buffer_w,
+            0,
+            console_buffer_w * sizeof(struct character_cell)
+        );
+    }
     spinlock_release(&console_buffer_lock);
     cursor_busy = 0;
 }
@@ -333,6 +369,7 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
     cursor blink off/on
     clear screen type J/0J 1J 2J 3J, K/0K 1K 2K
     scroll commands S T
+    scroll margins [<start>;<end>r
     */
 
     extern char early_init;
@@ -462,7 +499,24 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
         return;
     }
 
-    if (sscanf(ansi_sequence, "[%d%c", &id, &csi) != 2) goto ansi2params;
+    if (sscanf(ansi_sequence, "[%u;%u%c", &id, &id2, &csi) == 3 && csi == 'r') {
+        // 0 is our "extension" to this madness
+        if (id < 0 || id2 < 0 || id2 < id || (id2 == id && id != 0))
+            return;
+
+        spinlock_acquire(&console_buffer_lock);
+        if (id > display_height_chars / FONT_MULTIPLIER)
+            id = display_height_chars / FONT_MULTIPLIER;
+        if (id2 > display_height_chars / FONT_MULTIPLIER)
+            id2 = display_height_chars / FONT_MULTIPLIER;
+        scroll_region_start = id;
+        scroll_region_end = id2;
+
+        console_x = console_y = 0;
+        spinlock_release(&console_buffer_lock);
+        return;
+    }
+    if (sscanf(ansi_sequence, "[%u%c", &id, &csi) != 2) goto ansi2params;
 
     struct character_cell cc = {
         .c = ' ',
@@ -850,9 +904,17 @@ void console_write(const char * s, size_t len) {
             new_line:
             //console_x = 0;
 
+            if (scroll_region_start) {
+                if (console_y >= scroll_region_end - 1) {
+                    console_y = scroll_region_end - 1;
+                    console_scroll();
+                } else console_y++;
+                continue;
+            }
+
             if (console_y >= display_height_chars / FONT_MULTIPLIER - 1) {
                 console_y = display_height_chars / FONT_MULTIPLIER - 1;
-                console_scroll(1);
+                console_scroll();
             } else console_y++;
             continue;
         }
