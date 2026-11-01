@@ -922,10 +922,9 @@ static size_t tty_translate_line_outgoing(const char * s, size_t n, tty_t * tty)
     if (!(tty->params.c_oflag & OPOST)) { // to avoid useless switch
         for (size_t i = 0; i < n; i++) {
             if (tty_queue_putch(tty, &tty->oqueue, s[i], 0) == 256) return i;
-
-            if (!(tty->output_stopped && current_process->ring == 0))
-                tty->write(tty);
         }
+        if (!(tty->output_stopped && current_process->ring == 0))
+            tty->write(tty);
         return n;
     }
 
@@ -966,12 +965,10 @@ static size_t tty_translate_line_outgoing(const char * s, size_t n, tty_t * tty)
         //    tty->write(tty);
         //}
         //if (FULL(&tty->oqueue) || !(tty->params.c_lflag & ICANON)) tty->write(tty);
-
-        // the special case of IXON, output stopped, and we're the kernel
-        if (!(tty->output_stopped && current_process->ring == 0))
-            tty->write(tty);
     }
-
+    // the special case of IXON, output stopped, and we're the kernel
+    if (!(tty->output_stopped && current_process->ring == 0))
+        tty->write(tty);
     return n;
 }
 
