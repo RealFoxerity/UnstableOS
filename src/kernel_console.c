@@ -23,6 +23,10 @@ char console_italic = 0;
 char console_overline = 0;
 char console_underline = 0;
 char console_overstrike = 0;
+char console_application_cursor = 0; // ^[OA instead of ^[[A
+char console_autowrap = 1;
+char console_insert = 0;
+char console_lf_mode = 0; // 0 = LF -> LF, 1 = LF -> CRLF
 
 struct character_cell {
     char c;
@@ -286,6 +290,14 @@ static void console_set_char(int x, int y, char c, char italic, char overline, c
         return;
     }
 
+    if (console_insert) {
+        memmove(
+            console_buffer + y * console_buffer_w + x + 1,
+            console_buffer + y * console_buffer_w + x,
+            (console_buffer_w - x - 1) * sizeof(struct character_cell));
+        // redraws for this happen in the core console_write per line because otherwise it would take too long
+    }
+
     console_buffer[y * console_buffer_w + x] = (struct character_cell) {
         .c = c,
         .italic = italic,
@@ -361,6 +373,9 @@ static void console_scroll() {
 }
 
 static void handle_ansi_escapes(const char * ansi_sequence) {
+    // we don't support the other ones, but we need the state machine to read them
+    // otherwise applications will throw a hissy fit
+    if (ansi_sequence[0] != '[') return;
     /*
     this is a pretty simple implementation with a lot missing
     we support:
@@ -473,50 +488,73 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
     char csi = 0;
     int id = 0, id2 = 0;
 
-    if (sscanf(ansi_sequence, "[?%u%c", &id, &csi) == 2) {
-        switch (id) {
-            case 12:
-                switch (csi) {
-                    case 'h':
-                        console_cursor_blinking = 1;
-                        return;
-                    case 'l':
-                        console_cursor_blinking = 0;
-                    default:
-                        return;
-                }
-            case 25:
-                switch (csi) {
+    if (ansi_sequence[1] != '?')
+        goto ansi1params;
+
+    if (!isdigit(ansi_sequence[2]))
+        return;
+    {
+        char * end;
+        id = strtol(ansi_sequence + 2, &end, 10);
+        if (end == NULL) return;
+        csi = *end;
+    }
+    switch (id) {
+        case 1:
+            switch (csi) {
                 case 'h':
-                        console_cursor_shown = 1;
-                        return;
+                    console_application_cursor = 1;
+                    return;
                 case 'l':
-                        console_cursor_shown = 0;
+                    console_application_cursor = 0;
+                    return;
                 default:
-                        return;
-                }
-        }
-        return;
+                    return;
+            }
+        case 7:
+            switch (csi) {
+                case 'h':
+                    console_autowrap = 1;
+                    return;
+                case 'l':
+                    console_autowrap = 0;
+                    return;
+                default:
+                    return;
+            }
+        case 12:
+            switch (csi) {
+                case 'h':
+                    console_cursor_blinking = 1;
+                    return;
+                case 'l':
+                    console_cursor_blinking = 0;
+                default:
+                    return;
+            }
+        case 25:
+            switch (csi) {
+            case 'h':
+                    console_cursor_shown = 1;
+                    return;
+            case 'l':
+                    console_cursor_shown = 0;
+            default:
+                    return;
+            }
     }
+    return;
 
-    if (sscanf(ansi_sequence, "[%u;%u%c", &id, &id2, &csi) == 3 && csi == 'r') {
-        // 0 is our "extension" to this madness
-        if (id < 0 || id2 < 0 || id2 < id || (id2 == id && id != 0))
-            return;
+    ansi1params:
+    if (!isdigit(ansi_sequence[1]))
+        goto ansi2params;
 
-        spinlock_acquire(&console_buffer_lock);
-        if (id > display_height_chars / FONT_MULTIPLIER)
-            id = display_height_chars / FONT_MULTIPLIER;
-        if (id2 > display_height_chars / FONT_MULTIPLIER)
-            id2 = display_height_chars / FONT_MULTIPLIER;
-        scroll_region_start = id;
-        scroll_region_end = id2;
-
-        console_x = console_y = 0;
-        spinlock_release(&console_buffer_lock);
-        return;
+    {
+        char * end;
+        id = strtol(ansi_sequence + 1, &end, 10);
+        if (end == NULL) return;
+        csi = *end;
     }
-    if (sscanf(ansi_sequence, "[%u%c", &id, &csi) != 2) goto ansi2params;
 
     struct character_cell cc = {
         .c = ' ',
@@ -526,6 +564,21 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
 
     enum console_colors_palette temp;
     switch (csi) {
+        case ';':
+            break; // ansi2params
+
+        case 'l':
+        case 'h':
+            switch (id) {
+                case 4:
+                    console_insert = csi == 'h';
+                    return;
+                case 20:
+                    console_lf_mode = csi == 'h';
+                    return;
+            }
+            return;
+
         // scroll up
         case 'S':
             // cannot hw scroll because we'd uncover previous data
@@ -811,7 +864,19 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
     }
 
     ansi2params:
-    if (sscanf(ansi_sequence, "[=%u;%u%c", &id, &id2, &csi) != 3) return;
+    if (!isdigit(ansi_sequence[1]))
+        return;
+    {
+        char * end;
+        id = strtol(ansi_sequence + 1, &end, 10);
+        if (end == NULL) return;
+        if (*end != ';') return;
+        if (!isdigit(end[1])) return;
+
+        id2 = strtol(end + 1, &end, 10);
+        if (end == NULL) return;
+        csi = *end;
+    }
 
     switch (csi) {
         // absolute cursor positioning
@@ -823,6 +888,22 @@ static void handle_ansi_escapes(const char * ansi_sequence) {
             if (id2 > display_width_chars/FONT_MULTIPLIER - 1)
                 console_x = display_width_chars/FONT_MULTIPLIER - 1;
             else console_x = id2;
+            return;
+        // scroll margins
+        case 'r':
+            if (id < 0 || id2 < 0 || id2 < id || (id2 == id && id != 0))
+                return;
+
+            spinlock_acquire(&console_buffer_lock);
+            if (id > display_height_chars / FONT_MULTIPLIER)
+                id = display_height_chars / FONT_MULTIPLIER;
+            if (id2 > display_height_chars / FONT_MULTIPLIER)
+                id2 = display_height_chars / FONT_MULTIPLIER;
+            scroll_region_start = id;
+            scroll_region_end = id2;
+
+            console_x = console_y = 0;
+            spinlock_release(&console_buffer_lock);
             return;
     }
 
@@ -841,9 +922,16 @@ static char ansi_escape_state_machine(char c) {
     }
     if (waiting) {
         if (read_chars == -1) {
-            if (c != '[') { // we don't support the other ones
-                waiting = 0;
-                return 0;
+            switch (c) {
+                case '[':
+                case ']':
+                case '(':
+                case ')':
+                case '~':
+                    break;
+                default:
+                    waiting = 0;
+                    return 0;
             }
             read_chars = 0;
         }
@@ -902,8 +990,8 @@ void console_write(const char * s, size_t len) {
         }
         if (s[i] == '\n' || s[i] == '\v') { // see the vt102 user guide for \v behavior
             new_line:
-            //console_x = 0;
-
+            if (console_insert)
+                console_redraw_range(0, console_buffer_w - 1, console_y, console_y);
             if (scroll_region_start) {
                 if (console_y >= scroll_region_end - 1) {
                     console_y = scroll_region_end - 1;
@@ -916,6 +1004,8 @@ void console_write(const char * s, size_t len) {
                 console_y = display_height_chars / FONT_MULTIPLIER - 1;
                 console_scroll();
             } else console_y++;
+            if (console_lf_mode)
+                console_x = 0;
             continue;
         }
         if (s[i] == '\t') {
@@ -926,12 +1016,17 @@ void console_write(const char * s, size_t len) {
         console_set_char(console_x, console_y, s[i],
             console_italic, console_overline, console_underline, console_overstrike);
         if (console_x >= display_width_chars / FONT_MULTIPLIER - 1) {
+            if (!console_autowrap) {
+                console_x = display_width_chars / FONT_MULTIPLIER - 1;
+                continue;
+            }
             console_x = 0;
             goto new_line;
         }
         console_x++;
     }
-
+    if (console_insert)
+        console_redraw_range(0, console_buffer_w - 1, console_y, console_y);
     console_move_cursor(console_x, console_y);
 }
 
@@ -1032,11 +1127,16 @@ void tty_console_input_terminal_input_seq(uint32_t scancode) { // vt and partial
     char esc_buf[16] = {0};
 
     if (mods == 1)
-        sprintf(esc_buf, esc_val >= 'A' ? "\e[%c"   : "\e[%d~", esc_val);
+        sprintf(esc_buf,
+            esc_val >= 'A' ? "\e%c%c" : "\e%c%d~",
+            esc_val >= 'A' && esc_val <= 'D' && console_application_cursor ? 'O' : '[',
+            esc_val);
     else
         if (esc_val >= 'A') {
             if (!mods)
-                sprintf(esc_buf, "\e[%c", esc_val);
+                sprintf(esc_buf, "\e%c%c",
+                    esc_val <= 'D' && console_application_cursor ? 'O' : '[',
+                    esc_val);
             else
                 sprintf(esc_buf, "\e[%d%c", mods, esc_val);
         }
