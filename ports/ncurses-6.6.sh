@@ -6,6 +6,6 @@ if [[ ! -e ncurses-6.6 ]]; then
 	cd ..
 fi
 cd ncurses-6.6
-./configure --prefix="$(pwd)/../../sysroot/usr" --host=i686-unstableos --with-shared --with-termlib --without-dlsym --enable-termcap --without-ada --disable-ext-colors --enable-sigwinch
+./configure --prefix="$(pwd)/../../sysroot/usr" --host=i686-unstableos --with-shared --with-termlib --without-dlsym --without-ada --disable-ext-colors --enable-sigwinch --with-terminfo-dirs=/usr/share/terminfo --with-default-terminfo-dir=/usr/share/terminfo 
 make -j$(nproc) && make install
 cd ..
