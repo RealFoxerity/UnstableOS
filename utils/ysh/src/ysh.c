@@ -152,12 +152,21 @@ int main(int argc, char ** argv) {
                                 if (pipe_fds[1] != -1)
                                     dup2(pipe_fds[1], STDOUT_FILENO);
 
+                                int env_offset = 0;
+                                for (size_t j = 0; argvs[arg_idx][j]; j++) {
+                                    char * eq = strchr(argvs[arg_idx][j], '=');
+                                    if (!eq) break;
+
+                                    *eq = '\0';
+                                    setenv(argvs[arg_idx][j], eq + 1, 1);
+                                    env_offset++;
+                                }
                                 signal(SIGINT,  SIG_DFL);
                                 signal(SIGTSTP, SIG_DFL);
                                 signal(SIGTTOU, SIG_DFL);
                                 signal(SIGTTIN, SIG_DFL);
 
-                                execvp(argvs[arg_idx][doing_exec], argvs[arg_idx] + doing_exec);
+                                execvp(argvs[arg_idx][doing_exec + env_offset], argvs[arg_idx] + doing_exec + env_offset);
                                 printf("ysh: %s: %s\n", argvs[arg_idx][doing_exec], strerror(errno));
                                 if (doing_exec) {
                                     signal(SIGINT,  SIG_IGN);
