@@ -44,6 +44,7 @@ struct tm * localtime_r(const time_t * __restrict timer, struct tm * __restrict 
 
 char * ctime(const time_t * clock);
 char * ctime_r(const time_t * clock, char * buf);
+double difftime(time_t time1, time_t time0);
 
 int clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *rqtp, struct timespec *rmtp);
 int clock_getres(clockid_t clock_id, struct timespec *res);

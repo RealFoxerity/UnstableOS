@@ -168,7 +168,9 @@ char * ctime_r(const time_t * clock, char * buf) {
     struct tm temp;
     return asctime_r(localtime_r(clock, &temp), buf);
 }
-
+double difftime(time_t time1, time_t time0) {
+    return (double)(time1-time0);
+}
 int clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *rqtp, struct timespec *rmtp) {
     int ret = syscall(SYSCALL_CLOCK_NANOSLEEP, clock_id, flags, rqtp, rmtp);
     if (ret < 0) {

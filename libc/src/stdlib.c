@@ -15,7 +15,7 @@ int abs(int i) {
     return i;
 }
 
-static uint32_t ___internal_rand_state = 1;
+static uint32_t ___internal_rand_state = 0;
 
 int rand() {
     if (__builtin_expect(___internal_rand_state == 0, 0))
