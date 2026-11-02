@@ -12,6 +12,9 @@ int sys_halt(int how) {
     if (current_process->euid != 0)
         return -EPERM;
 
+    static spinlock_t halt_spinlock = {0};
+    spinlock_acquire(&halt_spinlock);
+
     if (how & HALT_FORCE) {
         halt:
         if (how & HALT_RESET) {
@@ -32,14 +35,18 @@ int sys_halt(int how) {
     while (process_list->next && (current_process == kernel_task || process_list->next->next)) {
         spinlock_acquire(&scheduler_lock);
         for (process_t * proc = process_list; proc; proc = proc->next) {
-            if (proc != kernel_task)
+            if (proc != kernel_task && proc != current_process)
                 proc->do_cleanup = 1;
         }
         spinlock_release(&scheduler_lock);
         reschedule();
     }
+
     while (current_process != kernel_task && current_process->threads->next) {
-        current_process->do_cleanup = 1;
+        if (current_process->threads != current_thread)
+            current_process->threads->status = SCHED_THREAD_CLEANUP;
+        else
+            current_process->threads->next->status = SCHED_THREAD_CLEANUP;
         reschedule();
     }
 
@@ -64,6 +71,7 @@ int sys_halt(int how) {
     }
 
     kprintf("\n\nSyncing...\n");
-    sync();
+    extern void hd_cache_flush();
+    hd_cache_flush();
     goto halt;
 }

@@ -107,7 +107,7 @@ static struct devfs_node devfs_files[] = {
         }
     },
     {
-        .name = "kconsole",
+        .name = "console",
         {
             .st_rdev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE),
             .st_mode = S_IFCHR | S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP,

@@ -150,6 +150,7 @@ void rw_spinlock_downgrade(rw_spinlock_t * lock) {
 void semaphore_post(semaphore_t * sem) {
     if (!sem) panic("Tried to post a NULL semaphore");
     __atomic_add_fetch(&sem->value, 1, __ATOMIC_RELEASE);
+    CRIT_SEC_END
 }
 void semaphore_wait(semaphore_t * sem) {
     if (!sem) panic("Tried to wait a NULL semaphore");
@@ -158,6 +159,7 @@ void semaphore_wait(semaphore_t * sem) {
         v = __atomic_load_n(&sem->value, __ATOMIC_ACQUIRE);
         if (v == 0) reschedule();
     } while (!v || !__atomic_compare_exchange_n(&sem->value, &v, v-1, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED));
+    CRIT_SEC_START
 }
 
 void sys_sem_post(process_t * calling_process, int sem_idx) {

@@ -529,7 +529,7 @@ void schedule(__gregcontext_t * context) {
 
                     paging_apply_address_space(checked_thread->cr3_state);
 
-                    if (current_thread->tcb &&
+                    if (checked_thread->tcb &&
                         checked_process->ring != 0 && // useless to do for the kernel
                         checked_thread->cr3_state == checked_process->address_space_paddr && // see above
                         paging_get_pte(checked_thread->tcb) != NULL // bug? either way, userspace's problem
@@ -557,7 +557,7 @@ void schedule(__gregcontext_t * context) {
                     return;
                 case SCHED_INTERR_SLEEP:
                     // pthread_cancel wakeup where applicable
-                    if (current_thread->tcb &&
+                    if (checked_thread->tcb &&
                         paging_get_address_space_paddr() == checked_process->address_space_paddr &&
                         paging_get_pte(checked_thread->tcb) != NULL // bug? either way, userspace's problem
                     ) {
@@ -569,8 +569,10 @@ void schedule(__gregcontext_t * context) {
                             checked_thread->status = SCHED_RUNNABLE;
                         }
                     }
-                case SCHED_UNINTERR_SLEEP:
                 case SCHED_WAITING:
+                    if (checked_process->do_cleanup)
+                        checked_thread->status = SCHED_RUNNABLE;
+                case SCHED_UNINTERR_SLEEP:
                 case SCHED_DONT_SCHEDULE:
                     break;
                 case SCHED_V86_THREAD_CLEANUP:
@@ -591,7 +593,7 @@ void schedule(__gregcontext_t * context) {
                     // we need this to access the TCB and PCB
                     paging_apply_address_space(checked_process->address_space_paddr);
 
-                    if (current_thread->tcb &&
+                    if (checked_thread->tcb &&
                         paging_get_pte(checked_thread->tcb) != NULL // bug? either way, userspace's problem
                     ) {
                         checked_thread->tcb->tid = 0; // simplify EOWNERDEAD and a bunch of other checks in userspace

@@ -45,7 +45,8 @@ ssize_t getdelim(char **restrict lineptr, size_t *restrict n, int delimiter, FIL
         }
     }
 
-    (*lineptr)[off] = '\0';
+    if (*lineptr)
+        (*lineptr)[off] = '\0';
     funlockfile(stream);
 
     return off;
