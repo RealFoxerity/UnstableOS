@@ -427,8 +427,9 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
 
     // considering how we do file descriptors, it's guaranteed these will be 0, 1, 2
     kassert(open_raw_device_fd(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), O_RDWR) >= 0);
-    kassert(open_raw_device_fd(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), O_RDWR) >= 0);
-    kassert(open_raw_device_fd(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), O_RDWR) >= 0);
+    __atomic_add_fetch(&current_process->fds[0]->instances, 2, __ATOMIC_RELEASE);
+    current_process->fds[1] = current_process->fds[2] = current_process->fds[0];
+    current_process->fd_flags[1] = current_process->fd_flags[2] = current_process->fd_flags[0];
 
     if (initrd_start) {
         kassert(memdisk_from_range(initrd_start, initrd_len) != (dev_t)-1);
@@ -441,24 +442,6 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
         } else {
             mount_root(GET_DEV(DEV_MAJ_BLOCK0, DEV_BLOCK_DRIVE0), FS_fat, MOUNT_RDONLY);
         }
-    }
-
-    inode_t * dev_inode = NULL;
-    if (openat_inode(current_process->root, "/dev", O_DIRECTORY | O_RDONLY, 0, &dev_inode, 0) < 0) {
-        kprintf("No /dev directory in initial memdisk, /dev won't be mounted\n");
-    } else {
-        if (mount_dev(-1, dev_inode, FS_devfs, MOUNT_RDONLY) != 0) {
-            kprintf("Error while mounting /dev, /dev won't be mounted\n");
-        }
-        close_inode(dev_inode);
-    }
-    if (openat_inode(current_process->root, "/proc", O_DIRECTORY | O_RDONLY, 0, &dev_inode, 0) < 0) {
-        kprintf("No /proc directory in initial memdisk, /proc won't be mounted\n");
-    } else {
-        if (mount_dev(-1, dev_inode, FS_procfs, MOUNT_RDONLY) != 0) {
-            kprintf("Error while mounting /proc, /proc won't be mounted\n");
-        }
-        close_inode(dev_inode);
     }
 
     static char * init_names[] = {

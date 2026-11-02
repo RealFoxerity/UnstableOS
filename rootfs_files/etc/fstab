@@ -1,0 +1,20 @@
+# UnstableOS fstab format:
+# file     mountpoint     type     ro/rw
+
+# only 'file\ space' syntax is allowed, quotes won't be resolved
+# \ is only handled specially if it precedes a space, otherwise normally
+# for actual spaces after \ do 'file\\ /mnt' (mounts file\ at /mnt)
+
+# filesystems not requiring a file will always report 'none' in /proc/mounts
+
+# If you're one of the crazies naming files with newlines,
+# skill diff, you can't mount it here. Also, what is wrong with you?
+# Did you know even POSIX,
+# (yes that crazy POSIX),
+# encourages implementations to disallow filenames with newlines?
+# If you were insulted by that, go cry into github issues
+
+#this is also a comment, but ew
+none /proc procfs rw # likewise this
+none /dev devfs ro#does fstab stab files?
+none /tmp tmpfs rw

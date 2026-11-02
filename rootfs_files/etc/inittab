@@ -1,0 +1,21 @@
+# UnstableOS inittab format:
+# id:runlevel:action:command
+
+# id is used for logging of launched/dead/finished tasks
+# runlevel is ignored for now
+# action can be the following:
+# 	once: runs once and reports exit status if it failed
+# 	respawn: respawns the process if it dies
+# 	wait: inittab parsing is put on hold until this process finishes
+#   askfirst: like respawn, but asks for cr/lf on the terminal given by id
+#   boot: same as once, but ignored on reloads
+#   bootwait: same as wait, but ignore on reloads
+#
+
+# note: the command field does quoting the same way a shell might
+# 	it is the only field that gets quoted
+
+# if you really NEED to type #, do \#
+
+getty0::respawn:getty 0 /dev/tty0
+gettyS0::respawn:getty -L -w 115200 /dev/ttyS0

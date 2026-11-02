@@ -12,6 +12,7 @@
 
 #include "include/args.h"
 #include "sys/ioctl.h"
+#include <UnstableOS/halt.h>
 
 void show_help() {
     printf("\n"
@@ -63,6 +64,14 @@ int main(int argc, char ** argv) {
         // strcmp here ok since we don't read into the last null byte
         if (strcmp("help", input_buf) == 0) {
             show_help();
+        } else if (strcmp("halt", input_buf) == 0) {
+            kill(1, SIGUSR1);
+        } else if (strcmp("haltf", input_buf) == 0) {
+            kill(1, SIGUSR2);
+        } else if (strcmp("haltr", input_buf) == 0) {
+            kill(1, SIGRTMIN);
+        } else if (strcmp("haltrf", input_buf) == 0) {
+            kill(1, SIGRTMIN+1);
         } else if (strcmp("sync", input_buf) == 0) {
             sync();
         } else if (strncmp("exit", input_buf, 4) == 0) {
