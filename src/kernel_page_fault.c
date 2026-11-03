@@ -130,8 +130,17 @@ static void print_page_fault_error(struct page_fault_error error) {
 __attribute__((no_caller_saved_registers)) int page_fault_handler(unsigned long __old_eax, struct interr_frame * iret_frame, struct page_fault_error error) {
     void * fault_address; // linear address
     asm volatile ("movl %%cr2, %0":"=R"(fault_address));
-
+    fault_address = (void*)((uintptr_t)fault_address & ~(PAGE_SIZE-1));
     if (!error.P) { // caused by non-present page, see intel sdm 3A 5-55
+        if (fault_address >= KERNEL_HEAP_BASE && fault_address < KERNEL_HEAP_BASE + KERNEL_HEAP_SIZE && !(iret_frame->cs & 3)) {
+            if (paging_add_page(fault_address, PTE_PDE_PAGE_WRITABLE) == NULL) {
+                kprintf("\e[0m\e[41mPage fault: Ran out of memory in kernel heap overcommitment!\n");
+            } else {
+                flush_tlb_entry(fault_address);
+                memset(fault_address, 0, PAGE_SIZE_NO_PAE);
+                return 1;
+            }
+        }
         if (fault_address >= MEMDISKS_BASE && fault_address < MEMDISKS_BASE + MEMDISK_LIMIT_KERNEL * DEFAULT_MEMDISK_SIZE && (iret_frame->cs & 3) == 0) { // assuming the user cannot read memdisks themselves
             spinlock_acquire(&memdisk_lock);
             if (memdisks[GET_MEMDISK_IDX(fault_address)].used && memdisks[GET_MEMDISK_IDX(fault_address)].is_allocated) {

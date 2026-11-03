@@ -35,25 +35,25 @@ extern const char * kernel_cmdline;
     }\
 } while (0)
 #define UNLINK_DOUBLE_LINKED_LIST(item, list) do {  \
-    if (item->next != NULL)                         \
-        item->next->prev = item->prev;              \
+    if ((item)->next != NULL)                       \
+        (item)->next->prev = (item)->prev;          \
     else                                            \
-        list->prev = item->prev;                    \
-    if (item != list)                               \
-        item->prev->next = item->next;              \
+        (list)->prev = (item)->prev;                \
+    if ((item) != (list))                           \
+        (item)->prev->next = (item)->next;          \
     else                                            \
-        list = item->next;                          \
+        (list) = (item)->next;                      \
 } while (0);
 
 #define APPEND_DOUBLE_LINKED_LIST(item, list) do {  \
-    item->next = NULL;                              \
-    if (list == NULL) {                             \
-        list = item;                                \
+    (item)->next = NULL;                            \
+    if ((list) == NULL) {                           \
+        (list) = item;                              \
     } else {                                        \
-        item->prev = list->prev;                    \
-        list->prev->next = item;                    \
+        (item)->prev = (list)->prev;                \
+        (list)->prev->next = item;                  \
     }                                               \
-    list->prev = item;                              \
+    (list)->prev = item;                            \
 } while (0);
 
 

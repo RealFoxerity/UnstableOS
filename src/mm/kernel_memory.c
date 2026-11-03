@@ -479,9 +479,7 @@ void setup_paging(unsigned long ident_map_end) {
 
     dkprintf("Setting up kernel heap...\n");
 
-    kassert(paging_map(KERNEL_HEAP_BASE, KERNEL_HEAP_START_SIZE, PTE_PDE_PAGE_WRITABLE));
-
-    kalloc_prepare(KERNEL_HEAP_BASE, KERNEL_HEAP_BASE + KERNEL_HEAP_START_SIZE, KERNEL_HEAP_BASE + KERNEL_HEAP_SIZE);
+    kalloc_prepare();
     if (KERNEL_HEAP_BASE + KERNEL_HEAP_SIZE > kernel_mem_top) kernel_mem_top = KERNEL_HEAP_BASE + KERNEL_HEAP_SIZE;
 
     dkprintf("Mapped vmemory 0x%p to 0x%p, alloc. mem: %d\n", KERNEL_HEAP_BASE, KERNEL_HEAP_BASE + KERNEL_HEAP_SIZE, KERNEL_HEAP_SIZE);

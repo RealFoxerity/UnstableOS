@@ -111,7 +111,7 @@ void print_page_table_entry(const void * pte);
 
 void setup_paging(unsigned long ident_map_end);
 
-void kalloc_prepare(void * heap_struct_start, void * allocated_heap_top, void * maximum_heap_top);
+void kalloc_prepare();
 
 //#pragma clang diagnostic ignored "-Wignored-attributes"
 void kfree(void * p);
