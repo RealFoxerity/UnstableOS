@@ -6,6 +6,8 @@
 // ioctl arg memory cannot be checked in the syscall dispatcher
 // each ioctl implementation must check that the memory area is valid
 // for example with paging_check_address_range()
+// don't specify both open and repl_open, repl_open always takes precedence
+// repl_open() is required to close the original inode with __close_inode() (it's already under the lock) on success
 struct dev_operations {
     ssize_t (*pread) (file_descriptor_t *file, void *buf, size_t count, off_t offset);
     ssize_t (*pwrite)(file_descriptor_t *file, const void *buf, size_t count, off_t pread);
@@ -14,6 +16,8 @@ struct dev_operations {
 
     // takes an inode and de/initializes a device specified by it
     long    (*open) (inode_t * inode, unsigned short flags);
+    // in case we need to replace the inode during opening, eg ptmx
+    long(*repl_open)(inode_t **inode, unsigned short flags);
     long    (*close)(inode_t * inode);
 
     // it is assumed that mmap pages are not reference tracked
@@ -25,7 +29,7 @@ ssize_t pread_dev(file_descriptor_t *file, void *buf, size_t count, off_t offset
 ssize_t pwrite_dev(file_descriptor_t *file, const void *buf, size_t count, off_t offset);
 off_t seek_dev(file_descriptor_t * file, off_t offset, int whence);
 long ioctl_dev(file_descriptor_t *file, unsigned long request, void * arg);
-long open_dev(inode_t * inode, unsigned short flags);
+long open_dev(inode_t ** inode, unsigned short flags);
 long close_dev(inode_t * inode);
 long mmap_dev(inode_t * inode, int prot, off_t off, void * start, size_t len);
 // if one already exists, it gets overwritten!

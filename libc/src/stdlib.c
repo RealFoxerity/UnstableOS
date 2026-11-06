@@ -338,3 +338,10 @@ size_t wcstombs(char *restrict s, const wchar_t *restrict pwcs, size_t n) {
     const wchar_t * src = pwcs;
     return wcsrtombs(s, &src, n, &ps);
 }
+
+int posix_openpt(int oflag) {
+    return open("/dev/ptmx", oflag);
+}
+
+int grantpt(int fildes) {return 0;}
+int unlockpt(int fildes) {return 0;}

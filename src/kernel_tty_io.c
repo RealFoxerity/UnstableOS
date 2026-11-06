@@ -11,6 +11,7 @@
 #include "kernel_console.h"
 #include <string.h>
 #include <sys/ioctl.h>
+#include <stdlib.h>
 #include "rs232.h"
 
 spinlock_t tty_lock = {0};
@@ -24,6 +25,11 @@ static struct dev_operations tty_ops = {
     .ioctl = tty_ioctl,
     .open  = tty_open,
     .close = tty_close
+};
+
+long ptmx_repl_open(inode_t **inode, unsigned short flags);
+static struct dev_operations ptmx_ops = {
+    .repl_open = ptmx_repl_open,
 };
 
 
@@ -78,14 +84,19 @@ char tty_assign_session(inode_t * tty, pid_t session) {
 void tty_flush_input(tty_t * tty);
 
 // TODO: add the missing unimplemented ones
-// missing BRKINT, IGNBRK, IGNPAR, INPCK, unsure about whether to implement IXOFF?
+// unsure about whether to implement IXOFF?
 #define TERMIOS_VALID_IFLAGS ( \
+BRKINT | \
 ICRNL | \
+IGNBRK | \
 IGNCR | \
+IGNPAR | \
 INLCR | \
+INPCK | \
 ISTRIP | \
 IXANY | \
-IXON \
+IXON | \
+PARMRK \
 )
 
 // missing nldly, crly, tabdly, bsdly, vtdly
@@ -196,11 +207,19 @@ long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
                 spinlock_release(&terminals[MINOR(dev)]->tty_lock);
                 return 0;
             }
-            memcpy(&terminals[MINOR(dev)]->params, arg, sizeof(struct termios));
-            terminals[MINOR(dev)]->params.c_iflag &= TERMIOS_VALID_IFLAGS;
-            terminals[MINOR(dev)]->params.c_oflag &= TERMIOS_VALID_OFLAGS;
-            terminals[MINOR(dev)]->params.c_lflag &= TERMIOS_VALID_LFLAGS;
-            terminals[MINOR(dev)]->params.c_cflag &= TERMIOS_VALID_CFLAGS;
+
+            struct termios tio = *(struct termios *)arg;
+            tio.c_iflag &= TERMIOS_VALID_IFLAGS;
+            tio.c_oflag &= TERMIOS_VALID_OFLAGS;
+            tio.c_lflag &= TERMIOS_VALID_LFLAGS;
+            tio.c_cflag &= TERMIOS_VALID_CFLAGS;
+            if (MINOR(dev) >= __TTY_CONSOLE + __TTY_SERIAL + __TTY_PTY &&
+                MINOR(dev) <  __TTY_CONSOLE + __TTY_SERIAL + __TTY_PTY*2) {
+                // we can't allow ECHO to get into pty masters,
+                // otherwise we'd have an infinite feedback loop (and deadlocks :p)
+                tio.c_lflag &= ~(ECHO | ECHOE | ECHOK | ECHOCTL | ECHONL);
+            }
+            memcpy(&terminals[MINOR(dev)]->params, &tio, sizeof(struct termios));
 
             int ret = 0;
             if (terminals[MINOR(dev)]->ctl) {
@@ -460,15 +479,166 @@ static void tty_set_defaults(tty_t * tty) {
     tty->params.c_iflag = TTYDEF_IFLAG;
     tty->params.c_lflag = TTYDEF_LFLAG;
     tty->params.c_oflag = TTYDEF_OFLAG;
+    tty->height = 60;
+    tty->width = 80,
     tty->session = tty->foreground_pgrp = 0;
     memcpy(tty->params.c_cc, default_control_chars, sizeof(tty->params.c_cc));
 }
 
+static size_t tty_translate_line_incoming(const char * s, size_t n, tty_t * tty, char parmarked);
+size_t pty_write(tty_t * tty) {
+    struct tty_queue * tq = &tty->oqueue;
+    spinlock_acquire_interruptible(&tq->queue_lock);
+
+    size_t n = REMAIN(tq);
+
+    if (tq->head <= tq->tail) {
+        tty_translate_line_incoming(tq->buffer + tq->head, n, tty->pty_buddy, 0);
+    } else {
+        tty_translate_line_incoming(tq->buffer + tq->head, MAX_CANON - tq->head, tty->pty_buddy, 0);
+        tty_translate_line_incoming(tq->buffer, tq->tail, tty->pty_buddy, 0);
+    }
+
+    tty->oqueue.head = tty->oqueue.tail = 0;
+
+    spinlock_release(&tq->queue_lock);
+    return n;
+}
+void ptym_hup(tty_t * tty) {
+    kassert(tty);
+    tty = tty->pty_buddy;
+
+    spinlock_acquire_interruptible(&tty->tty_lock);
+    pid_t tgt = 0;
+    if (tty->instances && tty->foreground_pgrp)
+        tgt = tty->foreground_pgrp;
+    spinlock_release(&tty->tty_lock);
+
+    if (tgt)
+        signal_process_group(tgt, &(siginfo_t) {.si_signo = SIGHUP});
+}
+
+
+long ptmx_repl_open(inode_t **inode, unsigned short flags) {
+    // this is *probably* not needed, but alternatives don't make sense
+    // also posix_openpt() apparently only allows O_RDWR
+    if ((flags & O_RDWR) != O_RDWR)
+        return -EINVAL;
+    kassert(inode && *inode);
+    kassert(S_ISCHR((*inode)->mode));
+
+    inode_t * new = get_free_inode();
+    if (!new) return -EMFILE;
+
+    spinlock_acquire(&tty_lock);
+    for (int i = 0; i < __TTY_PTY; i++) {
+        int idx = __TTY_CONSOLE + __TTY_SERIAL + i;
+
+        if (!(
+            (!terminals[idx]             || !terminals[idx]->instances) && // pty slave
+            (!terminals[idx + __TTY_PTY] || !terminals[idx + __TTY_PTY]->instances) // pty master
+            )) continue;
+
+        if (!terminals[idx]) {
+            tty_t * slave = tty_init_tty(
+                TTYDEF_IFLAG,
+                TTYDEF_LFLAG,
+                TTYDEF_OFLAG,
+                TTYDEF_CFLAG,
+                default_control_chars,
+                60, 80,
+                pty_write, NULL, NULL, NULL,
+                0,
+                current_process->session, current_process->pgrp);
+            if (!slave) {
+                spinlock_release(&tty_lock);
+                new->instances = 0;
+                return -ENOMEM;
+            }
+            slave->instances = 0; // see comment below
+            terminals[idx] = slave;
+        } else {
+            tty_set_defaults(terminals[idx]);
+            // can't assign to instances because we'd have no way to then close it
+            // we don't need it anyway though
+            // point is here to initialize to a blank state and set up pty->buddy (which never changes)
+            //terminals[idx]->instances = 1;
+            //terminals[idx]->session = current_process->session;
+            //terminals[idx]->foreground_pgrp = current_process->pgrp;
+            terminals[idx]->iqueue.head = terminals[idx]->iqueue.tail = 0;
+            terminals[idx]->oqueue.head = terminals[idx]->oqueue.tail = 0;
+        }
+        terminals[idx]->owner = current_process->uid;
+
+        if (!terminals[idx + __TTY_PTY]) {
+            tty_t * master = tty_init_tty(
+                TTYDEF_IFLAG,
+                ICANON | ISIG, // having echo here would lead to an infinite looping of text
+                TTYDEF_OFLAG,
+                TTYDEF_CFLAG,
+                default_control_chars,
+                60, 80,
+                pty_write, NULL, NULL, ptym_hup,
+                0,
+                current_process->session, current_process->pgrp);
+            if (!master) {
+                terminals[idx]->instances = 0;
+                spinlock_release(&tty_lock);
+                new->instances = 0;
+                return -ENOMEM;
+            }
+            terminals[idx + __TTY_PTY] = master;
+        } else {
+            tty_set_defaults(terminals[idx + __TTY_PTY]);
+            terminals[idx + __TTY_PTY]->params.c_lflag = ICANON | ISIG;
+            terminals[idx + __TTY_PTY]->instances = 1;
+            terminals[idx + __TTY_PTY]->session = current_process->session;
+            terminals[idx + __TTY_PTY]->foreground_pgrp = current_process->pgrp;
+            terminals[idx + __TTY_PTY]->iqueue.head = terminals[idx + __TTY_PTY]->iqueue.tail = 0;
+            terminals[idx + __TTY_PTY]->oqueue.head = terminals[idx + __TTY_PTY]->oqueue.tail = 0;
+        }
+        terminals[idx + __TTY_PTY]->owner = current_process->uid;
+
+        terminals[idx]->pty_buddy = terminals[idx + __TTY_PTY];
+        terminals[idx + __TTY_PTY]->pty_buddy = terminals[idx];
+
+        inode_t _new = {0};
+        _new.atime = _new.btime = _new.ctime = _new.mtime = system_time_sec;
+        _new.mode = S_IFCHR | S_IRUSR | S_IWUSR;
+        _new.uid = current_process->euid;
+        _new.gid = current_process->egid;
+        _new.id  = rand();
+        _new.nlink = 1;
+        _new.instances = 1;
+        _new.device = GET_DEV(DEV_MAJ_TTY, idx + __TTY_PTY);
+        _new.dev_opened = 1;
+
+        *new = _new; // too lazy to selectively zero out fields
+
+        spinlock_release(&tty_lock);
+        __close_inode(*inode);
+        *inode = new;
+        return 0;
+    }
+    spinlock_release(&tty_lock);
+    new->instances = 0;
+    return -EAGAIN;
+}
+
+
 long tty_open(inode_t * tty, unsigned short flags) {
     kassert(tty);
     if (!S_ISCHR(tty->mode))
-        return -1;
+        return -EINVAL;
     dev_t dev = tty->device;
+
+    // we could possibly deal with master devices being opened
+    // but realistically that's not a use case anyway since we support ptmx
+    // and it would greatly add complexity
+    if (MINOR(dev) >= __TTY_CONSOLE + __TTY_SERIAL + __TTY_PTY &&
+        MINOR(dev) <  __TTY_CONSOLE + __TTY_SERIAL + __TTY_PTY * 2)
+        return -ENXIO;
+
     if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CURRENT)) {
         spinlock_acquire(&current_process->lock);
         dev = current_process->ctty;
@@ -482,6 +652,18 @@ long tty_open(inode_t * tty, unsigned short flags) {
         return -ENODEV;
 
     tty_t * term = terminals[MINOR(dev)];
+
+    // pseudoterminal, owner field set in ptmx_repl_open()
+    // this might somewhat break permissions in case these there are on disk, but so be it
+    // they shouldn't actually exist anyway
+    // these perms are set up by devfs as well,
+    // but they could've been delayed by an inode with O_PATH opened already
+    // this is basically what would normally grantpt() do
+    if (MINOR(dev) >= __TTY_CONSOLE + __TTY_SERIAL &&
+        MINOR(dev) <  __TTY_CONSOLE + __TTY_SERIAL + __TTY_PTY) {
+        tty->mode = S_IFCHR | S_IRUSR | S_IWUSR;
+        tty->uid = term->owner;
+    }
 
     spinlock_acquire(&term->tty_lock);
     __atomic_add_fetch(&term->instances, 1, __ATOMIC_ACQUIRE);
@@ -557,6 +739,7 @@ void tty_alloc_kernel_console() { // for the kernel task, don't call for user pr
         0,0,
         tty_com_write,
         com_ctl, com_brk, com_hup, 0, 0, 0);
+    ttyS0->instances = 0; // so that userspace closing hup can work
     tty_register(ttyS0, DEV_TTY_S0);
 
     tty_t * ttyS1 = tty_init_tty(
@@ -568,8 +751,15 @@ void tty_alloc_kernel_console() { // for the kernel task, don't call for user pr
         0,0,
         tty_com_write,
         com_ctl, com_brk, com_hup, 1, 0, 0);
+    ttyS1->instances = 0;
     tty_register(ttyS1, DEV_TTY_S0 + 1);
 
+    for (int i = 0; i < __TTY_PTY; i++) {
+        dev_register_ops(GET_DEV(DEV_MAJ_TTY, __TTY_CONSOLE + __TTY_SERIAL + i), &tty_ops); // pts
+        dev_register_ops(GET_DEV(DEV_MAJ_TTY, __TTY_CONSOLE + __TTY_SERIAL + __TTY_PTY + i), &tty_ops); // ptm
+    }
+
+    dev_register_ops(GET_DEV(DEV_MAJ_TTY, DEV_TTY_PTMX), &ptmx_ops);
     dev_register_ops(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE), &tty_ops);
     dev_register_ops(GET_DEV(DEV_MAJ_TTY, DEV_TTY_CURRENT), &tty_ops);
 }
@@ -785,7 +975,7 @@ static inline char tty_remove_line(tty_t * tty) { // cannon mode, KILL char
 }
 
 // TODO: check ordering of operations
-static inline size_t tty_translate_line_incoming(const char * s, size_t n, tty_t * tty, char parmarked) {
+static size_t tty_translate_line_incoming(const char * s, size_t n, tty_t * tty, char parmarked) {
     kassert(s);
     kassert(tty);
 

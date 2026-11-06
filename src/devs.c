@@ -199,27 +199,29 @@ long ioctl_dev(file_descriptor_t *file, unsigned long request, void * arg) {
     return dev_ops.ioctl(file, request, arg);
 }
 
-long open_dev(inode_t * inode, unsigned short flags) {
-    kassert(inode);
-    kassert(S_ISCHR(inode->mode) || S_ISBLK(inode->mode));
+long open_dev(inode_t ** inode, unsigned short flags) {
+    kassert(inode && *inode);
+    kassert(S_ISCHR((*inode)->mode) || S_ISBLK((*inode)->mode));
 
-    if (inode->device == (dev_t)-1) return 0; // these devices are placeholders anyway
+    if ((*inode)->device == (dev_t)-1) return 0; // these devices are placeholders anyway
 
-    struct dev_operations dev_ops = dev_ops_lookup(inode->device);
+    struct dev_operations dev_ops = dev_ops_lookup((*inode)->device);
     if (dev_ops.seek == (void*)1) return -ENXIO;
     //if (dev_ops.seek == (void*)1) return 0;
 
-    if (dev_ops.open == NULL) {
-        inode->io_block_size = 512; // good default
+    if (dev_ops.open == NULL && dev_ops.repl_open == NULL) {
+        (*inode)->io_block_size = 512; // good default
 
         // so that io_block_size assignment doesn't float beneath this
-        __atomic_store_n(&inode->dev_opened, 1, __ATOMIC_RELEASE);
+        __atomic_store_n(&(*inode)->dev_opened, 1, __ATOMIC_RELEASE);
         return 0;
     }
 
-    if (inode->dev_opened) return 0;
+    if ((*inode)->dev_opened) return 0;
 
-    return dev_ops.open(inode, flags);
+    if (dev_ops.repl_open)
+        return dev_ops.repl_open(inode, flags);
+    return dev_ops.open(*inode, flags);
 }
 
 long close_dev(inode_t * inode) {
@@ -285,8 +287,12 @@ char * dev2string(dev_t device, char * buf_out) {
                 case __TTY_CONSOLE ... __TTY_CONSOLE + __TTY_SERIAL - 1:
                     sprintf(buf_out, "ttyS%d", MINOR(device) - __TTY_CONSOLE);
                     break;
-                case __TTY_CONSOLE + __TTY_SERIAL ... DEV_TTY_CURRENT - 1:
-                    sprintf(buf_out, "pty%d", MINOR(device) - __TTY_CONSOLE - __TTY_SERIAL);
+                case __TTY_CONSOLE + __TTY_SERIAL + __TTY_PTY ... __TTY_CONSOLE + __TTY_SERIAL + __TTY_PTY*2 - 1:
+                    sprintf(buf_out, "pts/%d", MINOR(device) - __TTY_CONSOLE - __TTY_SERIAL);
+                    break;
+                case __TTY_CONSOLE + __TTY_SERIAL + __TTY_PTY*2 ... __TTY_CONSOLE + __TTY_SERIAL + __TTY_PTY*3 - 1:
+                case DEV_TTY_PTMX:
+                    strcpy(buf_out, "ptmx");
                     break;
                 case DEV_TTY_CURRENT:
                     strcpy(buf_out, "tty");

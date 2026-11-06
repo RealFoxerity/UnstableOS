@@ -473,7 +473,7 @@ ssize_t tarfs_readdir(file_descriptor_t * fd, struct dirent * dent, size_t dent_
                 .d_reclen = sizeof(struct dirent) + strlen(this->path_fragment) + 1,
                 .d_type = IFTODT(this->mode)
             };
-            memcpy(&dent->d_name, this->path_fragment, strlen(this->path_fragment) + 1);
+            memcpy(dent->d_name, this->path_fragment, strlen(this->path_fragment) + 1);
     }
     offset++;
     // once again, fd->off is unsigned long long - 64 bits

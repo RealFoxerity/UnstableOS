@@ -73,4 +73,12 @@ char *mktemp(char *s);
 char *mkdtemp(char *template);
 int mkostemp(char *template, int flag);
 int mkstemp(char *template);
+
+int posix_openpt(int oflag);
+int grantpt(int fildes);
+int unlockpt(int fildes);
+
+// in unistd.c
+char *ptsname(int fildes);
+int ptsname_r(int fildes, char *name, size_t namesize);
 #endif

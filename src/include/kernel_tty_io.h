@@ -5,6 +5,7 @@
 #include <limits.h>
 #include <UnstableOS/devs.h>
 #include <termios.h>
+#include <sys/types.h>
 
 #define TTY_LONGEST_BREAK_MSEC 2500
 #define KERNEL_CONSOLE_MINOR DEV_TTY_0
@@ -66,7 +67,10 @@ struct tty_t {
     // here so we don't need to free()/close() this terminal
     // for aliased ttys like console
     unsigned long instances;
-    int com_port;
+    union {
+        struct tty_t * pty_buddy;
+        int com_port;
+    };
     spinlock_t tty_lock; // for params
     size_t height;
     size_t width;
@@ -76,6 +80,12 @@ struct tty_t {
 
     pid_t foreground_pgrp;
     pid_t session; // 0 assumes not taken
+
+    // for pseudoterminals to let devfs adjust the inode owner
+    // TODO: this could be done better,
+    //       this way it's stuck on the original UID at the time of the ptmx open
+    //       shouldn't hopefully matter too much, but still
+    uid_t owner;
 
     size_t (*write)(struct tty_t *);
     // optional for setting control flags and similar,

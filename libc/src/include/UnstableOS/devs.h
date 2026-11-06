@@ -51,20 +51,16 @@ enum dev_misc_min {
     DEV_MISC_RANDOM,
 };
 
-#define __TTY_CONSOLE 16
+#define __TTY_CONSOLE 4
 #define __TTY_SERIAL 8
-#define __TTY_PTY 20
-#define TTY_LIMIT_KERNEL (__TTY_SERIAL + __TTY_CONSOLE + __TTY_PTY) // maximum amount of ttys opened
+#define __TTY_PTY 64
+#define TTY_LIMIT_KERNEL (__TTY_CONSOLE + __TTY_SERIAL + __TTY_PTY*2) // maximum amount of ttys opened
 
 enum dev_tty_min {
     DEV_TTY_0, // VGA backed terminals
     DEV_TTY_1,
     DEV_TTY_2,
     DEV_TTY_3,
- 
-    /*
-    DEV_TTY_4 - DEV_TTY_15
-    */
 
     DEV_TTY_S0 = __TTY_CONSOLE, // Serial backed terminals
     /*
@@ -75,7 +71,13 @@ enum dev_tty_min {
     /*
     DEV_PTY_1 - DEV_PTY_19
     */
-    
+
+    DEV_PTYM_0 = __TTY_CONSOLE + __TTY_SERIAL + __TTY_PTY,
+    /*
+    DEV_PTY_1 - DEV_PTY_19
+    */
+
+    DEV_TTY_PTMX = 253,
     DEV_TTY_CURRENT = 254, // current controlling terminal
     DEV_TTY_CONSOLE = 255, // the kernel console
 };

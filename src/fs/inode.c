@@ -113,7 +113,7 @@ long register_inode(const inode_t * inode, inode_t ** inode_out, unsigned short 
         // if it fails, the error propagates to the closest io operation where it will throw EIO
         // this way at least the file descriptor opened as O_PATH will still be valid
         if ((S_ISCHR(inode->mode) || S_ISBLK(inode->mode)) && !(dev_flags & O_PATH))
-            open_dev(new_inode, dev_flags);
+            open_dev(&new_inode, dev_flags);
         if (S_ISFIFO(inode->mode)) {
             status = open_pipe(new_inode, dev_flags);
             if (status < 0) {
@@ -141,9 +141,14 @@ long register_inode(const inode_t * inode, inode_t ** inode_out, unsigned short 
     new_inode->mmaped_instances = 0;
     new_inode->instances = 1;
 
+    // open_dev's open_repl will close the original inode on success
+    if (new_inode->backing_superblock)
+        __atomic_add_fetch(&new_inode->backing_superblock->instances, 1, __ATOMIC_ACQUIRE);
      if (S_ISCHR(inode->mode) || S_ISBLK(inode->mode)) {
          new_inode->dev_opened = 0;
-         if (!(dev_flags & O_PATH) && (status = open_dev(new_inode, dev_flags)) < 0) {
+         if (!(dev_flags & O_PATH) && (status = open_dev(&new_inode, dev_flags)) < 0) {
+             if (new_inode->backing_superblock)
+                 __atomic_sub_fetch(&new_inode->backing_superblock->instances, 1, __ATOMIC_ACQUIRE);
              new_inode->instances = 0; // "free" the inode
              new_inode = NULL;
          }
@@ -153,17 +158,14 @@ long register_inode(const inode_t * inode, inode_t ** inode_out, unsigned short 
     if (S_ISFIFO(inode->mode))
         open_pipe(new_inode, dev_flags);
 
-    if (new_inode && new_inode->backing_superblock)
-        __atomic_add_fetch(&new_inode->backing_superblock->instances, 1, __ATOMIC_ACQUIRE);
     ret:
     *inode_out = new_inode;
     spinlock_release(&kernel_inode_lock);
     return status;
 }
 
-void close_inode(inode_t *inode) {
-    if (inode == NULL) return;
-    spinlock_acquire_interruptible(&kernel_inode_lock);
+void __close_inode(inode_t *inode) {
+    if (!inode) return;
     // should only happen from the very last program closing the file
     // or the process reaper reaping a process
     if (__atomic_sub_fetch(&inode->instances, 1, __ATOMIC_RELEASE) == 0) {
@@ -191,6 +193,12 @@ void close_inode(inode_t *inode) {
             kfree(inode->flocks);
         }
     }
+}
+
+void close_inode(inode_t *inode) {
+    if (inode == NULL) return;
+    spinlock_acquire_interruptible(&kernel_inode_lock);
+    __close_inode(inode);
     spinlock_release(&kernel_inode_lock);
 }
 

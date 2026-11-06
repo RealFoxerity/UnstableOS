@@ -608,8 +608,12 @@ static char * dev2string(dev_t device, char * buf_out) {
                 case __TTY_CONSOLE ... __TTY_CONSOLE + __TTY_SERIAL - 1:
                     sprintf(buf_out, "ttyS%d", MINOR(device) - __TTY_CONSOLE);
                     break;
-                case __TTY_CONSOLE + __TTY_SERIAL ... DEV_TTY_CURRENT - 1:
-                    sprintf(buf_out, "pty%d", MINOR(device) - __TTY_CONSOLE - __TTY_SERIAL);
+                case __TTY_CONSOLE + __TTY_SERIAL ... __TTY_CONSOLE + __TTY_SERIAL + __TTY_PTY - 1:
+                    sprintf(buf_out, "pts/%d", MINOR(device) - __TTY_CONSOLE - __TTY_SERIAL);
+                    break;
+                case __TTY_CONSOLE + __TTY_SERIAL + __TTY_PTY ... __TTY_CONSOLE + __TTY_SERIAL + __TTY_PTY*2 - 1:
+                case DEV_TTY_PTMX:
+                    strcpy(buf_out, "ptmx");
                     break;
                 case DEV_TTY_CURRENT:
                     strcpy(buf_out, "tty");
@@ -678,7 +682,37 @@ int ttyname_r(int fildes, char *name, size_t namesize) {
     dev2string(st.st_rdev | (S_ISCHR(st.st_mode) ? 0x8000 : 0), name + strlen("/dev/"));
     return 0;
 }
+int ptsname_r(int fildes, char *name, size_t namesize) {
+    if (!isatty(fildes))
+        return -1;
 
+    if (namesize < TTY_NAME_MAX) {
+        ___set_errno(ERANGE);
+        return -1;
+    }
+
+    struct stat st;
+    int ret = fstat(fildes, &st);
+    if (ret < 0)
+        return -1;
+
+    if (MINOR(st.st_rdev) < __TTY_CONSOLE + __TTY_SERIAL + __TTY_PTY ||
+        MINOR(st.st_rdev) >= __TTY_CONSOLE + __TTY_SERIAL + __TTY_PTY*2) {
+        ___set_errno(ENOTTY);
+        return -1;
+    }
+
+    strcpy(name, "/dev/");
+    dev2string((st.st_rdev - __TTY_PTY) | (S_ISCHR(st.st_mode) ? 0x8000 : 0), name + strlen("/dev/"));
+    return 0;
+}
+char *ptsname(int fildes) {
+    static char ptsname[TTY_NAME_MAX];
+    int ret = ptsname_r(fildes, ptsname, TTY_NAME_MAX);
+    if (ret < 0)
+        return NULL;
+    return ptsname;
+}
 int gethostname(char *name, size_t namelen) {
     int ret = syscall(SYSCALL_GETHOSTNAME, name, namelen);
     if (ret < 0) {
