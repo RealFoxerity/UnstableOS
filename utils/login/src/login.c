@@ -100,6 +100,7 @@ size_t gather_groups(const char * username, gid_t groups[NGROUPS_MAX]) {
             if (strcmp(group->gr_mem[i], username) == 0)
                 groups[ngroup++] = group->gr_gid;
     }
+    endgrent();
     return ngroup;
 }
 int main(int argc, char **argv) {
