@@ -180,7 +180,7 @@ void print_issue(int fd) {
         return;
     rewind(issue);
 
-    osrel = fopen(F_OSREL, "r");
+    osrel = fopen(F_OSREL, "re");
 
     uname(&name);
 
