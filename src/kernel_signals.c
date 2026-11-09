@@ -529,27 +529,6 @@ struct {
     int sig;
 } typedef sa_stack_state;
 
-
-#define SAFE_SA_MASK (~(\
-    GET_SIG_MASK(SIGKILL) |\
-    GET_SIG_MASK(SIGSTOP) |\
-    GET_SIG_MASK(SIGCONT)))
-
-
-static char check_address_writable(const void * addr, size_t n) {
-    if (addr == NULL) return 0;
-    n += (unsigned long)addr & (PAGE_SIZE_NO_PAE - 1);
-    addr = (void*)((unsigned long) addr & ~(PAGE_SIZE_NO_PAE - 1));
-
-    for (const void * iteraddr = addr; iteraddr < addr+n && iteraddr >= addr; iteraddr += PAGE_SIZE_NO_PAE) {
-        PAGE_TABLE_TYPE * pte = paging_get_pte(iteraddr);
-        if (pte == NULL) return 0;
-        if (!(*pte & PTE_PDE_PAGE_USER_ACCESS)) return 0;
-        if (!(*pte & PTE_PDE_PAGE_WRITABLE)) return 0;
-    }
-    return 1;
-}
-
 // due to the way the System V ABI for IA-32 works, we can push arguments as if for sigaction
 struct signal_stack_state {
     void * restorer_eip; // so that calling ret from userspace actually works and gets us to the restorer
@@ -579,7 +558,7 @@ void signal_dispatch_sa(process_t * group, thread_t * thread) {
     if (!(
         thread->context.iret_frame.sp <  PROGRAM_STACK_VADDR &&
         thread->context.iret_frame.sp >= PROGRAM_STACK_VADDR - PROGRAM_STACK_SIZE * PTHREAD_THREADS_MAX) ||
-        !check_address_writable(thread->context.iret_frame.sp - 16 - sizeof(struct signal_stack_state), 16 + sizeof(struct signal_stack_state))
+        !paging_check_address_range(thread->context.iret_frame.sp - 16 - sizeof(struct signal_stack_state), 16 + sizeof(struct signal_stack_state), 1, 0)
     ) {
         kprintf("Warning: PID %ld TID %ld invalid ESP (%p) on signal dispatch - segmentation fault, terminating!\n", group->pid, thread->tid, thread->context.iret_frame.sp);
         thread->sa_to_be_handled = 0; // to be sure
@@ -664,7 +643,7 @@ void sys_sigreturn(__gregcontext_t * ctx) {
     if (!(
         ctx->iret_frame.sp < PROGRAM_STACK_VADDR &&
         ctx->iret_frame.sp >= PROGRAM_STACK_VADDR - PROGRAM_STACK_SIZE * PTHREAD_THREADS_MAX) ||
-        !check_address_writable(ctx->iret_frame.sp, sizeof(struct signal_stack_state))
+        !paging_check_address_range(ctx->iret_frame.sp, sizeof(struct signal_stack_state), 1, 0)
     ) {
         kprintf("Warning: PID %ld TID %ld invalid ESP on signal return - segmentation fault, terminating!\n", current_process->pid, current_thread->tid);
         current_thread->status = SCHED_DONT_SCHEDULE;
