@@ -19,12 +19,14 @@ tty_t * terminals[TTY_LIMIT_KERNEL] = {0};
 
 long tty_open(inode_t * tty, unsigned short flags);
 long tty_close(inode_t * tty);
+short tty_poll(inode_t * tty, short events);
 static struct dev_operations tty_ops = {
-    .pread = tty_pread,
+    .pread  = tty_pread,
     .pwrite = tty_pwrite,
-    .ioctl = tty_ioctl,
-    .open  = tty_open,
-    .close = tty_close
+    .ioctl  = tty_ioctl,
+    .open   = tty_open,
+    .close  = tty_close,
+    .poll   = tty_poll,
 };
 
 long ptmx_repl_open(inode_t **inode, unsigned short flags);
@@ -224,8 +226,10 @@ long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
             int ret = 0;
             if (terminals[MINOR(dev)]->ctl) {
                 ret = terminals[MINOR(dev)]->ctl(terminals[MINOR(dev)], &terminals[MINOR(dev)]->params);
-            } else
+            } else {
                 terminals[MINOR(dev)]->params.c_cflag = TTYDEF_CFLAG;
+                terminals[MINOR(dev)]->hung_up = 0;
+            }
 
             spinlock_release(&terminals[MINOR(dev)]->tty_lock);
             return ret;
@@ -269,8 +273,11 @@ long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
                         &terminals[MINOR(dev)]->oqueue,
                         terminals[MINOR(dev)]->params.c_cc[VSTOP], 0
                     );
-                    if (!terminals[MINOR(dev)]->output_stopped)
+                    if (!terminals[MINOR(dev)]->output_stopped) {
+                        spinlock_acquire_interruptible(&terminals[MINOR(dev)]->tty_lock);
                         terminals[MINOR(dev)]->write(terminals[MINOR(dev)]);
+                        spinlock_release(&terminals[MINOR(dev)]->tty_lock);
+                    }
                     return 0;
                 case TCION:
                     tty_queue_putch(
@@ -278,8 +285,11 @@ long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
                         &terminals[MINOR(dev)]->oqueue,
                         terminals[MINOR(dev)]->params.c_cc[VSTART], 0
                     );
-                    if (!terminals[MINOR(dev)]->output_stopped)
+                    if (!terminals[MINOR(dev)]->output_stopped) {
+                        spinlock_acquire_interruptible(&terminals[MINOR(dev)]->tty_lock);
                         terminals[MINOR(dev)]->write(terminals[MINOR(dev)]);
+                        spinlock_release(&terminals[MINOR(dev)]->tty_lock);
+                    }
                     return 0;
                 default:
                     return -EINVAL;
@@ -287,24 +297,28 @@ long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
         case TCFLSH:
             switch ((long)arg) {
                 case TCIFLUSH:
+                    spinlock_acquire(&terminals[MINOR(dev)]->tty_lock);
                     __atomic_store(
                         &terminals[MINOR(dev)]->iqueue.head,
                         &terminals[MINOR(dev)]->iqueue.tail,
                         __ATOMIC_RELEASE
                     );
                     tty_flush_input(terminals[MINOR(dev)]);
+                    spinlock_release(&terminals[MINOR(dev)]->tty_lock);
+                    thread_queue_unblock_all_nonreentrant(&terminals[MINOR(dev)]->pollin);
                     return 0;
                 case TCOFLUSH:
+                    spinlock_acquire(&terminals[MINOR(dev)]->tty_lock);
                     __atomic_store(
                         &terminals[MINOR(dev)]->oqueue.head,
                         &terminals[MINOR(dev)]->oqueue.tail,
                         __ATOMIC_RELEASE
                     );
-#if TTY_QUEUE_MODE == 2
-                    thread_queue_unblock_all(&terminals[MINOR(dev)]->oqueue.write_queue);
-#endif
+                    spinlock_release(&terminals[MINOR(dev)]->tty_lock);
+                    thread_queue_unblock_all_nonreentrant(&terminals[MINOR(dev)]->pollout);
                     return 0;
                 case TCIOFLUSH:
+                    spinlock_acquire(&terminals[MINOR(dev)]->tty_lock);
                     __atomic_store(
                         &terminals[MINOR(dev)]->iqueue.head,
                         &terminals[MINOR(dev)]->iqueue.tail,
@@ -316,9 +330,9 @@ long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
                         __ATOMIC_RELEASE
                     );
                     tty_flush_input(terminals[MINOR(dev)]);
-#if TTY_QUEUE_MODE == 2
-                    thread_queue_unblock_all(&terminals[MINOR(dev)]->oqueue.write_queue);
-#endif
+                    spinlock_release(&terminals[MINOR(dev)]->tty_lock);
+                    thread_queue_unblock_all_nonreentrant(&terminals[MINOR(dev)]->pollin);
+                    thread_queue_unblock_all_nonreentrant(&terminals[MINOR(dev)]->pollout);
                     return 0;
                 default:
                     return -EINVAL;
@@ -479,6 +493,7 @@ static void tty_set_defaults(tty_t * tty) {
     tty->params.c_iflag = TTYDEF_IFLAG;
     tty->params.c_lflag = TTYDEF_LFLAG;
     tty->params.c_oflag = TTYDEF_OFLAG;
+    tty->params.c_cflag = TTYDEF_CFLAG;
     tty->height = 60;
     tty->width = 80,
     tty->session = tty->foreground_pgrp = 0;
@@ -512,6 +527,12 @@ void ptym_hup(tty_t * tty) {
     pid_t tgt = 0;
     if (tty->instances && tty->foreground_pgrp)
         tgt = tty->foreground_pgrp;
+
+    // no need to set for the pty master as this gets called on close
+    tty->hung_up = 1;
+    thread_queue_unblock_all_nonreentrant(&tty->pollin);
+    thread_queue_unblock_all_nonreentrant(&tty->pollout);
+
     spinlock_release(&tty->tty_lock);
 
     if (tgt)
@@ -568,6 +589,7 @@ long ptmx_repl_open(inode_t **inode, unsigned short flags) {
             terminals[idx]->iqueue.head = terminals[idx]->iqueue.tail = 0;
             terminals[idx]->oqueue.head = terminals[idx]->oqueue.tail = 0;
         }
+        terminals[idx]->hung_up = 0;
         terminals[idx]->owner = current_process->uid;
 
         if (!terminals[idx + __TTY_PTY]) {
@@ -597,6 +619,7 @@ long ptmx_repl_open(inode_t **inode, unsigned short flags) {
             terminals[idx + __TTY_PTY]->iqueue.head = terminals[idx + __TTY_PTY]->iqueue.tail = 0;
             terminals[idx + __TTY_PTY]->oqueue.head = terminals[idx + __TTY_PTY]->oqueue.tail = 0;
         }
+        terminals[idx + __TTY_PTY]->hung_up = 0;
         terminals[idx + __TTY_PTY]->owner = current_process->uid;
 
         terminals[idx]->pty_buddy = terminals[idx + __TTY_PTY];
@@ -667,8 +690,13 @@ long tty_open(inode_t * tty, unsigned short flags) {
 
     spinlock_acquire(&term->tty_lock);
     __atomic_add_fetch(&term->instances, 1, __ATOMIC_ACQUIRE);
-    if (term->session == 0 && flags & O_TTY_INIT)
+    if (term->session == 0 && flags & O_TTY_INIT) {
         tty_set_defaults(term);
+        if (term->ctl)
+            term->ctl(term, &term->params);
+        else
+            term->hung_up = 0;
+    }
     if (term->session == 0 && !(flags & (O_NOCTTY | O_SEARCH | O_PATH))) {
         spinlock_acquire(&current_process->lock);
         if (current_process->ctty == 0 && current_process->session == current_process->pid) {
@@ -710,8 +738,11 @@ long tty_close(inode_t * tty) {
     spinlock_acquire(&term->tty_lock);
     if (__atomic_sub_fetch(&term->instances, 1, __ATOMIC_RELEASE) == 0) {
         term->session = term->foreground_pgrp = 0;
-        if (term->hup) term->hup(term);
+        if (!(term->params.c_cflag & CLOCAL) && term->hup) term->hup(term);
     }
+
+    thread_queue_unblock_all_nonreentrant(&term->pollin);
+    thread_queue_unblock_all_nonreentrant(&term->pollout);
     spinlock_release(&term->tty_lock);
     return 0;
 }
@@ -773,7 +804,7 @@ int tty_queue_getch(struct tty_queue * tq, struct timespec timeout) { // if 256,
     again:
     if (EMPTY(tq)) {
         if (timeout.tv_nsec == 0 && timeout.tv_sec == 0)
-            thread_queue_add(&tq->read_queue, current_process, current_thread, SCHED_INTERR_SLEEP);
+            thread_queue_add(&tq->read_queue, current_process, current_thread, NULL, SCHED_INTERR_SLEEP);
         else if (timeout.tv_nsec == -1)
             return 257;
         else
@@ -792,9 +823,6 @@ int tty_queue_getch(struct tty_queue * tq, struct timespec timeout) { // if 256,
 
     out = tq->buffer[tq->head]; // see comment in kernel_tty_io.h for queues
     DEC(tq);
-#if TTY_QUEUE_MODE == 2
-    thread_queue_unblock(&tq->write_queue);
-#endif
     spinlock_release(&tq->queue_lock);
     return out;
 }
@@ -812,16 +840,8 @@ int tty_queue_putch(tty_t * tty, struct tty_queue * tq, char c, char onlret) {
             spinlock_release(&tq->queue_lock);
             return 256;
         }
-        #if TTY_QUEUE_MODE == 0
-            spinlock_release(&tq->queue_lock);
-            return 0; // discards new data
-        #elif TTY_QUEUE_MODE == 1
-            DEC(tq); // rewrites old data
-        #elif TTY_QUEUE_MODE == 2
-            spinlock_release(&tq->queue_lock);
-            thread_queue_add(&tq->write_queue, current_process, current_thread, SCHED_UNINTERR_SLEEP); // warning! keyboard input can deadlock kernel
-            spinlock_acquire_interruptible(&tq->queue_lock);
-        #endif
+        spinlock_release(&tq->queue_lock);
+        return 0; // discards new data
     }
 
     if (EMPTY(tq))
@@ -982,7 +1002,8 @@ static size_t tty_translate_line_incoming(const char * s, size_t n, tty_t * tty,
     if (!(tty->params.c_cflag & CREAD))
         return n;
 
-    for (size_t i = 0; i < n; i++) {
+    size_t i = 0;
+    for (; i < n; i++) {
         char checked = s[i];
 
         if (tty->params.c_iflag & IXON) {
@@ -1005,11 +1026,11 @@ static size_t tty_translate_line_incoming(const char * s, size_t n, tty_t * tty,
 
         if (tty->params.c_lflag & ICANON) {
             if (tty->params.c_cc[VERASE] != _POSIX_VDISABLE && checked == tty->params.c_cc[VERASE]) {
-                if (tty_remove_char(tty, 0) == -1) return i;
+                if (tty_remove_char(tty, 0) == -1) goto end;
                 continue;
             }
             if (tty->params.c_cc[VKILL] != _POSIX_VDISABLE && checked == tty->params.c_cc[VKILL]) {
-                if (tty_remove_line(tty) == -1) return i;
+                if (tty_remove_line(tty) == -1) goto end;
                 continue;
             }
         }
@@ -1033,18 +1054,18 @@ static size_t tty_translate_line_incoming(const char * s, size_t n, tty_t * tty,
                     if (tty->params.c_cc[VINTR] != _POSIX_VDISABLE && checked == tty->params.c_cc[VINTR]) {
                         signal_process_group(tty->foreground_pgrp, &(siginfo_t) {.si_signo = SIGINT });
                         if (!(tty->params.c_lflag & NOFLSH)) tty_flush_input(tty);
-                        return i;
+                        goto end;
                     }
                     if (tty->params.c_cc[VQUIT] != _POSIX_VDISABLE && checked == tty->params.c_cc[VQUIT]) {
                         signal_process_group(tty->foreground_pgrp, &(siginfo_t) {.si_signo = SIGQUIT });
                         if (!(tty->params.c_lflag & NOFLSH)) tty_flush_input(tty);
 
-                        return i;
+                        goto end;
                     }
                     if (tty->params.c_cc[VSUSP] != _POSIX_VDISABLE && checked == tty->params.c_cc[VSUSP]) {
                         signal_process_group(tty->foreground_pgrp, &(siginfo_t) {.si_signo = SIGTSTP });
                         //if (!(tty->params.c_lflag & NOFLSH)) tty_flush_input(tty);
-                        return i;
+                        goto end;
                     }
                 }
         }
@@ -1053,13 +1074,13 @@ static size_t tty_translate_line_incoming(const char * s, size_t n, tty_t * tty,
             if (tty->params.c_iflag & IGNPAR)
                 goto skipped_parity;
             if (tty->params.c_iflag & PARMRK) {
-                if (tty_queue_putch(tty, &tty->iqueue, (char)0xFF, 0) == 256) return i;
-                if (tty_queue_putch(tty, &tty->iqueue, 0, 0) == 256) return i;
+                if (tty_queue_putch(tty, &tty->iqueue, (char)0xFF, 0) == 256) goto end;
+                if (tty_queue_putch(tty, &tty->iqueue, 0, 0) == 256) goto end;
             }
         }
         if (tty->params.c_iflag & INPCK && tty->params.c_iflag & PARMRK && !parmarked && final == (char)0xFF)
-            if (tty_queue_putch(tty, &tty->iqueue, (char)0xFF, 0) == 256) return i;
-        if (tty_queue_putch(tty, &tty->iqueue, final, 0) == 256) return i;
+            if (tty_queue_putch(tty, &tty->iqueue, (char)0xFF, 0) == 256) goto end;
+        if (tty_queue_putch(tty, &tty->iqueue, final, 0) == 256) goto end;
         skipped_parity:
 
         if (tty->params.c_lflag & ECHO) {
@@ -1072,20 +1093,20 @@ static size_t tty_translate_line_incoming(const char * s, size_t n, tty_t * tty,
 
                     final == '\n' || final == '\t')
                 {
-                    if (tty_translate_line_outgoing(&final, 1, tty) != 1) return i;
+                    if (tty_translate_line_outgoing(&final, 1, tty) != 1) goto end;
                 } else {
-                    if (tty_translate_line_outgoing("^", 1, tty) != 1) return i;
-                    if (tty_translate_line_outgoing(&(char){final + '@'}, 1, tty) != 1) return i;
+                    if (tty_translate_line_outgoing("^", 1, tty) != 1) goto end;
+                    if (tty_translate_line_outgoing(&(char){final + '@'}, 1, tty) != 1) goto end;
                 }
             } else if (tty->params.c_lflag & ECHOCTL &&
                     final == 0x7f)
             {
-                if (tty_translate_line_outgoing("^?", 2, tty) != 2) return i;
+                if (tty_translate_line_outgoing("^?", 2, tty) != 2) goto end;
             } else {
-                if (tty_translate_line_outgoing(&final, 1, tty) != 1) return i;
+                if (tty_translate_line_outgoing(&final, 1, tty) != 1) goto end;
             }
         } else if (tty->params.c_lflag & ECHONL && (final == '\n' || final == '\v'))
-            if (tty_translate_line_outgoing(&final, 1, tty) != 1) return i;
+            if (tty_translate_line_outgoing(&final, 1, tty) != 1) goto end;
 
         if (tty->params.c_lflag & ICANON &&
                 (final == '\n' ||
@@ -1100,7 +1121,10 @@ static size_t tty_translate_line_incoming(const char * s, size_t n, tty_t * tty,
             tty_flush_input(tty);
         }
     }
-    return n;
+
+    end:
+    thread_queue_unblock_all_nonreentrant(&tty->pollin);
+    return i;
 }
 
 static size_t tty_translate_line_outgoing(const char * s, size_t n, tty_t * tty) {
@@ -1113,8 +1137,11 @@ static size_t tty_translate_line_outgoing(const char * s, size_t n, tty_t * tty)
         for (size_t i = 0; i < n; i++) {
             if (tty_queue_putch(tty, &tty->oqueue, s[i], 0) == 256) return i;
         }
-        if (!(tty->output_stopped && current_process->ring == 0))
+        if (!(tty->output_stopped && current_process->ring != 0)) {
+            spinlock_acquire_interruptible(&tty->tty_lock);
             tty->write(tty);
+            spinlock_release(&tty->tty_lock);
+        }
         return n;
     }
 
@@ -1124,7 +1151,7 @@ static size_t tty_translate_line_outgoing(const char * s, size_t n, tty_t * tty)
         // because of how we handle tty queues, we can probably afford a few chars when full
         // by just going through and not writing out the results instead of sleeping
         if (tty->output_stopped && current_process->ring != 0)
-            thread_queue_add(&tty->oqueue.ix_queue, current_process, current_thread, SCHED_UNINTERR_SLEEP);
+            thread_queue_add(&tty->oqueue.ix_queue, current_process, current_thread, NULL, SCHED_UNINTERR_SLEEP);
 
         switch (s[i]) {
             case '\r':
@@ -1148,17 +1175,19 @@ static size_t tty_translate_line_outgoing(const char * s, size_t n, tty_t * tty)
             default:
                 if (tty_queue_putch(tty, &tty->oqueue, s[i], 0) == 256) return i;
         }
-        //if (tty->params.c_lflag & ICANON &&
-        //        (s[i] == '\n' ||
-        //        (tty->params.c_cc[VEOF] != _POSIX_VDISABLE && s[i] == tty->params.c_cc[VEOF]) ||
-        //        (tty->params.c_cc[VEOL] != _POSIX_VDISABLE && s[i] == tty->params.c_cc[VEOL]))) {
-        //    tty->write(tty);
-        //}
-        //if (FULL(&tty->oqueue) || !(tty->params.c_lflag & ICANON)) tty->write(tty);
+        // 32 chosen arbitrarily
+        if (REMAIN(&tty->oqueue) > MAX_CANON - 32) {
+            spinlock_acquire_interruptible(&tty->tty_lock);
+            tty->write(tty);
+            spinlock_release(&tty->tty_lock);
+        }
     }
     // the special case of IXON, output stopped, and we're the kernel
-    if (!(tty->output_stopped && current_process->ring == 0))
+    if (!(tty->output_stopped && current_process->ring != 0)) {
+        spinlock_acquire_interruptible(&tty->tty_lock);
         tty->write(tty);
+        spinlock_release(&tty->tty_lock);
+    }
     return n;
 }
 
@@ -1206,13 +1235,20 @@ ssize_t tty_pread(file_descriptor_t * file, void * s, size_t n, off_t offset) {
     }
 
     for (char * i = s; i < (char*)s + n; i++) {
+        if (tty->params.c_lflag & ICANON && out == '\n') {
+            ret:
+            tty->read_remaining = 0;
+            thread_queue_unblock_all_nonreentrant(&tty->pollin);
+
+            if (i - (char*)s == 0)
+                return -EINTR;
+            return i - (char*)s;
+        }
         out = tty_queue_getch(&tty->iqueue, timeout);
         if (tty->params.c_lflag & ICANON) {
             if ((tty->params.c_cc[VEOF] != _POSIX_VDISABLE && out == tty->params.c_cc[VEOF]) ||
-                (tty->params.c_cc[VEOL] != _POSIX_VDISABLE && out == tty->params.c_cc[VEOL])) {
-                    tty->read_remaining = 0;
-                    return i - (char*)s;
-                }
+                (tty->params.c_cc[VEOL] != _POSIX_VDISABLE && out == tty->params.c_cc[VEOL]))
+                goto ret;
         } else {
             // POSIX general terminal interface 11.1.7 Non-canonical input processing case A
             // VTIME is an interbyte interval, have to read at least 1 byte before returning
@@ -1220,33 +1256,20 @@ ssize_t tty_pread(file_descriptor_t * file, void * s, size_t n, off_t offset) {
                 i--; // counteract the for loop iteration
                 continue;
             }
-            else if (out == 257      && tty->params.c_cc[VTIME] != 0 && tty->params.c_cc[VMIN] != 0) {
-                tty->read_remaining = 0;
-                return i - (char*)s;
-            }
+            else if (out == 257      && tty->params.c_cc[VTIME] != 0 && tty->params.c_cc[VMIN] != 0)
+                goto ret;
 
             // case B is handled by our "n" setup before this for
 
             // case C & D
             // C: VMIN is 0 and VTIME then serves as a complete read() timer for a single byte - handled by timeout
             // D: both VMIN and VTIME are 0, read() returns immediately if no bytes present - handled by timeout of -1
-            if (out == 257 && tty->params.c_cc[VMIN] == 0) {
-                tty->read_remaining = 0;
-                return i - (char*)s;
-            }
+            if (out == 257 && tty->params.c_cc[VMIN] == 0)
+                goto ret;
         }
-        if (out == 256) { // signal occured - interrupted sleep
-            tty->read_remaining = 0;
-            if (i - (char*)s == 0)
-                return -EINTR;
-            return i - (char*)s;
-        }
+        if (out == 256) // signal occurred - interrupted sleep
+            goto ret;
         *i = out;
-
-        if (tty->params.c_lflag & ICANON && out == '\n') {
-            tty->read_remaining = 0;
-            return i - (char*)s + 1;
-        }
     }
     tty->read_remaining = 0;
     return n;
@@ -1283,6 +1306,9 @@ ssize_t tty_pwrite(file_descriptor_t * file, const void * s, size_t n, off_t off
     }
 
     size_t ret = tty_translate_line_outgoing(s, n, terminals[MINOR(dev)]);
+
+    thread_queue_unblock_all_nonreentrant(&terminals[MINOR(dev)]->pollout);
+
     if (ret == 0 && n != 0) return -EINTR;
     return ret;
 }
@@ -1315,9 +1341,6 @@ long tty_recv_break(dev_t dev) {
             __ATOMIC_RELEASE
         );
         tty_flush_input(terminals[MINOR(dev)]);
-#if TTY_QUEUE_MODE == 2
-        thread_queue_unblock_all(&terminals[MINOR(dev)]->oqueue.write_queue);
-#endif
         signal_process_group(tty->foreground_pgrp, &(siginfo_t){.si_code = SIGINT});
         return 0;
     }
@@ -1339,20 +1362,80 @@ long tty_recv_hang_up(dev_t dev) {
     if (tty->params.c_cflag & CLOCAL)
         return 0;
 
+    spinlock_acquire_interruptible(&tty->tty_lock);
     __atomic_store(
-            &terminals[MINOR(dev)]->iqueue.head,
-            &terminals[MINOR(dev)]->iqueue.tail,
+            &tty->iqueue.head,
+            &tty->iqueue.tail,
             __ATOMIC_RELEASE
         );
     __atomic_store(
-        &terminals[MINOR(dev)]->oqueue.head,
-        &terminals[MINOR(dev)]->oqueue.tail,
+        &tty->oqueue.head,
+        &tty->oqueue.tail,
         __ATOMIC_RELEASE
     );
-    tty_flush_input(terminals[MINOR(dev)]);
-#if TTY_QUEUE_MODE == 2
-    thread_queue_unblock_all(&terminals[MINOR(dev)]->oqueue.write_queue);
-#endif
+    tty->hung_up = 1;
+    thread_queue_unblock_all_nonreentrant(&tty->iqueue.read_queue);
+    thread_queue_unblock_all_nonreentrant(&tty->oqueue.read_queue);
+    thread_queue_unblock_all_nonreentrant(&tty->pollin);
+    thread_queue_unblock_all_nonreentrant(&tty->pollout);
+    spinlock_release(&tty->tty_lock);
+
     signal_process_group(tty->foreground_pgrp, &(siginfo_t){.si_code = SIGHUP});
+    return 0;
+}
+
+short tty_poll(inode_t * inode, short events) {
+    kassert(inode && S_ISCHR(inode->mode) && MAJOR(inode->device) == DEV_MAJ_TTY);
+    if ((events & (POLLIN | POLLOUT)) == 0)
+        return -EINVAL;
+
+    dev_t dev = inode->device;
+    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CURRENT)) {
+        spinlock_acquire(&current_process->lock);
+        dev = current_process->ctty;
+        spinlock_release(&current_process->lock);
+        if (dev == 0)
+            return -ENXIO;
+    }
+    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE))
+        dev = GET_DEV(DEV_MAJ_TTY, KERNEL_CONSOLE_MINOR);
+    if (!is_valid_tty(dev)) return -EINVAL;
+
+    tty_t * tty = terminals[MINOR(dev)];
+
+    if (current_process->pgrp != tty->foreground_pgrp && current_process->session == tty->session)
+        return -EINTR;
+
+    short out = 0;
+    spinlock_acquire_interruptible(&tty->tty_lock);
+    if (tty->hung_up) {
+        spinlock_release(&tty->tty_lock);
+        return POLLHUP;
+    }
+
+    if (events & POLLOUT && !FULL(&tty->oqueue))
+        out |= POLLOUT;
+
+    // it's somewhat difficult to figure out readiness on ICANON,
+    // this is an estimate that *might* pass for at least 1 char
+    if (events & POLLIN  &&
+        !tty->read_remaining &&
+        !EMPTY(&tty->iqueue) &&
+        !tty->iqueue.read_queue.queue.thread)
+        out |= POLLIN;
+
+    if (out) {
+        spinlock_release(&tty->tty_lock);
+        return out;
+    }
+
+    sigset_t sigs = PAUSE_SIGNALS(); // to not invalidate the magic queue id
+    if (events & POLLIN)
+        thread_queue_add_nonreentrant(&tty->pollin, current_process, current_thread);
+    if (events & POLLOUT)
+        thread_queue_add_nonreentrant(&tty->pollout, current_process, current_thread);
+    RESTORE_SIGNALS(sigs);
+
+    spinlock_release(&tty->tty_lock);
     return 0;
 }

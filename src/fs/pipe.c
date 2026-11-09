@@ -100,11 +100,11 @@ static int pipe_put_ch(struct pipe * pq, const unsigned char c) {
     kassert(pq->head < PIPE_BUF && pq->tail < PIPE_BUF);
     while (pq->named_wait) {
         if (check_eintr()) return 256;
-        asm volatile("cli");
-        thread_queue_add_nonreentrant(&pq->write_queue, current_process, current_thread);
-        current_thread->status = SCHED_INTERR_SLEEP;
-        spinlock_release(&pq->pipe_lock);
-        reschedule();
+        thread_queue_add(
+            &pq->write_queue,
+            current_process, current_thread,
+            &pq->pipe_lock,
+            SCHED_INTERR_SLEEP);
         spinlock_acquire_interruptible(&pq->pipe_lock);
     }
     // paranoid checking to avoid all kinds of races
@@ -152,15 +152,19 @@ ssize_t pipe_write(const file_descriptor_t * file, const void * s, size_t n) {
         if (out == 256) {
             // outside of pipe_put_ch so that we don't needlessly reschedule over and over again for a single char
             spinlock_release(&file->inode->pipe->pipe_lock);
+            thread_queue_unblock_all_nonreentrant(&file->inode->pipe->pollin);
             thread_queue_unblock(&file->inode->pipe->read_queue);
             return i == 0 ? -EINTR : i;
         }
         if (out == -2) {
             spinlock_release(&file->inode->pipe->pipe_lock);
+            thread_queue_unblock_all_nonreentrant(&file->inode->pipe->pollin);
+            thread_queue_unblock_all(&file->inode->pipe->pollout);
             return -EPIPE;
         }
     }
     spinlock_release(&file->inode->pipe->pipe_lock);
+    thread_queue_unblock_all_nonreentrant(&file->inode->pipe->pollin);
     thread_queue_unblock(&file->inode->pipe->read_queue);
     return n;
 }
@@ -171,11 +175,11 @@ static int pipe_get_ch(struct pipe * pq) {
     unsigned char out = 0;
     while (pq->named_wait) {
         if (check_eintr()) return 256;
-        asm volatile("cli");
-        thread_queue_add_nonreentrant(&pq->read_queue, current_process, current_thread);
-        current_thread->status = SCHED_INTERR_SLEEP;
-        spinlock_release(&pq->pipe_lock);
-        reschedule();
+        thread_queue_add(
+            &pq->read_queue,
+            current_process, current_thread,
+            &pq->pipe_lock,
+            SCHED_INTERR_SLEEP);
         spinlock_acquire_interruptible(&pq->pipe_lock);
     }
     if (EMPTY(pq)) {
@@ -209,10 +213,13 @@ ssize_t pipe_read(const file_descriptor_t * file, void * s, size_t n) {
     for (unsigned char * i = s; i < (unsigned char*)s + n; i++) {
         int out = pipe_get_ch(file->inode->pipe);
         if (out == 256) {
-            thread_queue_unblock(&file->inode->pipe->write_queue);
-
+            end:
             spinlock_release(&file->inode->pipe->pipe_lock);
-            if (i - (unsigned char *)s == 0) return -EINTR;
+            thread_queue_unblock_all_nonreentrant(&file->inode->pipe->pollout);
+            if (out == -2)
+                thread_queue_unblock_all_nonreentrant(&file->inode->pipe->pollin);
+            thread_queue_unblock(&file->inode->pipe->write_queue);
+            if (out == 256 && i - (unsigned char *)s == 0) return -EINTR;
             return i - (unsigned char *)s;
         }
         if (out == -1) {
@@ -222,27 +229,62 @@ ssize_t pipe_read(const file_descriptor_t * file, void * s, size_t n) {
                 // pipe reading should however block until any byte is received
 
                 thread_queue_unblock_nonreentrant(&file->inode->pipe->write_queue);
-                asm volatile ("cli");
-                thread_queue_add_nonreentrant(&file->inode->pipe->read_queue, current_process, current_thread);
-                current_thread->status = SCHED_INTERR_SLEEP;
-                spinlock_release(&file->inode->pipe->pipe_lock);
-                reschedule();
+                thread_queue_add(
+                    &file->inode->pipe->read_queue,
+                    current_process, current_thread,
+                    &file->inode->pipe->pipe_lock,
+                    SCHED_INTERR_SLEEP);
                 spinlock_acquire_interruptible(&file->inode->pipe->pipe_lock);
 
                 i--;
                 continue;
             }
-            spinlock_release(&file->inode->pipe->pipe_lock);
-            return i - (unsigned char *)s;
+            goto end;
         }
-        if (out == -2) {
-            spinlock_release(&file->inode->pipe->pipe_lock);
-            return i - (unsigned char *)s; // also handles EOF
-        }
+        if (out == -2)
+            goto end;
         *i = out;
     }
     // see comment in pipe_write
     spinlock_release(&file->inode->pipe->pipe_lock);
+    thread_queue_unblock_all_nonreentrant(&file->inode->pipe->pollout);
     thread_queue_unblock(&file->inode->pipe->write_queue);
     return n;
+}
+
+
+short poll_pipe(inode_t * pipe, short events) {
+    kassert(pipe && S_ISFIFO(pipe->mode));
+    if ((events & (POLLIN | POLLOUT)) == 0)
+        return -EINVAL;
+    // this would be some insane race between register_inode and open_pipe
+    if (!pipe->pipe)
+        return -EAGAIN;
+
+    short out = 0;
+    spinlock_acquire_interruptible(&pipe->pipe->pipe_lock);
+    // apparently according to the [p]poll() rationale, FIFOs throw POLLHUP ONLY on 0 writers
+    // no clue why
+    // was too lazy to check the rest of POSIX.1 for any other mentions of this
+    if (/*pipe->pipe->readers == 0 ||*/ pipe->pipe->writers == 0) {
+        spinlock_release(&pipe->pipe->pipe_lock);
+        return POLLHUP;
+    }
+    if (events & POLLIN && !EMPTY(pipe->pipe))
+        out |= POLLIN;
+    if (events & POLLOUT && !FULL(pipe->pipe))
+        out |= POLLOUT;
+    if (out) {
+        spinlock_release(&pipe->pipe->pipe_lock);
+        return out;
+    }
+
+    sigset_t sigs = PAUSE_SIGNALS();
+    if (events & POLLIN)
+        thread_queue_add_nonreentrant(&pipe->pipe->pollin, current_process, current_thread);
+    if (events & POLLOUT)
+        thread_queue_add_nonreentrant(&pipe->pipe->pollout, current_process, current_thread);
+    RESTORE_SIGNALS(sigs);
+    spinlock_release(&pipe->pipe->pipe_lock);
+    return 0;
 }

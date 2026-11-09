@@ -21,9 +21,6 @@
 
 extern void clear_screen_fatal(); // kernel_interrupts.c
 
-#define SYSCALL_PANIC_TEXT " #### RING 2 INDUCED PANIC; HALTING #### "
-
-
 void kernel_syscall_dispatcher(__gregcontext_t * ctx);
 // since we use system V abi, arg4 is pushed onto the stack by the user
 __attribute__((naked, no_caller_saved_registers)) void interr_syscall(struct interr_frame * interrupt_frame) {
@@ -71,9 +68,7 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
 
     long return_value = -ENOSYS;
 
-    #ifndef EXIT_AFFECTS_SYSCALLS
     CRIT_SEC_START
-    #endif
     siginfo_t exited_child_status;
 
     asm volatile ("sti;");
@@ -94,9 +89,7 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
             spinlock_release(&scheduler_lock);
             break;
         case SYSCALL_EXIT_THREAD:
-            #ifndef EXIT_AFFECTS_SYSCALLS
             CRIT_SEC_END
-            #endif
             current_thread->status = SCHED_THREAD_CLEANUP;
             reschedule();
             kernel_idle();
@@ -131,9 +124,6 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
 
             current_process->do_cleanup = 1;
             current_thread->in_critical_section = 0;
-            #ifndef EXIT_AFFECTS_SYSCALLS
-            CRIT_SEC_END
-            #endif
             reschedule();
             kernel_idle();
 
@@ -248,6 +238,26 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
             break;
         case SYSCALL_UNLINKAT:
             return_value = sys_unlinkat(arg1, (const char *)arg2, arg3);
+            break;
+        case SYSCALL_PPOLL:
+            VM_LOCK(arg1);
+            VM_LOCK(arg3);
+            VM_LOCK(arg4);
+            if (!paging_check_address_range((void*)arg1, arg2 * sizeof(struct pollfd), 1, in_kernel) ||
+                (arg3 && !paging_check_address_range((void*)arg1, sizeof(struct timespec), 0, in_kernel)) ||
+                (arg4 && !paging_check_address_range((void*)arg4, sizeof(sigset_t), 0, in_kernel))) {
+                return_value = -EFAULT;
+                VM_UNLOCK(arg1);
+                VM_UNLOCK(arg3);
+                VM_UNLOCK(arg4);
+                break;
+            }
+
+            return_value = sys_ppoll((void*)arg1, (nfds_t)arg2, (const struct timespec *)arg3, (const sigset_t *)arg4);
+
+            VM_UNLOCK(arg1);
+            VM_UNLOCK(arg3);
+            VM_UNLOCK(arg4);
             break;
         case SYSCALL_SEEK:
             VM_LOCK(arg2);
@@ -836,9 +846,7 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
 
 
     syscall_exit:
-    #ifndef EXIT_AFFECTS_SYSCALLS
     CRIT_SEC_END
-    #endif
     if (current_thread->in_critical_section) {
         kprintf("Exiting syscall %d with critical counter at %lu! Forcing to 0!\n", syscall_number, current_thread->in_critical_section);
     }

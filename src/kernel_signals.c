@@ -395,7 +395,7 @@ static long signal_send_thread(pid_t tgid, pid_t tid, siginfo_t * sig) {
     spinlock_acquire(&scheduler_lock);
     for (thread_t * thread = signaled->threads; thread != NULL; thread = thread->next) {
         if (thread->tid == tid) {
-            signal_thread(signaled, thread, sig);
+            signal_dispatch_thread(signaled, thread, sig, 1);
             spinlock_release(&scheduler_lock);
             rw_spinlock_release_read(&process_tree_lock);
             return 0;

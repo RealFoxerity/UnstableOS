@@ -108,6 +108,7 @@ pid_t setsid();
 int   setpgid(pid_t pid, pid_t pgid);
 
 unsigned sleep(unsigned seconds);
+int usleep(useconds_t usec);
 unsigned alarm(unsigned seconds);
 int pause();
 

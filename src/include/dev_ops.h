@@ -23,12 +23,19 @@ struct dev_operations {
     // it is assumed that mmap pages are not reference tracked
     // pmm functions like free will not be called on them
     long    (*mmap) (inode_t * inode, int prot, off_t off, void * start, size_t len);
+
+    // returns negative errno on error,
+    //          0 if added to poll queue,
+    //          revents otherwise
+    // note: implementations are to add to queues without setting thread status! (or setting to runnable)
+    short    (*poll)(inode_t * inode, short events);
 };
 
 ssize_t pread_dev(file_descriptor_t *file, void *buf, size_t count, off_t offset);
 ssize_t pwrite_dev(file_descriptor_t *file, const void *buf, size_t count, off_t offset);
 off_t seek_dev(file_descriptor_t * file, off_t offset, int whence);
 long ioctl_dev(file_descriptor_t *file, unsigned long request, void * arg);
+short poll_dev(inode_t * inode, short events);
 long open_dev(inode_t ** inode, unsigned short flags);
 long close_dev(inode_t * inode);
 long mmap_dev(inode_t * inode, int prot, off_t off, void * start, size_t len);

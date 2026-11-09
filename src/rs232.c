@@ -177,6 +177,16 @@ int com_ctl(tty_t * tty, struct termios * tio) {
     if (ret > 0)
         return -EIO;
 
+    if (tio->c_cflag & CLOCAL)
+        return 0;
+
+    if (cfgetospeed(tio) == B0)
+        tty->hung_up = 1;
+    else
+        tty->hung_up = 0;
+    // protected by the tty lock of the caller
+    thread_queue_unblock_all_nonreentrant(&tty->pollin);
+    thread_queue_unblock_all_nonreentrant(&tty->pollout);
     return 0;
 }
 
@@ -197,6 +207,9 @@ void com_hup(tty_t * tty) {
     outb(com_addresses[tty->com_port] + COM_DELTA_IRQ_EN, 0);
     __atomic_store_n(&com_ports[tty->com_port].state, COM_UNINITIALIZED, __ATOMIC_RELEASE);
     spinlock_release(&com_lock);
+    tty->hung_up = 1;
+    thread_queue_unblock_all_nonreentrant(&tty->pollin);
+    thread_queue_unblock_all_nonreentrant(&tty->pollout);
 }
 static inline char com_ready_to_write(unsigned char com) {
     return inb(com_addresses[com] + COM_DELTA_LINE_STATUS) & COM_LSR_TX_HOLDING_REGISTER_EMPTY;

@@ -178,7 +178,7 @@ void sys_sem_wait(process_t * calling_process, thread_t * calling_thread, int se
         if (old_val > 0) {
             if (__atomic_compare_exchange_n(&calling_process->semaphores[sem_idx]->value, (unsigned long *)&old_val, old_val - 1, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) return;
         } else {
-            thread_queue_add(&calling_process->semaphores[sem_idx]->waiting_queue, calling_process, calling_thread, SCHED_UNINTERR_SLEEP);
+            thread_queue_add(&calling_process->semaphores[sem_idx]->waiting_queue, calling_process, calling_thread, NULL, SCHED_UNINTERR_SLEEP);
         }
     }
 }

@@ -125,6 +125,8 @@ int close_file_forced(file_descriptor_t * file) {
                 __atomic_sub_fetch(&inode->pipe->writers, 1, __ATOMIC_RELEASE);
             thread_queue_unblock_all_nonreentrant(&inode->pipe->read_queue);
             thread_queue_unblock_all_nonreentrant(&inode->pipe->write_queue);
+            thread_queue_unblock_all_nonreentrant(&inode->pipe->pollin);
+            thread_queue_unblock_all_nonreentrant(&inode->pipe->pollout);
         }
 
         close_inode(inode);
@@ -1007,12 +1009,12 @@ static long fcntl_lock_file(file_descriptor_t * file, int cmd, struct flock * fl
 
                 rw_spinlock_acquire_write(&fi->flock_lock);
                 ret = fcntl_lock_add_lock(file, fl, cmd == F_OFD_SETLKW);
-                asm volatile ("cli");
                 if (ret == -EAGAIN) {
-                    thread_queue_add_nonreentrant(&file->inode->flocks->flock_setlkw_queue, current_process, current_thread);
-                    current_thread->status = SCHED_INTERR_SLEEP;
-                    rw_spinlock_release_write(&fi->flock_lock);
-                    reschedule();
+                    thread_queue_add_rw(
+                        &file->inode->flocks->flock_setlkw_queue,
+                        current_process, current_thread,
+                        &fi->flock_lock, 1,
+                        SCHED_INTERR_SLEEP);
                 } else {
                     rw_spinlock_release_write(&fi->flock_lock);
                     return ret;

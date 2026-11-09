@@ -85,6 +85,10 @@ struct usem_t;
 
 #define PAUSE_SIGNALS() ({sigset_t _ = current_thread->sa_mask; current_thread->sa_mask = (sigset_t)-1; _; })
 #define RESTORE_SIGNALS(prevmask) {current_thread->sa_mask = (prevmask); signal_retry_process(current_process);}
+#define SAFE_SA_MASK (~(\
+    GET_SIG_MASK(SIGKILL) |\
+    GET_SIG_MASK(SIGSTOP) |\
+    GET_SIG_MASK(SIGCONT)))
 struct thread_t {
     size_t instances; // so that queues don't do UAF when a thread terminates
     pid_t tid;
@@ -146,7 +150,7 @@ struct rt_siginfo_ll {
     siginfo_t info;
     struct rt_siginfo_ll * next;
 };
-struct file_descriptor_t;
+struct inode_t;
 
 struct process_t {
     rbtree_t __rb;
@@ -193,12 +197,12 @@ struct process_t {
 
     mode_t umask;
     
-    inode_t * pwd, * root; // chdir(), chroot()
+    struct inode_t * pwd, * root; // chdir(), chroot()
 
     file_descriptor_t * fds[FD_LIMIT_PROCESS];
     unsigned char fd_flags[FD_LIMIT_PROCESS]; // FD_CLOFORK, FD_CLOEXEC
 
-    inode_t * main_elf;
+    struct inode_t * main_elf;
 
     time_t startup_realtime;
     time_t next_alarm;
@@ -260,7 +264,8 @@ void thread_queue_unblock_all(thread_queue_t * thread_queue);
 void thread_queue_unblock_nonreentrant(thread_queue_t * thread_queue);
 void thread_queue_unblock_all_nonreentrant(thread_queue_t * thread_queue);
 
-void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, enum pstatus_t new_status);
+void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, spinlock_t * spinlock, enum pstatus_t new_status);
+void thread_queue_add_rw(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, rw_spinlock_t * rwspinlock, char rlock, enum pstatus_t new_status);
 // same as above, but the caller is required to set new status and reschedule
 void thread_queue_add_nonreentrant(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread);
 // always "interruptible sleep" because we internally reuse sys_clock_nanosleep
@@ -372,10 +377,6 @@ int signal_process_group(pid_t process_group, siginfo_t * info);
 // only works on current thread
 // returns 1 if there's a pending EINTR action
 int check_eintr();
-
-// if defined, allows threads in syscalls not currently in critical sections to be killed
-// if not defined, entering syscalls automatically enables a critical section, thus disallowing killing
-#define EXIT_AFFECTS_SYSCALLS
 
 // macros to call when the thread cannot be cleaned up safely at that point
 // automatically called when doing spinlock_acquire and spinlock_release

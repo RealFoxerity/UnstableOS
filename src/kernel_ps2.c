@@ -483,7 +483,7 @@ static thread_queue_t mouse_queue = {0};
 ssize_t ps2_mouse_pread(file_descriptor_t * file, void * buf, size_t n, off_t offset) {
     if (offset) return -ESPIPE;
 
-    thread_queue_add(&mouse_queue, current_process, current_thread, SCHED_INTERR_SLEEP);
+    thread_queue_add(&mouse_queue, current_process, current_thread, NULL, SCHED_INTERR_SLEEP);
     if (check_eintr()) return -EINTR;
 
 #ifdef PS2_MOUSE_LINUX_COMPAT

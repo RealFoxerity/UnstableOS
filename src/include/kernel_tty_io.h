@@ -2,6 +2,7 @@
 #define KERNEL_TTY_IO_H
 #include "kernel_spinlock.h"
 #include "kernel_sched.h"
+#include "kernel_sched_queues.h"
 #include <limits.h>
 #include <UnstableOS/devs.h>
 #include <termios.h>
@@ -44,15 +45,10 @@ static const unsigned char default_control_chars[11] = { // well imagine wanting
 };
 
 
-#define TTY_QUEUE_MODE 0 // 0 = discards new input, 1 = overwrites old input, 2 = blocks until writable
-
 struct tty_queue {
     spinlock_t queue_lock;
     char buffer[MAX_CANON];
     size_t head, tail; // tail = pointer to the next free char
-#if TTY_QUEUE_MODE == 2
-    thread_queue_t write_queue;
-#endif
     thread_queue_t read_queue;
 
     thread_queue_t ix_queue;
@@ -88,6 +84,9 @@ struct tty_t {
     uid_t owner;
 
     size_t (*write)(struct tty_t *);
+
+    // following function are also required to set hang_up and wake up poll queues where applicable
+    // notably, hup to set to 1, and ctl to set based on whether cfgetospeed(tio) == B0
     // optional for setting control flags and similar,
     // implementations should edit the termios structure's based on what got applied
     int    (*ctl)  (struct tty_t *, struct termios *);
@@ -97,8 +96,11 @@ struct tty_t {
     void   (*hup)  (struct tty_t *);
     size_t read_remaining;
 
+    struct thread_queue pollin, pollout;
+
     struct termios params;
     char input_stopped, output_stopped; // see IXON, IXOFF
+    char hung_up; // needed for poll
 } typedef tty_t;
 
 extern tty_t * terminals[TTY_LIMIT_KERNEL];

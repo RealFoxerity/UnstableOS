@@ -198,7 +198,21 @@ long ioctl_dev(file_descriptor_t *file, unsigned long request, void * arg) {
     if (dev_ops.ioctl == NULL) return -ENOTTY;
     return dev_ops.ioctl(file, request, arg);
 }
+short poll_dev(inode_t * inode, short events) {
+    kassert(inode);
+    if (S_ISBLK(inode->mode))
+        return events;
 
+    kassert(S_ISCHR(inode->mode));
+
+    struct dev_operations dev_ops = dev_ops_lookup(inode->device);
+    if (dev_ops.seek == (void*)1) return -ENXIO;
+    if (!inode->dev_opened) return -EIO;
+
+    if (dev_ops.poll == NULL) return events;
+
+    return dev_ops.poll(inode, events);
+}
 long open_dev(inode_t ** inode, unsigned short flags) {
     kassert(inode && *inode);
     kassert(S_ISCHR((*inode)->mode) || S_ISBLK((*inode)->mode));

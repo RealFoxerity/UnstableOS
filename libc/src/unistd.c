@@ -403,6 +403,18 @@ unsigned sleep(unsigned seconds) {
 
     return actual.tv_sec;
 }
+int usleep(useconds_t usec) {
+    struct timespec actual = {0};
+    struct timespec waited = {.tv_sec = usec/1000000, .tv_nsec = (long)((usec % 1000000) * 1000)};
+
+    long ret = syscall(SYSCALL_CLOCK_NANOSLEEP, CLOCK_MONOTONIC, 0, &waited, &actual);
+    if (ret < 0) {
+        ___set_errno(-ret);
+        return ret;
+    }
+
+    return 0;
+}
 unsigned alarm(unsigned seconds) {
     return (unsigned)syscall(SYSCALL_ALARM, seconds);
 }

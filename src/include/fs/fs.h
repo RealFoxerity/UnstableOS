@@ -2,6 +2,7 @@
 #define FS_H
 #include <stddef.h>
 #include <stdint.h>
+#include <poll.h>
 
 #include "../kernel_spinlock.h"
 #include "../kernel.h"
@@ -15,9 +16,73 @@
 #include <unistd.h> // for off_t, and seek modes
 #include <fcntl.h> // for O_* and I_* macros
 
-struct thread_queue;
-struct pipe;
-struct flock_info;
+struct inode_t;
+struct {
+    unsigned short flags;
+
+    size_t instances; // how many processes have this descriptor opened (for fork()/dup*() duplication)
+
+    struct inode_t * inode;
+
+    off_t off;
+
+    rw_spinlock_t access_lock; // so that thread io operations are atomic
+} typedef file_descriptor_t; // userspace will use an int as an index to per-process array of file_descriptor_t pointers
+
+// intended way of accessing superblocks and
+struct superblock_t {
+    dev_t device; // bookkeeping
+    file_descriptor_t * fd; // file descriptor belonging to the underlying device
+
+    size_t instances; // how many inodes have this as their backing superblock
+
+    unsigned char fs_type; // no way we support >256 file systems, bookkeeping, alternatively, for kasserts in fs drivers
+
+    unsigned long fsid; // for stuff like statvfs or mntid in /proc/<pid>/fdinfo/<fd>
+
+    spinlock_t lock;
+
+    unsigned short mount_options;
+
+    const struct vfs_ops * funcs;
+    void * data; // for internal structures of individual file system drivers
+
+    struct inode_t * mountpoint; // the mountpoint in the previous fs, extremely useful for traversing paths
+
+    char is_mounted; // mark as unused so that we don't have to memset() at every unmount
+
+    struct superblock_t *next, *prev;
+} typedef superblock_t;
+
+/* Intentionally here, so that when kernel_sched_queues.h includes kernel_sched.h
+ * file_descriptor_t and inode_t is already defined
+ */
+
+#include <limits.h>
+#include "../kernel_sched_queues.h"
+
+struct flock_entry {
+    const file_descriptor_t * ofd; // if set, uses the file_descriptor_t * instead of pid (ofd locks logic)
+    struct flock flock;
+    struct flock_entry *next;
+};
+struct flock_info {
+    struct flock_entry * flocks;
+    rw_spinlock_t flock_lock;
+    struct thread_queue flock_setlkw_queue;
+};
+
+struct pipe {
+    spinlock_t pipe_lock;
+    struct thread_queue read_queue, write_queue;
+    struct thread_queue pollin, pollout;
+    unsigned char pipe_fifo[PIPE_BUF];
+    size_t head, tail;
+
+    size_t readers; // SIGPIPE
+    size_t writers; // EOF on read
+    char named_wait; // named pipes block until there are (at least) 1 reader and 1 writer
+};
 
 struct mmap_page_cache {
     rbtree_t node;
@@ -48,12 +113,12 @@ struct inode_t {
 
     struct flock_info * flocks;
 
-    struct superblock_t * backing_superblock; // used to lookup functions to use for i/o operations, same as next for "/"
+    superblock_t * backing_superblock; // used to lookup functions to use for i/o operations, same as next for "/"
 
     spinlock_t lock; // mostly just for atomic times, size, and mode
 
     char is_mountpoint; // if inode is a mountpoint, instances will be at least 1 to avoid clean, think of it as the superblock using it
-    struct superblock_t * next_superblock; // pointer to the superblock structure mounted at this inode
+    superblock_t * next_superblock; // pointer to the superblock structure mounted at this inode
 
     // we don't do global page caches since that's potentially more memory hungry
     // on top of that, mmap really needs it, normal pread/pwrite can suffer through it
@@ -73,79 +138,13 @@ struct inode_t {
     };
 } typedef inode_t;
 
-struct {
-    unsigned short flags;
-
-    size_t instances; // how many processes have this descriptor opened (for fork()/dup*() duplication)
-
-    inode_t * inode;
-
-    off_t off;
-
-    rw_spinlock_t access_lock; // so that thread io operations are atomic
-} typedef file_descriptor_t; // userspace will use an int as an index to per-process array of file_descriptor_t pointers
-
-// intended way of accessing superblocks and
-struct superblock_t {
-    dev_t device; // bookkeeping
-    file_descriptor_t * fd; // file descriptor belonging to the underlying device
-
-    size_t instances; // how many inodes have this as their backing superblock
-
-    unsigned char fs_type; // no way we support >256 file systems, bookkeeping, alternatively, for kasserts in fs drivers
-
-    unsigned long fsid; // for stuff like statvfs or mntid in /proc/<pid>/fdinfo/<fd>
-
-    spinlock_t lock;
-
-    unsigned short mount_options;
-
-    const struct vfs_ops * funcs;
-    void * data; // for internal structures of individual file system drivers
-
-    inode_t * mountpoint; // the mountpoint in the previous fs, extremely useful for traversing paths
-
-    char is_mounted; // mark as unused so that we don't have to memset() at every unmount
-
-    struct superblock_t *next, *prev;
-} typedef superblock_t;
+void init_fds();
+void init_inodes();
+void init_superblocks();
 
 extern file_descriptor_t ** kernel_fds;
 extern inode_t ** kernel_inodes;
 extern superblock_t ** kernel_superblocks;
-
-/* Intentionally here, so that when kernel_sched_queues.h includes kernel_sched.h
- * file_descriptor_t and inode_t is already defined
- */
-
-#include <limits.h>
-#include "../kernel_sched_queues.h"
-
-struct flock_entry {
-    const file_descriptor_t * ofd; // if set, uses the file_descriptor_t * instead of pid (ofd locks logic)
-    struct flock flock;
-    struct flock_entry *next;
-};
-struct flock_info {
-    struct flock_entry * flocks;
-    rw_spinlock_t flock_lock;
-    struct thread_queue flock_setlkw_queue;
-};
-
-struct pipe {
-    spinlock_t pipe_lock;
-    struct thread_queue read_queue, write_queue;
-    unsigned char pipe_fifo[PIPE_BUF];
-    size_t head, tail;
-
-    size_t readers; // SIGPIPE
-    size_t writers; // EOF on read
-    char named_wait; // named pipes block until there are (at least) 1 reader and 1 writer
-};
-
-void init_fds();
-void init_inodes();
-void init_superblocks();
 
 extern spinlock_t kernel_inode_lock;
 extern spinlock_t kernel_fd_lock;
@@ -236,6 +235,7 @@ int open_pipe(inode_t * pipe, int flags);
 int sys_pipe(int fildes[2], int flags);
 ssize_t pipe_write(const file_descriptor_t * file, const void * s, size_t n);
 ssize_t pipe_read(const file_descriptor_t * file, void * s, size_t n);
+short poll_pipe(inode_t * pipe, short events);
 
 long dup_file(file_descriptor_t * old_file, int startfd, int flags); // primarily for fcntl
 int sys_dup(int oldfd);
@@ -246,6 +246,11 @@ int sys_mknodat(int fd, const char *path, mode_t mode, dev_t dev);
 int sys_mkfifoat(int fd, const char *path, mode_t mode);
 int sys_linkat(int fd1, const char * path1, int fd2, const char * path2, int flag);
 int sys_symlinkat(const char * path1, int fd, const char * path2);
+
+int sys_ppoll(struct pollfd fds[], nfds_t nfds,
+    const struct timespec *restrict timeout,
+    const sigset_t *restrict sigmask
+);
 
 #include <UnstableOS/mount.h>
 long mount_dev(dev_t dev, inode_t * mount_point, unsigned char type, unsigned short options);

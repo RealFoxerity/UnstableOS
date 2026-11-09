@@ -1,7 +1,8 @@
-#include "include/kernel.h"
-#include "include/kernel_sched.h"
-#include "../libc/src/include/string.h"
-#include "include/kernel_spinlock.h"
+#include "kernel.h"
+#include "kernel_sched.h"
+#include "kernel_spinlock.h"
+#include "lowlevel.h"
+#include <string.h>
 #include <stdint.h>
 
 static void __thread_queue_unblock(thread_queue_t * thread_queue) {
@@ -89,11 +90,37 @@ void thread_queue_add_nonreentrant(thread_queue_t * thread_queue, process_t * pp
     __thread_queue_add(thread_queue, pprocess, thread);
     spinlock_release(&thread_queue->queue_lock);
 }
-void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, enum pstatus_t new_status) {
+void thread_queue_add(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, spinlock_t * spinlock, enum pstatus_t new_status) {
+    spinlock_acquire(&thread_queue->queue_lock); // disables interrupts
+
+    __thread_queue_add(thread_queue, pprocess, thread);
+
+    if (spinlock) {
+        thread_queue->queue_lock.eflags = spinlock->eflags; // so that release on queue lock has the same semantics
+        spinlock->eflags &= ~IA_32_EFL_SYSTEM_INTER_EN;
+        spinlock_release(spinlock);
+    }
+    thread->status = new_status;
+    spinlock_release(&thread_queue->queue_lock);
+
+    //kprintf("sleeping on thread id %d of process %d\n", thread->tid, pprocess->pid);
+
+    reschedule();
+}
+void thread_queue_add_rw(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, rw_spinlock_t * rwspinlock, char rlock, enum pstatus_t new_status) {
     spinlock_acquire(&thread_queue->queue_lock);
 
     __thread_queue_add(thread_queue, pprocess, thread);
 
+    if (rwspinlock) {
+        if (rlock)
+            rw_spinlock_release_read(rwspinlock);
+        else {
+            thread_queue->queue_lock.eflags = rwspinlock->wlock.eflags;
+            rwspinlock->wlock.eflags &= ~IA_32_EFL_SYSTEM_INTER_EN;
+            rw_spinlock_release_write(rwspinlock);
+        }
+    }
     thread->status = new_status;
     spinlock_release(&thread_queue->queue_lock);
 
