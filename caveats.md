@@ -12,6 +12,7 @@
 - I don't think every kernel process operation is thread safe, too lazy to check
 - `fcntl()` advisory locks are internally converted from negative `l_len`s leading to `F_GETLK`/`F_OFD_GETLK` returning different structures
 - `PARMRK` termios option may lead to wrong \t deletion on `ICANON` (\xFF\x00<c> is treated as 3 characters)
+- opening a named pipe (FIFO) doesn't block, but the later operation itself does (assuming O_NONBLOCK is not set)
 ### Known missing features
 ---
 - `scanf()` family of functions don't implement floats

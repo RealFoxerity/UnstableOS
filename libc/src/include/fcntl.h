@@ -28,16 +28,17 @@
 // file status flags; get with F_GETFL, set with F_SETFL
 #define O_SYNC      0x400
 #define O_APPEND    0x800
-
-// file descriptor flags; get with F_GETFD, set with F_SETFD
-#define O_CLOEXEC   0x1000
-#define O_CLOFORK   0x2000
+#define O_NONBLOCK  0x1000
 
 // stricter version of O_SEARCH, strictly just as a reference point for *at functions and for fstat
-#define O_PATH      0x4000
+#define O_PATH      0x2000
+
+// file descriptor flags; get with F_GETFD, set with F_SETFD
+#define O_CLOEXEC   0x4000
+#define O_CLOFORK   0x8000
 
 // when passed to openat_inode, won't resolve the final mountpoint
-#define O_NOXDEV    0x8000
+#define O_NOXDEV    0x10000
 
 #define AT_EACCESS 0x10000
 

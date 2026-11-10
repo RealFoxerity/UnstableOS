@@ -20,7 +20,7 @@
 #define DEC(pipe) ((pipe)->head = ((pipe)->head+1)%PIPE_BUF) // shortens queue by removing oldest element
 
 int sys_pipe(int fildes[2], int flags) {
-    flags &= O_CLOEXEC | O_CLOFORK;
+    flags &= O_CLOEXEC | O_CLOFORK | O_NONBLOCK;
 
     struct pipe * new_pipe = kalloc(sizeof(struct pipe));
     if (new_pipe == NULL) return -ENOMEM;
@@ -96,10 +96,12 @@ int open_pipe(inode_t * pipe, int flags) {
     return 0;
 }
 
-static int pipe_put_ch(struct pipe * pq, const unsigned char c) {
+static int pipe_put_ch(struct pipe * pq, const unsigned char c, int fd_flags) {
     kassert(pq->head < PIPE_BUF && pq->tail < PIPE_BUF);
     while (pq->named_wait) {
         if (check_eintr()) return 256;
+        if (fd_flags & O_NONBLOCK)
+            return -3;
         thread_queue_add(
             &pq->write_queue,
             current_process, current_thread,
@@ -114,15 +116,19 @@ static int pipe_put_ch(struct pipe * pq, const unsigned char c) {
         return -2;
     }
     while (FULL(pq)) {
+        if (fd_flags & O_NONBLOCK)
+            return -3;
         spinlock_release(&pq->pipe_lock);
         asm volatile("cli"); // avoid thread queue races, TODO: change when adding atomic queues
-
+        if (!FULL(pq))
+            goto race;
         thread_queue_add_nonreentrant(&pq->write_queue, current_process, current_thread);
         current_thread->status = SCHED_INTERR_SLEEP;
         thread_queue_unblock_nonreentrant(&pq->read_queue); // force reading, below release so we don't waste a timeslice
-        asm volatile("sti");
         reschedule();
 
+        race:
+        asm volatile("sti");
         spinlock_acquire_interruptible(&pq->pipe_lock);
         if (__atomic_load_n(&pq->readers, __ATOMIC_ACQUIRE) == 0) {
             thread_queue_unblock_all(&pq->write_queue); // force SIGPIPE to all
@@ -147,8 +153,9 @@ ssize_t pipe_write(const file_descriptor_t * file, const void * s, size_t n) {
     kassert(s);
 
     spinlock_acquire_interruptible(&file->inode->pipe->pipe_lock);
-    for (size_t i = 0; i < n; i++) {
-        int out = pipe_put_ch(file->inode->pipe, ((unsigned char*)s)[i]);
+    size_t i = 0;
+    for (; i < n; i++) {
+        int out = pipe_put_ch(file->inode->pipe, ((unsigned char*)s)[i], file->flags);
         if (out == 256) {
             // outside of pipe_put_ch so that we don't needlessly reschedule over and over again for a single char
             spinlock_release(&file->inode->pipe->pipe_lock);
@@ -162,19 +169,23 @@ ssize_t pipe_write(const file_descriptor_t * file, const void * s, size_t n) {
             thread_queue_unblock_all(&file->inode->pipe->pollout);
             return -EPIPE;
         }
+        if (out == -3)
+            break;
     }
     spinlock_release(&file->inode->pipe->pipe_lock);
     thread_queue_unblock_all_nonreentrant(&file->inode->pipe->pollin);
     thread_queue_unblock(&file->inode->pipe->read_queue);
-    return n;
+    return i ? i : -EAGAIN;
 }
 
-static int pipe_get_ch(struct pipe * pq) {
+static int pipe_get_ch(struct pipe * pq, int fd_flags) {
     kassert(pq->head < PIPE_BUF && pq->tail < PIPE_BUF);
 
     unsigned char out = 0;
     while (pq->named_wait) {
         if (check_eintr()) return 256;
+        if (fd_flags & O_NONBLOCK)
+            return -3;
         thread_queue_add(
             &pq->read_queue,
             current_process, current_thread,
@@ -211,7 +222,7 @@ ssize_t pipe_read(const file_descriptor_t * file, void * s, size_t n) {
 
     spinlock_acquire_interruptible(&file->inode->pipe->pipe_lock);
     for (unsigned char * i = s; i < (unsigned char*)s + n; i++) {
-        int out = pipe_get_ch(file->inode->pipe);
+        int out = pipe_get_ch(file->inode->pipe, file->flags);
         if (out == 256) {
             end:
             spinlock_release(&file->inode->pipe->pipe_lock);
@@ -220,10 +231,11 @@ ssize_t pipe_read(const file_descriptor_t * file, void * s, size_t n) {
                 thread_queue_unblock_all_nonreentrant(&file->inode->pipe->pollin);
             thread_queue_unblock(&file->inode->pipe->write_queue);
             if (out == 256 && i - (unsigned char *)s == 0) return -EINTR;
+            if (out == -3 && i - (unsigned char *)s == 0) return -EAGAIN;
             return i - (unsigned char *)s;
         }
         if (out == -1) {
-            if (i - (unsigned char *)s == 0) {
+            if (!(file->flags & O_NONBLOCK) && i - (unsigned char *)s == 0) {
                 // pipes are by default unbuffered
                 // that would be highly inefficient so we build up a slight buffering system
                 // pipe reading should however block until any byte is received
@@ -239,9 +251,11 @@ ssize_t pipe_read(const file_descriptor_t * file, void * s, size_t n) {
                 i--;
                 continue;
             }
+            if (i - (unsigned char *)s == 0)
+                out = -3;
             goto end;
         }
-        if (out == -2)
+        if (out == -2 || out == -3)
             goto end;
         *i = out;
     }

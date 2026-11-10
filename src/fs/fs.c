@@ -1054,11 +1054,11 @@ long fcntl_file(file_descriptor_t * file, int cmd, long arg) {
             ret = dup_file(file, arg, O_CLOFORK);
             break;
         case F_GETFL:
-            ret = file->flags & (O_SYNC | O_APPEND | O_PATH | O_ACCMODE);
+            ret = file->flags & (O_SYNC | O_APPEND | O_PATH | O_ACCMODE | O_NONBLOCK);
             break;
         case F_SETFL:
-            file->flags &= ~(O_SYNC | O_APPEND);
-            file->flags |= arg & (O_SYNC | O_APPEND);
+            file->flags &= ~(O_SYNC | O_APPEND | O_NONBLOCK);
+            file->flags |= arg & (O_SYNC | O_APPEND | O_NONBLOCK);
             break;
         case F_GETLK:
         case F_OFD_GETLK:

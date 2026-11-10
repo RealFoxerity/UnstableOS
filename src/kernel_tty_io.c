@@ -1219,7 +1219,11 @@ ssize_t tty_pread(file_descriptor_t * file, void * s, size_t n, off_t offset) {
         return -EINTR;
     }
 
-    while (!__atomic_compare_exchange_n(&tty->read_remaining, &(unsigned long){0}, n, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) asm volatile ("pause");
+    while (tty->read_remaining || !__atomic_compare_exchange_n(&tty->read_remaining, &(unsigned long){0}, n, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) {
+        if (file->flags & O_NONBLOCK)
+            return -EAGAIN;
+        reschedule();
+    }
 
     int out = 0;
     struct timespec timeout = {0};
@@ -1234,6 +1238,9 @@ ssize_t tty_pread(file_descriptor_t * file, void * s, size_t n, off_t offset) {
             n = tty->params.c_cc[VMIN];
     }
 
+    if (file->flags & O_NONBLOCK)
+        timeout.tv_nsec = -1;
+
     for (char * i = s; i < (char*)s + n; i++) {
         if (tty->params.c_lflag & ICANON && out == '\n') {
             ret:
@@ -1241,10 +1248,12 @@ ssize_t tty_pread(file_descriptor_t * file, void * s, size_t n, off_t offset) {
             thread_queue_unblock_all_nonreentrant(&tty->pollin);
 
             if (i - (char*)s == 0)
-                return -EINTR;
+                return (out == 257 && file->flags & O_NONBLOCK) ? -EAGAIN : -EINTR;
             return i - (char*)s;
         }
         out = tty_queue_getch(&tty->iqueue, timeout);
+        if (out == 257 && file->flags & O_NONBLOCK)
+            goto ret;
         if (tty->params.c_lflag & ICANON) {
             if ((tty->params.c_cc[VEOF] != _POSIX_VDISABLE && out == tty->params.c_cc[VEOF]) ||
                 (tty->params.c_cc[VEOL] != _POSIX_VDISABLE && out == tty->params.c_cc[VEOL]))
