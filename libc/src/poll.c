@@ -15,7 +15,14 @@ int poll(struct pollfd fds[], nfds_t nfds, int timeout) {
 int ppoll(struct pollfd fds[], nfds_t nfds,
     const struct timespec *restrict timeout,
     const sigset_t *restrict sigmask) {
-    int ret = syscall(SYSCALL_PPOLL, fds, nfds, timeout, sigmask);
+    struct timespec curr;
+    if (timeout) {
+        // our syscall does absolute time so that ppoll can use SA_RESTART
+        clock_gettime(CLOCK_MONOTONIC, &curr);
+        curr.tv_sec += timeout->tv_sec + timeout->tv_nsec / 1000000000;
+        curr.tv_nsec = timeout->tv_nsec % 1000000000;
+    }
+    int ret = syscall(SYSCALL_PPOLL, fds, nfds, timeout ? &curr : NULL, sigmask);
     if (ret < 0) {
         ___set_errno(-ret);
         return -1;

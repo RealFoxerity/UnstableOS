@@ -65,22 +65,27 @@ int sys_ppoll(struct pollfd fds[], nfds_t nfds,
             continue;
         }
 
+        if (pfds[i].events == 0)
+            continue;
+
         if (pfds[i].events & POLLIN  && !(current_process->fds[this_fd]->flags & O_RDONLY))
             pfds[i].events ^= POLLIN;
         if (pfds[i].events & POLLOUT && !(current_process->fds[this_fd]->flags & O_WRONLY))
             pfds[i].events ^= POLLOUT;
 
-        if (pfds[i].events == 0)
+        if (pfds[i].events == 0) {
+            pfds[i].revents = POLLNVAL;
             continue;
+        }
 
         inode_t * ino = current_process->fds[this_fd]->inode;
         if (!(S_ISCHR(ino->mode) || S_ISFIFO(ino->mode))) {
-            fds[i].revents = pfds[i].revents = pfds->events;
+            fds[i].revents = pfds[i].revents = pfds[i].events;
             ready++;
             continue;
         }
-        pfds->ino = ino;
-        __atomic_add_fetch(&pfds->ino->instances, 1, __ATOMIC_RELEASE);
+        pfds[i].ino = ino;
+        __atomic_add_fetch(&pfds[i].ino->instances, 1, __ATOMIC_RELEASE);
         waitable_fds++;
     }
     spinlock_release(&current_process->lock);
@@ -114,8 +119,8 @@ int sys_ppoll(struct pollfd fds[], nfds_t nfds,
             if (timeout) {
                 if (sys_clock_nanosleep(
                     current_process, current_thread,
-                    CLOCK_MONOTONIC, 0,
-                    ts, &ts) == -EINTR && !check_eintr()) {
+                    CLOCK_MONOTONIC, TIMER_ABSTIME,
+                    ts, NULL) != 0 && !check_eintr()) {
                     asm volatile ("sti");
                     continue; // woken up by poll
                 }
@@ -146,7 +151,11 @@ int sys_ppoll(struct pollfd fds[], nfds_t nfds,
     }
     kfree(pfds);
     if (check_eintr())
+#ifdef PPOLL_NO_SA_RESTART
+        ready = current_process->is_stopped ? -EINTR : -EINTR_NORESTART;
+#else
         ready = -EINTR;
+#endif
     current_thread->sa_mask = oldset;
     return ready;
 }

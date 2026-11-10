@@ -716,21 +716,22 @@ int sys_sigprocmask(int how, const sigset_t * __restrict set, sigset_t * oset) {
 }
 
 int sys_sigsuspend(const sigset_t * set) {
-    if (check_eintr()) return -EINTR;
-
+    asm volatile ("cli;");
     sigset_t old_set = current_thread->sa_mask;
+    if (check_eintr()) goto end;
+
     sigset_t new_set = *set;
     new_set &= SAFE_SA_MASK;
 
     current_thread->sa_mask = new_set;
 
-    asm volatile ("sti;");
-
     current_thread->status = SCHED_INTERR_SLEEP;
     reschedule();
 
+    end:
     current_thread->sa_mask = old_set;
-    return -EINTR;
+    asm volatile ("sti;");
+    return -EINTR_NORESTART;
 }
 
 int sys_sigqueue(pid_t pid, int signo, union sigval value) {

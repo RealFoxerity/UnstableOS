@@ -66,7 +66,7 @@ long futex_wait(const uint32_t * wait_addr, uint32_t expected, pid_t owner, stru
 
         if (slept == 0)
             return -ETIMEDOUT;
-        if (slept == -EINTR) {
+        if (slept == -EINTR_NORESTART || slept == -EINTR) {
             if (check_eintr())
                 return -EINTR;
             if (current_thread->owner_dead && owner)

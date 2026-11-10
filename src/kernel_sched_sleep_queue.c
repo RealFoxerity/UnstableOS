@@ -172,7 +172,8 @@ long sys_clock_nanosleep(process_t * pprocess, thread_t * thread, clockid_t cloc
     if (old_time_usec + requested_usec > uptime_clicks * RTC_TIME_RESOLUTION_USEC) {
         sleep_remove_thread(pprocess, thread);
 
-        if (elapsed == NULL || flags & TIMER_ABSTIME) return -EINTR;
+        if (elapsed == NULL || flags & TIMER_ABSTIME)
+            return current_process->is_stopped ? -EINTR : -EINTR_NORESTART;
 
         requested_usec -= uptime_clicks * RTC_TIME_RESOLUTION_USEC - old_time_usec;
 
@@ -180,7 +181,7 @@ long sys_clock_nanosleep(process_t * pprocess, thread_t * thread, clockid_t cloc
             .tv_nsec = (requested_usec % 1000000)*1000,
             .tv_sec = requested_usec / 1000000
         };
-        return -EINTR;
+        return current_process->is_stopped ? -EINTR : -EINTR_NORESTART;
     }
     return 0;
 }

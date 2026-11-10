@@ -5,6 +5,7 @@
 - multiple issues with instance fields wraparound in numerous structures
 - race can overflow a semaphore's value (unsigned long) back to 0
 - race can _maybe_ cause an incorrect EOWNERDEAD and inconsistent mutex in pthread_mutex_trylock()
+- `clock_nanosleep()` with a relative timeout will restart the entire timer again on `SIGSTOP`/`SIGTSTP`
 ### Known issues/quirks
 ---
 - some lowlevel internal cases of out of memory are currently handled by kernel panic

@@ -13,6 +13,9 @@
 #define KERNEL_VERSION "0.01"
 #define KERNEL_FULL_NAME KERNEL_NAME" "KERNEL_VERSION
 #define DEFAULT_HOSTNAME "UnstableOS"
+
+#define EINTR_NORESTART 256
+
 #include "kernel_spinlock.h"
 extern rw_spinlock_t hostname_lock;
 extern char hostname[HOST_NAME_MAX]; // Warning: might not be null terminated!
@@ -134,4 +137,14 @@ if not selected, reschedule only happens on cleanup and non-running thread state
 // linux and similar just truncate the read/write size to 0x7ffff000
 // we can either do the same, or return -E2BIG on such ints
 //#define E2BIG_ON_2G
+
+/* almost all implementations of [p]poll and [p]select do the bare minimum
+ * that is, completely ignore SA_RESTART and throw EINTR
+ * that includes sortix's os-test and their signal-poll interaction tests
+ * as I understand the posix description, SA_RESTART *should* be taken into account
+ * so, the following define
+ * if set, doesn't follow SA_RESTART at all (except SIGSTOP/SIGTSTP) like linux for example
+ * if not set, actually follows SA_RESTART semantics for all signals
+ */
+#define PPOLL_NO_SA_RESTART
 #endif

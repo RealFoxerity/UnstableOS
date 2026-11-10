@@ -866,15 +866,10 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
                 current_process->sa_handlers[current_thread->sa_to_be_handled - 1].sa_flags & SA_RESTART
             ) || current_process->is_stopped
         )) {
-            switch (syscall_number) {
-                // add other cases where EINTR is not meant to be SA_RESTARTed
-                case SYSCALL_SIGSUSPEND:
-                    ctx->eax = return_value;
-                    break;
-                default:
-                    ctx->iret_frame.ip -= 2; // int $0xF0 -> cd f0
-            }
+            ctx->iret_frame.ip -= 2; // int $0xF0 -> cd f0
         } else {
+            if (return_value == -EINTR_NORESTART)
+                return_value =  -EINTR;
             ctx->eax = return_value;
         }
     }
