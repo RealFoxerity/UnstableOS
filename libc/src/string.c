@@ -275,6 +275,11 @@ int strcmp(const char * s1, const char * s2) {
     return 0;
 }
 
+// thanks, musl, for this amazing implementation!
+int strcoll(const char *s1, const char *s2) {
+    return strcmp(s1, s2);
+}
+
 int strncmp(const char * s1, const char * s2, size_t n) {
     for (size_t i = 0; i < n && (s1[i] != '\0' || s2[i] != '\0'); i++) {
         if (((char*)s1)[i] != ((char*)s2)[i]) {

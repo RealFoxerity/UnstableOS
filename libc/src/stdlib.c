@@ -15,6 +15,17 @@ int abs(int i) {
     return i;
 }
 
+long labs(long i) {
+    if (i < 0)
+        return -i;
+    return i;
+}
+long long llabs(long long i) {
+    if (i < 0)
+        return -i;
+    return i;
+}
+
 static uint32_t ___internal_rand_state = 0;
 
 int rand() {

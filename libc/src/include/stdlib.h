@@ -8,6 +8,8 @@
 #include <stddef.h>
 
 int abs(int i);
+long labs(long i);
+long long llabs(long long i);
 
 #define MB_CUR_MAX 4
 #define RAND_MAX (INT_MAX)
@@ -61,6 +63,8 @@ int getsubopt(char **__restrict optionp, char * const *__restrict keylistp, char
 
 void qsort(void *base, size_t nel, size_t width, int (*compar)(const void *, const void *));
 void qsort_r(void *base, size_t nel, size_t width, int (*compar)(const void *, const void *, void *), void *arg);
+
+void *bsearch(const void *key, const void *base, size_t nel, size_t width, int (*compar)(const void *, const void *));
 
 size_t mbstowcs(wchar_t *__restrict pwcs, const char *__restrict s, size_t n);
 int mbtowc(wchar_t *__restrict pwc, const char *__restrict s, size_t n);

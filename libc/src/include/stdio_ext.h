@@ -13,4 +13,5 @@ int __fwriting(FILE *stream);
 //int __fsetlocking(FILE *stream, int type);
 void _flushlbf();
 void __fpurge(FILE *stream);
+void __fseterr(FILE *stream);
 #endif

@@ -66,3 +66,7 @@ int fpurge(FILE *stream) {
 void __fpurge(FILE *stream) {
     fpurge(stream);
 }
+
+void __fseterr(FILE *stream) {
+    stream->was_error = 1;
+}

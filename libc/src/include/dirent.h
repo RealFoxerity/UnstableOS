@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdio.h>
 
+#include <sys/stat.h>
 #define IFTODT(mode) (mode >> 12)
 #define DTTOIF(dirtype) (dirtype << 12)
 #define DT_UNKNOWN 0

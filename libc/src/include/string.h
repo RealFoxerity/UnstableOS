@@ -31,6 +31,7 @@ char * stpncpy(char *__restrict dest, const char *__restrict src, size_t dsize);
 
 int strcmp(const char * s1, const char * s2);
 int strncmp(const char * s1, const char * s2, size_t n);
+int strcoll(const char *s1, const char *s2);
 char * strchr(const char * s, int c);
 char * strchrnul(const char * s, int c);
 char * strrchr(const char * s, int c);
