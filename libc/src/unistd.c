@@ -33,6 +33,8 @@ int brk(void * addr) {
 
 void * sbrk(intptr_t increment) {
     void * old_break = (void *)_syscall(SYSCALL_BRK, NULL);
+    if (increment == 0)
+        return old_break;
     void * new_break = (void *)_syscall(SYSCALL_BRK, old_break + increment);
 
     if (new_break == old_break) {
