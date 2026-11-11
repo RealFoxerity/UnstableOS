@@ -18,7 +18,11 @@ static const rbtree_t * bstree_min(const rbtree_t *node) {
     return node;
 }
 
-static const rbtree_t * bstree_successor(const rbtree_t *tree, const rbtree_t *node) {
+rbtree_t * rbtree_min(const rbtree_t *node) {
+    return (rbtree_t*)bstree_min(node);
+}
+
+static const rbtree_t * bstree_successor(const rbtree_t *node) {
     if (__builtin_expect(node->nodes[1] != NULL, 1))
         return bstree_min(node->nodes[1]);
     rbtree_t * parent = (void*)(node->parent & ~1);
@@ -27,6 +31,10 @@ static const rbtree_t * bstree_successor(const rbtree_t *tree, const rbtree_t *n
         parent = (void*)(parent->parent & ~1);
     }
     return parent;
+}
+
+rbtree_t * rbtree_successor(const rbtree_t *node) {
+    return (rbtree_t*)bstree_successor(node);
 }
 
 static void bstree_rotate(rbtree_t **tree, rbtree_t *node, int dir) {
@@ -152,7 +160,7 @@ void rbtree_remove(rbtree_t **tree, const rbtree_t *node) {
         goto relink;
     }
 
-    replacement = (rbtree_t*)bstree_successor(*tree, node);
+    replacement = (rbtree_t*)bstree_successor(node);
     // succ can never be NULL, it's gonna be at least node->nodes[1]
     rbtree_t * succp = (void*)(replacement->parent & ~1);
     // minimum is always the leftmost node, only right node could be still here

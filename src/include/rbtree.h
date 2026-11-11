@@ -22,4 +22,7 @@ rbtree_t * rbtree_search_gte(const rbtree_t * tree, unsigned long val);
 void rbtree_add(rbtree_t **tree, rbtree_t *node);
 void rbtree_remove(rbtree_t **tree, const rbtree_t *node);
 void rbtree_free(rbtree_t * tree);
+
+rbtree_t * rbtree_successor(const rbtree_t *node);
+rbtree_t * rbtree_min(const rbtree_t *node);
 #endif

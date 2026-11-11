@@ -130,6 +130,8 @@ static void print_page_fault_error(struct page_fault_error error) {
 __attribute__((no_caller_saved_registers)) int page_fault_handler(unsigned long __old_eax, struct interr_frame * iret_frame, struct page_fault_error error) {
     void * fault_address; // linear address
     asm volatile ("movl %%cr2, %0":"=R"(fault_address));
+    void * unaligned_addr = fault_address;
+
     fault_address = (void*)((uintptr_t)fault_address & ~(PAGE_SIZE-1));
     if (!error.P) { // caused by non-present page, see intel sdm 3A 5-55
         if (fault_address >= KERNEL_HEAP_BASE && fault_address < KERNEL_HEAP_BASE + KERNEL_HEAP_SIZE && !(iret_frame->cs & 3)) {
@@ -187,7 +189,7 @@ __attribute__((no_caller_saved_registers)) int page_fault_handler(unsigned long 
         back_framebuffer_h = 0;
         back_framebuffer = NULL;
     }
-    kprintf("\n\e[0m\e[41m\n#### ISR: Segmentation fault - Invalid memory reference! ####\nTried to reference address %p\n", fault_address);
+    kprintf("\n\e[0m\e[41m\n#### ISR: Segmentation fault - Invalid memory reference! ####\nTried to reference address %p\n", unaligned_addr);
     kprintf("\nCR3: %p\n", paging_get_address_space_paddr());
     print_page_fault_error(error);
     print_interr_frame(iret_frame);

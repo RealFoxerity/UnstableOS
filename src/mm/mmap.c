@@ -13,7 +13,6 @@
 
 #include "dev_ops.h"
 
-// TODO: Implement non-MAP_FIXED
 // TODO: Implement a page tracker for shared anonymous mappings, see todo in mmap_file
 
 // returns 0 on valid, 1 on sigsegv, -1 on sigbus
@@ -177,6 +176,38 @@ static struct vm_record * mmap_split_record(struct vm_record ** vm, struct vm_re
 
 int munmap_to_vmr(struct vm_record ** vmr_tree, void *addr, size_t len, char ignore_missing, char was_empty);
 
+static void * vmr_get_free_space(struct vm_record ** vmr, void *hint, size_t len) {
+    if (hint < (void*)0x08000000)
+        hint = (void*)0x08000000;
+    if (hint >= (void *)PROGRAM_PCB_VADDR || hint + len >= (void *)PROGRAM_PCB_VADDR)
+        hint =  (void *)PROGRAM_PCB_VADDR - len;
+    len += (uintptr_t)hint % PAGE_SIZE;
+    hint = (void*)((uintptr_t)hint & ~(PAGE_SIZE - 1));
+
+    struct vm_record * lte = (void*)rbtree_search_lte((rbtree_t *)*vmr, (uintptr_t)(hint + len));
+    if (!lte || lte->node.ptr + lte->len <= hint)
+        return hint;
+
+    struct vm_record * rec;
+    struct vm_record * prev = lte;
+    while ((rec = (void*)rbtree_successor(&prev->node))) {
+        if (rec->node.ptr - prev->node.ptr - prev->len >= len)
+            return prev->node.ptr + prev->len;
+        prev = rec;
+    }
+
+    prev = (void*)rbtree_min((rbtree_t *)*vmr);
+    if (prev == lte)
+        return NULL;
+
+    while ((rec = (void*)rbtree_successor(&prev->node)) != lte) {
+        if (rec->node.ptr - prev->node.ptr - prev->len >= len)
+            return prev->node.ptr + prev->len;
+        prev = rec;
+    }
+    return NULL;
+}
+
 void *mmap_to_vmr(struct vm_record ** vmr, void *addr, size_t len, int prot, int flags, file_descriptor_t * file, off_t off) {
     if (len == 0 || off < 0 || !vmr)
         return (void*)-EINVAL;
@@ -184,8 +215,9 @@ void *mmap_to_vmr(struct vm_record ** vmr, void *addr, size_t len, int prot, int
         return (void*)-EBADF;
 
     if (!(flags & MAP_FIXED)) {
-        kprintf("stub: mmap() without MAP_FIXED not yet supported\n");
-        return (void*)-ENOTSUP;
+        addr = vmr_get_free_space(vmr, addr, len);
+        if (!addr)
+            return (void*)-ENOMEM;
     }
     if ((uintptr_t)addr + len < (uintptr_t)addr ||
         addr + len > (void *) PROGRAM_PCB_VADDR || // pcb, tls, heap, stack, framebuffer, mmio

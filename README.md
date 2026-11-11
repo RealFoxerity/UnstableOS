@@ -82,7 +82,7 @@ For qemu you can do (assuming `make iso`):\
 see [caveats.md](./caveats.md) for info
 ### TODO in Near Future
 ---
-- [x] `mmap()`, `munmap()`, `msync()` (only with `MAP_FIXED`)
+- [x] `mmap()`, `munmap()`, `msync()`
 - [x] `stat()`
 - [x] `mkdir()`, `rmdir()`
 - [x] `unlink()`
