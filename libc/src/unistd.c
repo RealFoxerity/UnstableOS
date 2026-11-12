@@ -617,7 +617,7 @@ static char * dev2string(dev_t device, char * buf_out) {
         case DEV_MAJ_TTY:
             switch (MINOR(device)) {
                 case 0 ... __TTY_CONSOLE - 1:
-                    sprintf(buf_out, "tty%d", MINOR(device)+1);
+                    sprintf(buf_out, "tty%d", MINOR(device));
                     break;
                 case __TTY_CONSOLE ... __TTY_CONSOLE + __TTY_SERIAL - 1:
                     sprintf(buf_out, "ttyS%d", MINOR(device) - __TTY_CONSOLE);
