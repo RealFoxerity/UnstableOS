@@ -44,45 +44,6 @@ static char is_valid_tty(dev_t dev) { // checks if the device is a valid raw tty
     return 1;
 }
 
-static tty_t * __tty_get_controlling_terminal(pid_t session) {
-    for (int i = 0; i < TTY_LIMIT_KERNEL; i++) {
-        if (terminals[i]->session == session) {
-            return terminals[i];
-        }
-    }
-    return NULL;
-}
-
-tty_t * tty_get_controlling_terminal(pid_t session) {
-    spinlock_acquire_interruptible(&tty_lock);
-    tty_t * tty = __tty_get_controlling_terminal(session);
-    spinlock_release(&tty_lock);
-    return tty;
-}
-
-char tty_assign_session(inode_t * tty, pid_t session) {
-    kassert(tty);
-    if (!S_ISCHR(tty->mode))
-        return -1;
-    dev_t dev = tty->device;
-    if (dev == GET_DEV(DEV_MAJ_TTY, DEV_TTY_CONSOLE))
-        dev = GET_DEV(DEV_MAJ_TTY, DEV_TTY_0);
-    if (!is_valid_tty(dev))
-        return -1;
-    tty_t * term = terminals[MINOR(dev)];
-    spinlock_acquire_interruptible(&term->tty_lock);
-    if (terminals[MINOR(dev)]->session != 0 || tty_get_controlling_terminal(session)) {
-        spinlock_release(&term->tty_lock);
-        return -1;
-    }
-
-    term->session = session;
-    term->foreground_pgrp = session;
-
-    spinlock_release(&term->tty_lock);
-    return 0;
-}
-
 void tty_flush_input(tty_t * tty);
 
 // TODO: add the missing unimplemented ones
@@ -142,6 +103,20 @@ long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
     }
     if (!is_valid_tty(dev)) return -EINVAL; // no clue what to return here
 
+    spinlock_acquire(&terminals[MINOR(dev)]->tty_lock);
+    rw_spinlock_acquire_read(&process_tree_lock);
+    char session_exists = !!sched_find_process(terminals[MINOR(dev)]->session);
+    rw_spinlock_release_read(&process_tree_lock);
+    if (!session_exists) {
+        spinlock_acquire(&scheduler_lock);
+        for (process_t * proc = process_list; proc; proc = proc->next)
+            if (proc->ctty == dev)
+                proc->ctty = 0;
+        spinlock_release(&scheduler_lock);
+        terminals[MINOR(dev)]->session = terminals[MINOR(dev)]->foreground_pgrp = 0;
+    }
+    spinlock_release(&terminals[MINOR(dev)]->tty_lock);
+
     // ioctls which according to POSIX should send SIGTTOU to bg pgrp or otherwise special treatment
     switch (request) {
         case TIOCSPGRP:
@@ -153,17 +128,14 @@ long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
             // of the target pgrp leader
             // meaning leaked foreground group; however that could happen anyway
             // so the added complexity is not worth it
-            spinlock_acquire(&scheduler_lock);
-            for (process_t * proc = process_list; proc != NULL; proc = proc->next) {
-                if (proc->pgrp == (pid_t)arg) {
-                    if (proc->session != terminals[MINOR(dev)]->session) {
-                        spinlock_release(&scheduler_lock);
-                        return -EPERM;
-                    }
-                    break;
-                }
-            }
-            spinlock_release(&scheduler_lock);
+
+            char eperm = 0;
+            rw_spinlock_acquire_read(&process_tree_lock);
+            process_t * pgrp_leader = sched_find_process((pid_t)arg);
+            if (!pgrp_leader || pgrp_leader->session != current_process->session)
+                eperm = 1;
+            rw_spinlock_release_read(&process_tree_lock);
+            if (eperm) return -EPERM;
         case TCSETS:
         case TCSETSF:
         case TCSETSW:
@@ -340,17 +312,7 @@ long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
         case TIOCGPGRP:
             return terminals[MINOR(dev)]->foreground_pgrp;
         case TIOCSPGRP:
-            if ((pid_t)arg <= 0) return -EINVAL;
-
-            int pgid_test = 0;
-            rw_spinlock_acquire_read(&process_tree_lock);
-            process_t * proc = sched_find_process((pid_t)arg);
-            if (proc && proc->session != current_process->session)
-                    pgid_test = 1;
-            rw_spinlock_release_read(&process_tree_lock);
-
-            if (pgid_test) return -EPERM;
-
+            // all conditions handled by the switch statement before
             terminals[MINOR(dev)]->foreground_pgrp = (pid_t)arg;
             return 0;
         case TIOCGSID:
@@ -689,6 +651,19 @@ long tty_open(inode_t * tty, unsigned short flags) {
     }
 
     spinlock_acquire(&term->tty_lock);
+
+    rw_spinlock_acquire_read(&process_tree_lock);
+    char session_exists = !!sched_find_process(term->session);
+    rw_spinlock_release_read(&process_tree_lock);
+    if (!session_exists) {
+        spinlock_acquire(&scheduler_lock);
+        for (process_t * proc = process_list; proc; proc = proc->next)
+            if (proc->ctty == dev)
+                proc->ctty = 0;
+        spinlock_release(&scheduler_lock);
+        term->session = term->foreground_pgrp = 0;
+    }
+
     __atomic_add_fetch(&term->instances, 1, __ATOMIC_ACQUIRE);
     if (term->session == 0 && flags & O_TTY_INIT) {
         tty_set_defaults(term);

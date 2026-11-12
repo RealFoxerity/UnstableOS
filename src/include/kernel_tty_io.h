@@ -115,12 +115,6 @@ void tty_register(tty_t * tty, dev_t minor);
 
 void tty_alloc_kernel_console();
 
-tty_t * tty_get_controlling_terminal(pid_t session);
-
-// sets the controlling session and pgrp to session and returns 0 on success (-1 on failure)
-// primarily for opening in a new session without O_NOCTTY in openat_inode()
-char tty_assign_session(inode_t * tty, pid_t session);
-
 // specify 0 for no timeout -> wait forever
 // specify -1 in timespec->tv_nsec to return on empty buffer
 // otherwise blocks until timeout expires
