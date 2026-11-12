@@ -452,7 +452,7 @@ void kernel_entry(multiboot_info_t* mbd, unsigned int magic) {
     char success = 0;
     for (int i = 0; i < sizeof(init_names)/sizeof(char*); i++) {
         kprintf("Trying %s\n", init_names[i]);
-        if (sys_spawn(init_names[i], (char *[]){init_names[i], (char *)kernel_cmdline, NULL}, (char * []){"PATH=/bin:/sbin", "PWD=/", "HOME=/",NULL}) >= 0) {
+        if (sys_spawn(init_names[i], (char *[]){init_names[i], (char *)kernel_cmdline, NULL}, (char * []){"PATH=/bin:/sbin:/usr/bin:/usr/sbin","TERM=vt102",NULL}) >= 0) {
             success = 1;
             break;
         }

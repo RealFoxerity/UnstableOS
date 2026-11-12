@@ -120,7 +120,7 @@ void construct_descriptor_tables() {
             else
             ptr = reserved_idt_interr_has_error[i]?(uint32_t)general_fault_handler_error:(uint32_t)general_fault_handler_no_error;
         }
-        idt_descriptor_entries[i] = idt_generate_descriptor(ptr, GDT_KERNEL_CODE, 0, 0, IDT_GATE_FL_PRESENT | IDT_GATE_FL_GATE_TYPE_32INT); 
+        idt_descriptor_entries[i] = idt_generate_descriptor(ptr, GDT_KERNEL_CODE, 0, 0, IDT_GATE_FL_PRESENT | IDT_GATE_FL_GATE_TYPE_32INT);
         // most of our ISRs are short and expect disabled interruts -> interrupt gate
     }
 
@@ -137,6 +137,7 @@ void construct_descriptor_tables() {
 
     }
 
+    idt_descriptor_entries[INT_TRAP_BREAKPOINT] = idt_generate_descriptor((uint32_t)cpu_interr_handlers[INT_TRAP_BREAKPOINT], GDT_KERNEL_CODE, 0, 0, IDT_GATE_FL_PRESENT | IDT_GATE_FL_GATE_TYPE_32INT | IDT_GATE_FL_INT_PRIV_R3);
     idt_descriptor_entries[SYSCALL_INTERR] = idt_generate_descriptor((uint32_t)interr_syscall, GDT_KERNEL_CODE, 0, 0, IDT_GATE_FL_PRESENT | IDT_GATE_FL_GATE_TYPE_32INT | IDT_GATE_FL_INT_PRIV_R3);
 
     pic_setup(IDT_PIC_INTERR_START, IDT_PIC_INTERR_START+8);

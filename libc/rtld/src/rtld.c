@@ -86,20 +86,16 @@ void (*__rtld_main(int argc, char ** argv))() {
     //dbg_print("rtld: Loading main executable... ");
     tracing = getenv("LD_TRACE_LOADED_OBJECTS") ? 1 : 0;
     binding = getenv("LD_BIND_NOW") ? 1 : 0;
+    if (tracing) {
+        print("\t");
+        print(argv[0] ? argv[0] : "main executable");
+    }
     main_elf = loadelf(exec_fd);
     main_elf->name = argv[0] ? argv[0] : "main executable";
     close(exec_fd);
 
-    if (tracing) {
-        char addrbuf[16];
-        print("\t");
-        print(main_elf->name);
-        print(" (0x");
-        itoax((unsigned long)main_elf->load_base, addrbuf);
-        print(addrbuf);
-        print(")\n");
+    if (tracing)
         exit(0);
-    }
 
     level_order_dsos();
     relocate_dsos();

@@ -324,6 +324,17 @@ struct dso * loadelf(int fd) {
 
     dynamic_end:
 
+    if (tracing) {
+        char addrbuf[16];
+        // printed by openelf
+        //print("\t");
+        //print(so->name);
+        print(" (0x");
+        itoax((unsigned long)dso->load_base, addrbuf);
+        print(addrbuf);
+        print(")\n");
+    }
+
     last_page = end_page + PAGE_SIZE - 1;
     last_page = (void*)((unsigned long)end_page & ~(PAGE_SIZE - 1));
 
@@ -371,16 +382,6 @@ struct dso * loadelf(int fd) {
         so = loadelf(sofd);
         so->name = soname;
         close(sofd);
-        if (tracing) {
-            char addrbuf[16];
-            // printed by openelf
-            //print("\t");
-            //print(so->name);
-            print(" (0x");
-            itoax((unsigned long)so->load_base, addrbuf);
-            print(addrbuf);
-            print(")\n");
-        }
 
         link:
         deplist->next = dso->deps;

@@ -1033,7 +1033,7 @@ char is_scancode_printable(uint32_t scancode) {
         case KEY_RSHIFT:
         case KEY_LSHIFT:
         case KEY_LCONTROL:
-        case KEY_ESCAPE:
+        //case KEY_ESCAPE: // actually printable as \e aka ^[
             return 0;
         default: return 1;
     }

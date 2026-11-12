@@ -964,6 +964,8 @@ static char ansi_escape_state_machine(char c) {
 
 void console_write(const char * s, size_t len) {
     for (int i = 0; i < len; i++) {
+        if (!s[i]) continue; // go fuck yourself vi
+
         if (ansi_escape_state_machine(s[i])) continue;
 
         if (s[i] == '\r') {
@@ -1037,7 +1039,7 @@ void console_write(const char * s, size_t len) {
 
 // note: backspace is technically \b, but we do 0x7F in accordance to default VERASE on most POSIX systems, delete is up to userspace
 static const char scancode_to_char[256] = {
-    0, 0, '1', '2', '3', '4', '5', '6',
+    0, '\e', '1', '2', '3', '4', '5', '6',
     '7', '8', '9', '0', '-', '=', 0x7F, '\t',
     'q', 'w', 'e', 'r', 't', 'y', 'u', 'i',
     'o', 'p', '[', ']', '\n', '^', 'a', 's',
@@ -1058,7 +1060,7 @@ static const char scancode_to_char[256] = {
 
     //shift
 
-    0, 0, '!', '@', '#', '$', '%', '^',
+    0,'\e', '!', '@', '#', '$', '%', '^',
     '&', '*', '(', ')', '_', '+', 0x7f, '\t',
     'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I',
     'O', 'P', '{', '}', '\n', '^', 'A', 'S',
