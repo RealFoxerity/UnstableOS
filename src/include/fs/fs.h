@@ -76,7 +76,7 @@ struct pipe {
     spinlock_t pipe_lock;
     struct thread_queue read_queue, write_queue;
     struct thread_queue pollin, pollout;
-    unsigned char pipe_fifo[PIPE_BUF];
+    unsigned char pipe_fifo[PIPE_BUF+1];
     size_t head, tail;
 
     size_t readers; // SIGPIPE

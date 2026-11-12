@@ -10,14 +10,14 @@
 // TODO: low priority, maybe refactor ttys to use pipes?
 
 #define EMPTY(pipe) ((pipe)->head == (pipe)->tail)
-#define FULL(pipe) (((pipe)->head == 0 && (pipe)->tail == PIPE_BUF - 1) || (pipe)->tail == (pipe)->head - 1)
+#define FULL(pipe) (((pipe)->head == 0 && (pipe)->tail == PIPE_BUF) || (pipe)->tail == (pipe)->head - 1)
 #define REMAIN(pipe) (                              \
     (pipe)->head <= (pipe)->tail ?                  \
         ((pipe)->tail - (pipe)->head) :             \
-        (PIPE_BUF - (pipe)->head + (pipe)->tail)    \
+        (PIPE_BUF + 1 - (pipe)->head + (pipe)->tail)    \
     )// how many elements still in queue
-#define INC(pipe) ((pipe)->tail = ((pipe)->tail+1)%PIPE_BUF) // lengthens queue
-#define DEC(pipe) ((pipe)->head = ((pipe)->head+1)%PIPE_BUF) // shortens queue by removing oldest element
+#define INC(pipe) ((pipe)->tail = ((pipe)->tail+1)%(PIPE_BUF+1)) // lengthens queue
+#define DEC(pipe) ((pipe)->head = ((pipe)->head+1)%(PIPE_BUF+1)) // shortens queue by removing oldest element
 
 int sys_pipe(int fildes[2], int flags) {
     flags &= O_CLOEXEC | O_CLOFORK | O_NONBLOCK;
@@ -97,7 +97,7 @@ int open_pipe(inode_t * pipe, int flags) {
 }
 
 static int pipe_put_ch(struct pipe * pq, const unsigned char c, int fd_flags) {
-    kassert(pq->head < PIPE_BUF && pq->tail < PIPE_BUF);
+    kassert(pq->head <= PIPE_BUF && pq->tail <= PIPE_BUF);
     while (pq->named_wait) {
         if (check_eintr()) return 256;
         if (fd_flags & O_NONBLOCK)
@@ -179,7 +179,7 @@ ssize_t pipe_write(const file_descriptor_t * file, const void * s, size_t n) {
 }
 
 static int pipe_get_ch(struct pipe * pq, int fd_flags) {
-    kassert(pq->head < PIPE_BUF && pq->tail < PIPE_BUF);
+    kassert(pq->head <= PIPE_BUF && pq->tail <= PIPE_BUF);
 
     unsigned char out = 0;
     while (pq->named_wait) {
