@@ -526,8 +526,8 @@ int sys_dup3(int oldfd, int newfd, int flags) {
 
     if (current_process->fds[newfd] != NULL) { // close the fd
         rw_spinlock_acquire_read(&current_process->fds[newfd]->access_lock);
-        close_file_forced(current_process->fds[newfd]);
-        rw_spinlock_release_read(&current_process->fds[newfd]->access_lock);
+        if (!close_file_forced(current_process->fds[newfd]))
+            rw_spinlock_release_read(&current_process->fds[newfd]->access_lock);
         current_process->fds[newfd] = NULL;
     }
 
