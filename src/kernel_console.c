@@ -1015,6 +1015,8 @@ void console_write(const char * s, size_t len) {
             console_write("                ", old_delta);
             continue;
         }
+        if (s[i] < ' ')
+            continue;
         console_set_char(console_x, console_y, s[i],
             console_italic, console_overline, console_underline, console_overstrike);
         if (console_x >= display_width_chars / FONT_MULTIPLIER - 1) {

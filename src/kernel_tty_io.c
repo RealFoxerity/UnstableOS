@@ -847,6 +847,8 @@ int tty_queue_putch(tty_t * tty, struct tty_queue * tq, char c, char onlret) {
                 __atomic_store_n(&tq->tty_start_column, 0, __ATOMIC_RELAXED);
                 break;
             default:
+                if (c < ' ')
+                    break;
                 __atomic_add_fetch(&tty->tty_column, 1, __ATOMIC_RELAXED);
         }
     }
@@ -884,6 +886,8 @@ static size_t tty_replay_iqueue(tty_t * tty) {
                 off += TTY_TAB_WIDTH - off % TTY_TAB_WIDTH;
                 break;
             default:
+                if (queue->buffer[i] < ' ')
+                    break;
                 off++;
                 break;
         }
