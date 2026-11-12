@@ -45,6 +45,8 @@ size_t wcrtomb(char *restrict s, wchar_t wc, mbstate_t *restrict ps) {
 }
 
 size_t mbrtowc(wchar_t *restrict pwc, const char *restrict s, size_t n, mbstate_t *restrict ps) {
+    if (!n)
+        return (size_t)-2;
     static mbstate_t internal = 0;
     wchar_t __pwc;
     const unsigned char * _s = (void*)s;
@@ -85,6 +87,8 @@ size_t mbrtowc(wchar_t *restrict pwc, const char *restrict s, size_t n, mbstate_
         if (remain == 0) {
             *pwc = *ps;
             *ps = 0;
+            if (*pwc == 0)
+                return 0;
             return i + 1;
         }
     }
