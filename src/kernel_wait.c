@@ -19,11 +19,14 @@ static process_t * find_in_list(pid_t pid, process_t * list) {
 }
 
 // is_stopped never goes into zombie, do_cleanup can still be running in a syscall
-static process_t * find_unwaited_task(pid_t pid) {
+static process_t * find_unwaited_task(pid_t pid, int options) {
     for (process_t * child = process_list; child != NULL; child = child->next) {
         if (child->parent == current_process) {
             if (!child->pending_waiting) continue;
-
+            if (child->is_stopped && !child->do_cleanup && !(options & WUNTRACED))
+                continue; // not subscribed to SIGSTOP
+            if (!child->is_stopped && !child->do_cleanup && !(options & WCONTINUED))
+                continue; // not subscribed to SIGCONT
             if (pid < -1 && child->pgrp == -pid) return child;
             if (pid == -1)                       return child;
             if (pid == 0 && child->pgrp == current_process->pgrp) return child;
@@ -48,7 +51,7 @@ pid_t sys_waitpid(pid_t pid, int * wstatus, int options) {
         spinlock_acquire(&scheduler_lock);
         child = find_in_list(pid, zombie_list);
         if (child == NULL) {
-            child = find_unwaited_task(pid);
+            child = find_unwaited_task(pid, options);
             if (child != NULL) found_in_process_list = 1;
         }
         if (child == NULL && find_in_list(pid, process_list) == NULL) {
