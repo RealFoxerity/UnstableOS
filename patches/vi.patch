@@ -1,0 +1,103 @@
+--- ex-050325/Makefile	2026-11-11 22:15:45.058913363 +0100
++++ ex-050325_/Makefile	2026-11-11 22:18:22.221421527 +0100
+@@ -79,11 +79,11 @@
+ # Destinations for installation. $(PRESERVEDIR) is used for recovery files.
+ # It will get mode 1777.
+ #
+-PREFIX		= /usr/local
++PREFIX		= /home/foxerity/UnstableOS/sysroot/usr/
+ BINDIR		= $(PREFIX)/bin
+ LIBEXECDIR	= $(PREFIX)/libexec
+ MANDIR		= $(PREFIX)/share/man
+-PRESERVEDIR	= /var/preserve
++PRESERVEDIR	= $(PREFIX)/../var/preserve
+ 
+ #
+ # DESTDIR is prepended to the installation paths. It is mostly useful
+@@ -94,7 +94,7 @@
+ #
+ # A BSD-like install program. GNU install will fit well here, too.
+ #
+-INSTALL		= /usr/ucb/install
++INSTALL		= /usr/bin/install
+ 
+ #
+ # Compiler and linker flags.
+@@ -103,7 +103,7 @@
+ #
+ #CFLAGS	=
+ #CPPFLAGS =
+-#LDFLAGS	=
++LDFLAGS	= -ltinfow
+ #LDADD	=
+ 
+ #
+@@ -130,7 +130,7 @@
+ #
+ # If your system expands tabs to 4 spaces you should -DTABS=4 below
+ #
+-FEATURES	= -DLISPCODE -DCHDIR -DFASTTAG -DUCVISUAL -DMB -DBIT8
++FEATURES	= -DLISPCODE -DCHDIR -DFASTTAG -DUCVISUAL -DMB
+ 
+ #
+ # This disables the LC_CTYPE locale settings and assumes all characters
+@@ -161,9 +161,9 @@
+ # (wchar.h, wctype.h, btowc() etc.) which is not provided by older
+ # compilation environments.
+ #
+-REINC	= -I./libuxre -DUXRE
+-RELIB	= -L./libuxre -luxre
+-RETGT	= uxre
++#REINC	= -I./libuxre -DUXRE
++#RELIB	= -L./libuxre -luxre
++#RETGT	= uxre
+ 
+ #
+ # VMUNIX should be correct for any modern Unix.
+@@ -190,7 +190,7 @@
+ # raises this limit to around 1 GB, but ex will consume much more of core
+ # and temp file space then.
+ #
+-#LARGEF	= -DLARGEF
++LARGEF	= -DLARGEF
+ 
+ # 
+ # The next setting is a crucial one since it determines the way ex
+@@ -205,13 +205,13 @@
+ #
+ # You may also get terminfo access by using the ncurses library.
+ #
+-#TERMLIB	= ncurses
++TERMLIB	= ncursesw
+ #
+ # The preferred choice for ex on Linux distributions, other systems that
+ # provide a good termcap file, or when setting the TERMCAP environment
+ # variable is deemed sufficient, is the included 2.11BSD termcap library.
+ #
+-TERMLIB	= termlib
++#TERMLIB	= termlib
+ 
+ #
+ # Since ex uses sbrk() internally, a conflict with the libc's version of
+--- ex-050325/ex_vops2.c	2026-11-11 22:15:40.322716898 +0100
++++ ex-050325_/ex_vops2.c	2026-11-10 22:16:50.962748814 +0100
+@@ -932,7 +932,7 @@
+ 		 * ^D|QUOTE	Is a backtab (in a repeated command).
+ 		 */
+ #ifndef	BIT8
+-		case CTRL('d') | QUOTE:
++		case CTRL('d') | 0400:
+ #else
+ btrp:
+ #endif
+--- ex-050325/ex_io.c	2026-11-11 22:23:12.162126468 +0100
++++ ex-050325_/ex_io.c	2026-11-10 22:20:31.964266700 +0100
+@@ -614,7 +614,7 @@
+ iostats(void)
+ {
+ 
+-	fsync(io);
++	/*fsync(io);*/
+ 	close(io);
+ 	io = -1;
+ 	if (hush == 0) {
