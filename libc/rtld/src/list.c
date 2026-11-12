@@ -122,7 +122,7 @@ static char is_dependent(const struct dso * dso) {
 }
 
 void sort_dsos() {
-    struct dso * unsorted_dso_head = NULL;
+    struct dso * unsorted_dso_head = dso_list;
 
     char found = 0;
     char sorted = 0;
@@ -130,12 +130,12 @@ void sort_dsos() {
     do {
         found = 0;
         sorted = 1;
-        struct dso * dso = unsorted_dso_head ? unsorted_dso_head : dso_list;
+        struct dso * dso = unsorted_dso_head;
         while (dso) {
             struct dso * next = dso->next;
             if (!is_dependent(dso) || force_sort) {
                 found = 1;
-                if (unsorted_dso_head == NULL || unsorted_dso_head == dso)
+                if (unsorted_dso_head == dso)
                     unsorted_dso_head = next;
                 dso->sorted = 1;
                 relink_at_start(dso);
