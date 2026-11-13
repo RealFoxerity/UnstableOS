@@ -207,6 +207,7 @@ void rbtree_remove(rbtree_t **tree, const rbtree_t *node) {
     // solve the rbt
     do {
         rbtree_t * sibling = parent->nodes[!idx];
+        if (!sibling) return;
 
         if (sibling->parent & 1) {
             bstree_rotate(tree, parent, idx);
