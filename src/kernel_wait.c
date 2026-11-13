@@ -23,6 +23,8 @@ static process_t * find_unwaited_task(pid_t pid, int options) {
     for (process_t * child = process_list; child != NULL; child = child->next) {
         if (child->parent == current_process) {
             if (!child->pending_waiting) continue;
+            // have to wait until it's in the zombie queue for proper freeing
+            if (child->do_cleanup) continue;
             if (child->is_stopped && !child->do_cleanup && !(options & WUNTRACED))
                 continue; // not subscribed to SIGSTOP
             if (!child->is_stopped && !child->do_cleanup && !(options & WCONTINUED))
@@ -156,9 +158,10 @@ static process_t * waitid_get_child(idtype_t idtype, id_t id, int options, char 
     for (process_t * child = process_list; child != NULL; child = child->next) {
         if (child->parent == current_process) {
             if (!child->pending_waiting) continue;
+            // have to wait until it's in the zombie queue for proper freeing
+            if (child->do_cleanup) continue;
 
             // is_stopped is irrelevant for exited/killed processes
-            if (child->do_cleanup && !(options & WEXITED )) continue;
             if (child->is_stopped && !(options & WSTOPPED)) continue;
 
             if (idtype == P_PID  && child->pid  == (pid_t)id) return child;
