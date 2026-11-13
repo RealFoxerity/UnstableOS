@@ -141,7 +141,7 @@ int parse_mode(const char * arg, struct arg ** out) {
     do {
         struct arg * curr = malloc(sizeof(struct arg));
         if (!curr) {
-            perror("chmod: malloc()");
+            perror("mkfifo: malloc()");
             exit(1);
         }
         if (!parse_arg(arg, curr))
@@ -234,7 +234,7 @@ int main(int argc, char ** argv) {
             continue;
         }
         if (argv[i][0] == '-') {
-            fprintf(stderr, "chmod: Unknown option %s\n", argv[i]);
+            fprintf(stderr, "mkfifo: Unknown option %s\n", argv[i]);
             return 1;
         }
     }
