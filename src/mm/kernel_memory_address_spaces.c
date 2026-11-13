@@ -20,10 +20,14 @@ PAGE_TABLE_TYPE * paging_get_pt_from_address_space(PAGE_DIRECTORY_TYPE * pd_vadd
     {
         PAGE_TABLE_TYPE * new_page = pfalloc();
 
+        if (new_page == NULL) {
+            dpanic("Not enough memory for page table!\n");
+        }
+
         page_table = paging_map_phys_addr_unspecified(new_page, PTE_PDE_PAGE_WRITABLE);
         memset(page_table, 0, PAGE_TABLE_ENTRIES*sizeof(PAGE_TABLE_TYPE));
 
-        if (new_page == NULL) {
+        if (page_table == NULL) {
             dpanic("Not enough memory for page table!\n");
         }
         pd_vaddr[page_directory_idx] = (unsigned long) new_page;

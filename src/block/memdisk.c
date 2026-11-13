@@ -47,7 +47,7 @@ long memdisk_deinit(dev_t dev) { // TODO: rewrite with some better locking, this
     }
 
     mem->used = 0;
-    if (mem->is_allocated) paging_unmap(mem->start_addr, mem->size);
+    if (mem->is_allocated) paging_unmap_and_free(mem->start_addr, mem->size);
 
     dev_ops_remove(dev);
 

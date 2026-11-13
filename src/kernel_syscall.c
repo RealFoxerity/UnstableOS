@@ -143,7 +143,7 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
             }
             void * old_break = current_process->program_break;
             current_process->program_break = (void *)arg1;
-            paging_unmap(current_process->program_break,
+            paging_unmap_and_free(current_process->program_break,
                 old_break - current_process->program_break);
             return_value = arg1;
             break;

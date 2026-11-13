@@ -92,6 +92,7 @@ void * paging_map(void * target_virt_addr, size_t n, unsigned int flags);
 void * paging_add_page(void * target_virt_addr, unsigned int flags); // adds a singular page, equivalent to paging_map(target_virt_addr, PAGE_SIZE_NO_PAE, flags)
 void paging_unmap_page(void * virt_addr);
 void paging_unmap(void * target_virt_addr, size_t n);
+void paging_unmap_and_free(void * target_virt_addr, size_t n);
 void paging_remap(void * old_virt_addr, void * new_virt_addr, unsigned int flags);
 void paging_change_flags(void * target_virt_addr, size_t n, unsigned int flags);
 

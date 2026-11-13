@@ -113,7 +113,7 @@ thread_t * kernel_create_thread(process_t * parent_process, thread_t * calling_t
 
         paging_map(new->context.iret_frame.sp - PROGRAM_STACK_START_SIZE,
             PROGRAM_STACK_START_SIZE, PTE_PDE_PAGE_WRITABLE | PTE_PDE_PAGE_USER_ACCESS);
-        paging_unmap(new->stack - PROGRAM_STACK_SIZE,
+        paging_unmap_and_free(new->stack - PROGRAM_STACK_SIZE,
             new->stack_guard_size);
 
         *(void**)(new->context.iret_frame.sp - sizeof(void*)) = arg;

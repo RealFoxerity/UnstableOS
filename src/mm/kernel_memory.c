@@ -235,6 +235,24 @@ void paging_unmap(void * target_virt_addr, size_t n) {
     }
 }
 
+void paging_unmap_and_free(void * target_virt_addr, size_t n) {
+    n += (unsigned long)target_virt_addr & (PAGE_SIZE_NO_PAE - 1);
+    target_virt_addr = (void*)((unsigned long)target_virt_addr&~(PAGE_SIZE_NO_PAE-1));
+    if (n % PAGE_SIZE_NO_PAE != 0) n += PAGE_SIZE_NO_PAE - n % PAGE_SIZE_NO_PAE;
+
+    size_t pages = n/PAGE_SIZE_NO_PAE;
+
+    for (size_t i = 0; i < pages; i++) {
+        void * page = target_virt_addr + i*PAGE_SIZE_NO_PAE;
+        PAGE_TABLE_TYPE * pte = paging_get_pte(page);
+        if (!pte)
+            continue;
+        void * ppage = (void*)(*pte & ~(PAGE_SIZE_NO_PAE - 1));
+        paging_unmap_page(page);
+        pffree(ppage);
+    }
+}
+
 void * paging_map_phys_addr_unspecified(void * phys_addr, unsigned int flags) {
     phys_addr = (void *)((unsigned long)phys_addr & ~(PAGE_SIZE_NO_PAE - 1));
 
