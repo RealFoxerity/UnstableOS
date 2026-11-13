@@ -354,12 +354,14 @@ char * strdup(const char * s) {
 }
 
 char * strtok_r(char * __restrict src, const char * __restrict delim, char ** __restrict saveptr) {
-    if (src != NULL) *saveptr = src;
     if (saveptr == NULL) return NULL;
+    if (src != NULL) *saveptr = src;
     if (*saveptr == NULL) return NULL;
 
     // nothing more to parse
     if (**saveptr == '\0') return NULL;
+
+    while (strpbrk(*saveptr, delim) == *saveptr) (*saveptr)++;
 
     char * old = *saveptr;
     *saveptr = strpbrk(*saveptr, delim);
@@ -367,7 +369,7 @@ char * strtok_r(char * __restrict src, const char * __restrict delim, char ** __
     if (*saveptr != NULL && **saveptr != '\0') {
         **saveptr = '\0';
         (*saveptr)++;
-        while (strpbrk((*saveptr)++, delim) == *saveptr) {}
+        while (strpbrk(*saveptr, delim) == *saveptr) (*saveptr)++;
     }
 
     return old;
