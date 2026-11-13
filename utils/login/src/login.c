@@ -10,6 +10,8 @@
 #include <ctype.h>
 #include <errno.h>
 
+#include <libgen.h>
+
 #define MAX_TRIES 5
 #define BONUS_TRIES_EMPTY 5 // idk about you, but I spam enter on serial lines :p
 #define TIMEOUT 30   // how long to wait on a single login attempt before kicking out
@@ -199,13 +201,25 @@ int main(int argc, char **argv) {
     clearenv();
     if (term)
         setenv("TERM", term, 1);
-    setenv("PATH", "/bin:/sbin", 1);
+    setenv("PATH", "/bin:/sbin:/usr/bin:/usr/sbin", 1);
     if (user->pw_dir)
         setenv("HOME", user->pw_dir, 1);
     setenv("SHELL", user->pw_shell, 1);
     setenv("LOGNAME", user->pw_name, 1);
     setenv("USER", user->pw_name, 1);
-    execl(user->pw_shell, user->pw_shell, NULL);
+
+    char * dup = malloc(strlen(user->pw_shell + 2));
+    if (!dup)
+        fprintf(stderr, "Can't dup shell arg for -shell\n");
+    else {
+        *dup++ = '-';
+        strcpy(dup, user->pw_shell);
+        char * base = basename(dup);
+        memmove(dup, base, strlen(base) + 1);
+        dup--;
+    }
+
+    execl(user->pw_shell, dup ? dup : user->pw_shell, NULL);
 
     alarm(3);
     fprintf(stdout, "User account locked\n");
