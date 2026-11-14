@@ -116,13 +116,6 @@ int sys_execve(const char * path, char * const* argv, char * const* envp) {
     current_process->after_exec = 1;
     current_process->pending_waiting = 0;
 
-    for (int i = 0; i < SEM_NSEMS_MAX; i++) {
-        if (current_process->semaphores[i] == NULL) continue;
-        if (__atomic_sub_fetch(&current_process->semaphores[i]->used, 1, __ATOMIC_RELEASE) == 0)
-            kfree(current_process->semaphores[i]);
-        current_process->semaphores[i] = NULL;
-    }
-
     thread_t * new = kernel_create_thread(current_process, NULL, new_prog.start, NULL, 0);
     kassert(new);
     kassert(new->stack == PROGRAM_STACK_VADDR);
@@ -280,9 +273,6 @@ int sys_spawn(const char *path, char * const* argv, char * const* envp) {
 
         init_task = proc;
     }
-
-    memset(proc->semaphores, 0, sizeof(proc->semaphores));
-
 
     // to not leak kernel fds on spawn
     memset(proc->fds, 0, sizeof(proc->fds));

@@ -183,8 +183,6 @@ struct process_t {
     const char ** argv;
     //const char * envp;
 
-    struct usem_t * semaphores[SEM_NSEMS_MAX];
-
     struct sigaction sa_handlers[NSIG_MAX];
 
     // this structure only applies for <SIGRTMIN signals
@@ -271,13 +269,6 @@ void thread_queue_add_nonreentrant(thread_queue_t * thread_queue, process_t * pp
 // always "interruptible sleep" because we internally reuse sys_clock_nanosleep
 // returns 1 if exited due to timer running out
 char thread_queue_add_with_timeout(thread_queue_t * thread_queue, process_t * pprocess, thread_t * thread, struct timespec ts);
-
-struct usem_t {
-    unsigned long used;
-    unsigned long value;
-    struct thread_queue waiting_queue;
-} typedef usem_t;
-
 
 __attribute__((noreturn)) void kernel_idle();
 void scheduler_init();

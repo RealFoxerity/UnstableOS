@@ -113,10 +113,6 @@ enum syscalls {
     SYSCALL_IOCTL,
 
     SYSCALL_FUTEX,
-    SYSCALL_SEM_INIT, // semaphore_t sem_init(int initial val)
-    SYSCALL_SEM_POST, // sem_post(int semaphore id)
-    SYSCALL_SEM_WAIT, // sem_wait(int semaphore id)
-    SYSCALL_SEM_DESTROY,
 
     SYSCALL_MMAP, // same as mmap(), but off is pointer to off_t
     SYSCALL_MUNMAP,

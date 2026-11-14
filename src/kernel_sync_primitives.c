@@ -1,56 +1,13 @@
 //void kernel_sem_init();
 //void kernel_sem_destroy();
-#include "include/kernel.h"
-#include "include/kernel_interrupts.h"
-#include "include/kernel_sched.h"
-#include "include/kernel_spinlock.h"
-#include "include/mm/kernel_memory.h"
+#include "kernel.h"
+#include "kernel_interrupts.h"
+#include "kernel_sched.h"
+#include "kernel_spinlock.h"
+#include "mm/kernel_memory.h"
 #include <string.h>
-#include "include/kernel_semaphore.h"
 
 #define kprintf(fmt, ...) kprintf("Kernel Sync: "fmt, ##__VA_ARGS__)
-
-static inline void check_deadlock(usem_t * sem, process_t * pprocess) { // tested working for unnamed (i.e. same thread) semaphores
-    if (sem->waiting_queue.queue.parent_process == NULL &&
-        pprocess->threads->next == NULL) { // process has only 1 thread and that thread is now waiting on semaphore
-            deadlock:
-            asm volatile("cli;");
-            kprintf("Encountered deadlock\n");
-
-            if (pprocess->pid == 0) {
-                panic("Kernel deadlocked");
-                __builtin_unreachable();
-            } else if (pprocess->pid == 1) {
-                panic("Init deadlocked");
-                __builtin_unreachable();
-            } else {
-                kprintf("Process %lu deadlocked, killing...\n", pprocess->pid);
-                pprocess->do_cleanup = 1;
-                reschedule();
-            }
-            return;
-        }
-
-    size_t thread_count = 0;
-    thread_t * thread = pprocess->threads;
-    while (thread != NULL) {
-        thread_count++;
-        thread = thread->next;
-    }
-
-    size_t thread_waiting_count = 0;
-    struct __thread_queue_inner * tq = &sem->waiting_queue.queue;
-    while (tq != NULL) {
-        if (tq->parent_process == pprocess)
-            thread_waiting_count ++;
-        tq = tq->next;
-    }
-
-    if (thread_waiting_count == thread_count - 1) { // -1 because we didn't yet add the new thread
-        goto deadlock;
-    }
-    return;
-}
 
 void spinlock_acquire(spinlock_t * lock) { // disables interrupts after lock
     if (!lock) panic("Tried to lock a NULL spinlock");
@@ -160,25 +117,4 @@ void semaphore_wait(semaphore_t * sem) {
         if (v == 0) reschedule();
     } while (!v || !__atomic_compare_exchange_n(&sem->value, &v, v-1, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED));
     CRIT_SEC_START
-}
-
-void sys_sem_post(process_t * calling_process, int sem_idx) {
-    kassert(calling_process->semaphores[sem_idx]);
-
-    __atomic_fetch_add(&calling_process->semaphores[sem_idx]->value, 1, __ATOMIC_ACQUIRE);
-    thread_queue_unblock(&calling_process->semaphores[sem_idx]->waiting_queue);
-}
-void sys_sem_wait(process_t * calling_process, thread_t * calling_thread, int sem_idx) {
-    kassert(calling_process->semaphores[sem_idx]);
-
-    unsigned long old_val;
-    while (1) { // basically check whether nothing decremented the value during our attempt, cmpxchg decrements in this case
-        old_val = calling_process->semaphores[sem_idx]->value;
-
-        if (old_val > 0) {
-            if (__atomic_compare_exchange_n(&calling_process->semaphores[sem_idx]->value, (unsigned long *)&old_val, old_val - 1, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) return;
-        } else {
-            thread_queue_add(&calling_process->semaphores[sem_idx]->waiting_queue, calling_process, calling_thread, NULL, SCHED_UNINTERR_SLEEP);
-        }
-    }
 }

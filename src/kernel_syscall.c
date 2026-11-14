@@ -9,7 +9,6 @@
 #include "mm/kernel_memory.h"
 #include <errno.h>
 #include "kernel_sched.h"
-#include "kernel_semaphore.h"
 #include "fs/fs.h"
 #include <pthread.h>
 #include "kernel_gdt_idt.h"
@@ -294,79 +293,6 @@ void kernel_syscall_dispatcher(__gregcontext_t * ctx) {
             }
             return_value = sys_readdir(arg1, (void*)arg2, arg3);
             VM_UNLOCK(arg2);
-            break;
-        case SYSCALL_SEM_INIT:
-            asm volatile("cli"); // TODO: rewrite to be thread safe
-            for (int i = 0; i < SEM_NSEMS_MAX; i++) {
-                if (current_process->semaphores[i] == NULL) {
-                    current_process->semaphores[i] = kalloc(sizeof(usem_t));
-                    memset(current_process->semaphores[i], 0, sizeof(usem_t));
-                }
-                if (!current_process->semaphores[i]->used) {
-                    memset(&current_process->semaphores[i]->waiting_queue, 0, sizeof(thread_queue_t));
-                    current_process->semaphores[i]->used = 1;
-                    current_process->semaphores[i]->value = arg1;
-                    return_value = i;
-                    goto syscall_exit;
-                }
-            }
-            return_value = -ENOLCK;
-            break;
-        case SYSCALL_FUTEX:
-            // address checked in the function
-            return_value = sys_futex((uint32_t *)arg1, arg2, arg3, arg4, (struct timespec *)arg5, (clockid_t)arg6);
-            break;
-        case SYSCALL_SEM_POST:
-            if (arg1 < 0 || arg1 >= SEM_NSEMS_MAX) {
-                return_value = -EINVAL;
-                break;
-            }
-            if (current_process->semaphores[arg1] == NULL ||
-                !current_process->semaphores[arg1]->used
-            ) {
-                return_value = -EINVAL;
-                break;
-            }
-            if (current_process->semaphores[arg1]->value + 1 == 0) { // TODO: fix for atomicity?
-                return_value = -ERANGE;
-                break;
-            }
-
-            sys_sem_post(current_process, arg1);
-            return_value = 0;
-            break;
-        case SYSCALL_SEM_WAIT:
-            if (arg1 < 0 || arg1 >= SEM_NSEMS_MAX) {
-                return_value = -EINVAL;
-                break;
-            }
-            if (current_process->semaphores[arg1] == NULL ||
-                !current_process->semaphores[arg1]->used
-            ) {
-                kprintf("Thread %lu of process %lu called sem_wait on invalid semaphore (%lu)\n", current_thread->tid, current_process->pid, arg1);
-
-                return_value = -EINVAL;
-                break;
-            }
-
-            sys_sem_wait(current_process, current_thread, arg1);
-            break;
-        case SYSCALL_SEM_DESTROY:
-            if (arg1 < 0 || arg1 >= SEM_NSEMS_MAX) {
-                return_value = -EINVAL;
-                break;
-            }
-            if (current_process->semaphores[arg1] == NULL ||
-                !current_process->semaphores[arg1]->used) {
-                return_value = -EINVAL;
-                break;
-            }
-
-            // TODO: not thread safe, fix
-            asm volatile("cli");
-            if (__atomic_sub_fetch(&current_process->semaphores[arg1]->used, 1, __ATOMIC_RELEASE) == 0)
-                kfree(current_process->semaphores[arg1]);
-            current_process->semaphores[arg1] = NULL;
             break;
         case SYSCALL_GETPID:
             return_value = current_process->pid;

@@ -1,4 +1,3 @@
-#include "kernel_semaphore.h"
 #include "kernel_spinlock.h"
 #include "kernel_sched.h"
 #include "fs/fs.h"
@@ -245,11 +244,6 @@ static void scheduler_remove_process(process_t * process) {
     close_inode(process->root);
     if (process->main_elf)
         close_inode(process->main_elf);
-    for (int i = 0; i < SEM_NSEMS_MAX; i++) {
-        if (process->semaphores[i] == NULL) continue;
-        if (__atomic_sub_fetch(&process->semaphores[i]->used, 1, __ATOMIC_RELEASE) == 0)
-            kfree(process->semaphores[i]);
-    }
 
     if (process->parent->sa_handlers[SIGCHLD - 1].sa_handler == SIG_IGN ||
         process->parent->sa_handlers[SIGCHLD - 1].sa_flags & SA_NOCLDWAIT)
