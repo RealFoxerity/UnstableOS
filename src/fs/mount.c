@@ -258,7 +258,7 @@ long sys_umount(const char * mount_path) {
     if (target->fd)
         close_file(target->fd);
 
-    APPEND_DOUBLE_LINKED_LIST(target, mounts);
+    UNLINK_DOUBLE_LINKED_LIST(target, mounts);
 
     target->is_mounted = 0;
 
