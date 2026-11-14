@@ -60,3 +60,12 @@ int renameat(int oldfd, const char *old, int newfd, const char *new) {
     }
     return ret;
 }
+
+int remove(const char *path) {
+    if (unlink(path) == -1) {
+        if (___get_errno() == EISDIR)
+            return rmdir(path);
+        return -1;
+    }
+    return 0;
+}
