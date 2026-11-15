@@ -21,6 +21,14 @@ FILE * fstab, * inittab;
 
 extern char ** unquote_buffer(char * buffer);
 
+
+static char * const mount_opts[] =
+{
+    [0]            = "rw",
+    [MOUNT_RDONLY] = "ro",
+    [MOUNT_NOSUID] = "nosuid",
+    NULL
+};
 void handle_fstab_entry(char * line) {
     static int linenum = 0;
     linenum++;
@@ -70,10 +78,17 @@ void handle_fstab_entry(char * line) {
         return;
     }
     int flag = 0;
-    if (!strcmp(args[3], "ro"))
-        flag = MOUNT_RDONLY;
-    else if (strcmp(args[3], "rw"))
-        fprintf(stderr, "[Warn]\tfstab: Unrecognized option on line %d, assuming rw\n", linenum);
+
+    char * opt = args[3];
+    while (opt && *opt) {
+        char * old_opt = opt;
+        int o = getsubopt(&opt, mount_opts, &(char*){NULL});
+        if (o == -1) {
+            fprintf(stderr, "[Warn]\tfstab: Unrecognized option %s on line %d\n", old_opt, linenum);
+            continue;
+        }
+        flag |= o;
+    }
 
     int ret = mount(args[0], args[1], args[2], flag);
     if (ret < 0) {

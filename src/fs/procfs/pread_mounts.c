@@ -72,11 +72,12 @@ ssize_t procfs_pread_mounts(file_descriptor_t * fd, void * buf, size_t n, off_t 
             fstype = "<unk>";
 
         int len = snprintf(mount_buf, MAX_BUF,
-            "%s %s %s %s\n",
+            "%s %s %s %s%s\n",
             dev_buf,
             path_buf,
             fstype,
-            sb->mount_options & MOUNT_RDONLY ? "ro" : "rw");
+            sb->mount_options & MOUNT_RDONLY ? "ro" : "rw",
+            sb->mount_options & MOUNT_NOSUID ? ",nosuid" : "");
         if (len <= 0)
             goto next;
         if (len <= offset) {

@@ -363,6 +363,13 @@ struct program load_elf(int * status, const char * path, char * const* argv, cha
     kfree(dvt);
     kfree(copy_buffer);
 
+    char is_suid = main_elf->inode->mode & S_ISUID &&
+        !(main_elf->inode->backing_superblock &&
+            main_elf->inode->backing_superblock->mount_options & MOUNT_NOSUID);
+    char is_sgid = main_elf->inode->mode & S_ISGID &&
+        !(main_elf->inode->backing_superblock &&
+            main_elf->inode->backing_superblock->mount_options & MOUNT_NOSUID);
+
     struct program prog = {
         .main_executable = main_elf,
         .pd_vaddr = address_space,
@@ -370,8 +377,8 @@ struct program load_elf(int * status, const char * path, char * const* argv, cha
         .vm = vmr,
         .stack_image = stack_state,
         .stack_size = stack_state_sz,
-        .was_suid = main_elf->inode->mode & S_ISUID ? 1 : 0,
-        .was_sgid = main_elf->inode->mode & S_ISGID ? 1 : 0,
+        .was_suid = is_suid,
+        .was_sgid = is_sgid,
         .suid = main_elf->inode->uid,
         .sgid = main_elf->inode->gid,
         .was_interp = parsing_interp,
