@@ -35,7 +35,7 @@ int get_dir_name(inode_t * dir, char out[PATH_MAX]) {
         kassert(current_dir->backing_superblock);
         curr_dir_fsid = current_dir->backing_superblock->fsid;
 
-        int status = openat_inode(current_dir, "..", O_RDONLY | O_DIRECTORY, 0, &parent_dir, 1);
+        int status = openat_inode(current_dir, "..", O_SEARCH | O_DIRECTORY, 0, &parent_dir, 1);
         close_inode(current_dir);
         if (status < 0 || parent_dir == NULL) {
             kfree(dent);

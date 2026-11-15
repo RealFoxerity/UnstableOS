@@ -724,6 +724,7 @@ int stat_inode(inode_t * inode, struct stat * buf) {
         .st_ctime = inode->ctime,
         .st_blksize = inode->io_block_size,
         .st_blocks = inode->block_count,
+        .st_fsid = inode->backing_superblock ? inode->backing_superblock->fsid : 0,
     };
     if (inode->io_block_size != 0 &&
         (!inode->backing_superblock->funcs || !inode->backing_superblock->funcs->block_count_supported))

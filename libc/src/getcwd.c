@@ -14,7 +14,7 @@ char *getcwd(char *buf, size_t size) {
     buf[size - 1] = '\0';
     size_t remaining = size - 1; // -1 for null byte
 
-    dev_t curr_dir_dev = -1;
+    dev_t curr_dir_fsid = -1;
     ino_t curr_dir_ino = -1;
 
     int curr_dir_fd = -1, parent_dir_fd = -1;
@@ -34,7 +34,7 @@ char *getcwd(char *buf, size_t size) {
         }
 
         curr_dir_ino = statbuf.st_ino;
-        curr_dir_dev = statbuf.st_dev;
+        curr_dir_fsid = statbuf.st_fsid;
 
         parent_dir_fd = openat(curr_dir_fd, "..", O_RDONLY | O_DIRECTORY);
         if (this_dir == NULL)
@@ -72,7 +72,7 @@ char *getcwd(char *buf, size_t size) {
 
             if (fstatat(curr_dir_fd, dent->d_name, &statbuf, 0) == -1)
                 continue; // could be an invalid symlink
-            if (statbuf.st_ino == curr_dir_ino && statbuf.st_dev == curr_dir_dev) break;
+            if (statbuf.st_ino == curr_dir_ino && statbuf.st_fsid == curr_dir_fsid) break;
         }
 
         size_t component_len = strlen(dent->d_name);

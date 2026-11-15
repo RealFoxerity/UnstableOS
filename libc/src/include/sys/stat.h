@@ -19,6 +19,8 @@ struct stat {
 
     blksize_t st_blksize;
     blkcnt_t st_blocks;
+
+    unsigned long st_fsid;
 };
 
 
