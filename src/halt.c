@@ -56,7 +56,7 @@ int sys_halt(int how) {
 
     for (int i = 0; i < INODE_LIMIT_KERNEL; i++) {
         inode_t * ino = kernel_inodes[i];
-        if (!ino)
+        if (!ino || !ino->instances)
             continue;
         __atomic_store_n(&ino->is_mountpoint, 0, __ATOMIC_RELEASE);
         __atomic_store_n(&ino->instances, 1, __ATOMIC_RELEASE);
