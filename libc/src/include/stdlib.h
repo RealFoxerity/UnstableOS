@@ -85,4 +85,6 @@ int unlockpt(int fildes);
 // in unistd.c
 char *ptsname(int fildes);
 int ptsname_r(int fildes, char *name, size_t namesize);
+
+char *realpath(const char *__restrict file_name, char *__restrict resolved_name);
 #endif
