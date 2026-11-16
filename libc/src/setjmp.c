@@ -13,6 +13,7 @@ __attribute__((naked)) int setjmp(jmp_buf env) {
         "movl %ecx, 0x14(%eax);" // rip
         "xorl %ecx, %ecx;"
         "xorl %ecx, 0x18(%eax);" // sigs_saved
+        "xorl %eax, %eax;"
         "ret"
     );
 }
