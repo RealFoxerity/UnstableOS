@@ -45,10 +45,11 @@ unsigned long long strtoull(const char * __restrict start, char ** __restrict en
 unsigned      long strtoul (const char * __restrict start, char ** __restrict end_out, int base);
          long long strtoll (const char * __restrict start, char ** __restrict end_out, int base);
               long strtol  (const char * __restrict start, char ** __restrict end_out, int base);
-float  strtof(const char *__restrict nptr, char **__restrict endptr);
 
 // in strtod.c
-double strtod(const char *__restrict nptr, char **__restrict endptr);
+long double strtold(const char *__restrict nptr, char **__restrict endptr);
+     double strtod (const char *__restrict nptr, char **__restrict endptr);
+     float  strtof (const char *__restrict nptr, char **__restrict endptr);
 double atof(const char *str);
 
 

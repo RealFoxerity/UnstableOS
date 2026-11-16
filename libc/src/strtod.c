@@ -11,17 +11,17 @@
 
 #include <float.h>
 
-static const double pow10s_exact[] = {
+static const long double pow10s_exact[] = {
 	1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9,
 	1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19,
 	1e20, 1e21, 1e22
 };
 
-static const double pow10_exp[] = {
-	1e1, 1e2, 1e4, 1e8, 1e16, 1e32, 1e64, 1e128, 1e256
+static const long double pow10_exp[] = {
+	1e1, 1e2, 1e4, 1e8, 1e16, 1e32, 1e64, 1e128, 1e256, 1e512L, 1e1024L, 1e2048L, 1e4096L
 };
 
-double strtod(const char *restrict nptr, char **restrict endptr)
+long double strtold(const char *restrict nptr, char **restrict endptr)
 {
 	const char *p = nptr;
 
@@ -151,10 +151,11 @@ double strtod(const char *restrict nptr, char **restrict endptr)
 	if (mantissa == 0)
 		return negative ? -0.0 : 0.0;
 
-	double result = (double)mantissa;
+	long double result = (long double)mantissa;
 
 	// Max safe integer when represented as a double precision float
-	const uint64_t MAX_SAFE_INT = 1ULL << DBL_MANT_DIG;
+	//const uint64_t MAX_SAFE_INT = 1ULL << LDBL_MANT_DIG;
+	const uint64_t MAX_SAFE_INT = -1ULL;
 
 	if (mantissa <= MAX_SAFE_INT && exponent >= -22 && exponent <= 22)
 	{
@@ -173,16 +174,16 @@ double strtod(const char *restrict nptr, char **restrict endptr)
 		// Unlucky: we can't use precomputed doubles, takes longer and may be slightly inaccurate
 		// FIXME: this should use some kind of bigint library to be more accurate
 
-		if (exponent > DBL_MAX_10_EXP)
+		if (exponent > LDBL_MAX_10_EXP)
 			return negative ? -INFINITY : INFINITY;
 
-		if (exponent < DBL_MIN_10_EXP)
+		if (exponent < LDBL_MIN_10_EXP)
 			return negative ? -0.0 : 0.0;
 
 		bool exponent_negative = exponent < 0;
 		int32_t exponent_absolute = exponent_negative ? -exponent : exponent;
 
-		double scale = 1.0;
+		long double scale = 1.0L;
 		int bit = 0;
 
 		while (exponent_absolute > 0 && bit < 9)
@@ -207,7 +208,9 @@ double strtod(const char *restrict nptr, char **restrict endptr)
 	return negative ? -result : result;
 }
 
-
+double strtod(const char *restrict nptr, char **restrict endptr) {
+	return (double)strtold(nptr, endptr);
+}
 float strtof(const char *restrict nptr, char **restrict endptr) {
 	return (float)strtod(nptr, endptr);
 }
