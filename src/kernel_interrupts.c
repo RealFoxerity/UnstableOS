@@ -129,10 +129,43 @@ void divide_error_handler(__gregcontext_t * ctx) {
             ::"m"(current_thread->fpu_context)
         );
 
+    // we could get this from the context saved above but this is much more readable and easier
+    int si_code = FPE_INTDIV;
+    unsigned short fpu_status;
+    unsigned short fpu_control;
+    asm volatile(
+        "fnstsw %%ax;"
+        "push %%bx;"
+        "fnstcw (%%esp);"
+        "pop %%bx" : "=a"(fpu_status), "=b"(fpu_control)
+    );
+    // Exception Summary bit, the x87 fpu raised this interrupt
+    // otherwise regular division by zero, or simd
+    if (fpu_status & 0x80) {
+        fpu_status &= 0x3F;  // pending (or uncleared) exceptions
+        fpu_control &= 0x3F; // masked exceptions (couldn't throw this FPE)
+        fpu_status &= ~fpu_control; // which could
+
+        // TODO: fpu exception bits are sticky, how do we figure out the correct code?
+        if (fpu_status & 1)
+            si_code = FPE_FLTINV;
+        else if (fpu_status & 2)
+            si_code = FPE_FLTSUB; // denormal operand isn't in signal.h, is this at least somewhat correct?
+        else if (fpu_status & 4)
+            si_code = FPE_FLTDIV;
+        else if (fpu_status & 8)
+            si_code = FPE_FLTOVF;
+        else if (fpu_status & 0x10)
+            si_code = FPE_FLTUND;
+        else if (fpu_status & 0x20)
+            si_code = FPE_FLTRES;
+    }
+    // TODO: figure out SIMD exceptions
+
     memcpy(&current_thread->context, ctx, sizeof(__gregcontext_t) - (ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *));
     signal_thread(current_process, current_thread, &(siginfo_t){
         .si_signo = SIGFPE,
-        // TODO: add si_code
+        .si_code  = si_code
     });
     signal_dispatch_sa(current_process, current_thread);
     memcpy(ctx, &current_thread->context, sizeof(__gregcontext_t) - (ctx->iret_frame.cs & 3) ? 0 : 2 * sizeof(void *));

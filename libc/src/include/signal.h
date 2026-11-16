@@ -60,9 +60,6 @@ struct {
 
 #include <sys/ucontext.h>
 
-// sigset_t would force 8 byte alignment
-// which ig good idea, but we don't use it and it raises the kernel's process_t size by 256 bytes
-// right to 4272 which is beyond 1<<12, so it would be less efficient to allocate in our buddy allocator
 struct sigaction {
     sigset_t sa_mask;
     int sa_flags;
@@ -73,7 +70,7 @@ struct sigaction {
     };
 
     void (*__restorer); // trampoline code from userspace, is supposed to call sigreturn
-} __attribute__((packed));
+};
 
 // sa_flags
 #define SA_NOCLDSTOP    0x1
@@ -140,7 +137,6 @@ struct sigaction {
 */
 
 // for SIGFPE
-/* we don't yet support any of these - detection not implemented
 #define FPE_INTDIV 1
 #define FPE_INTOVF 2
 #define FPE_FLTDIV 3
@@ -149,7 +145,6 @@ struct sigaction {
 #define FPE_FLTRES 6
 #define FPE_FLTINV 7
 #define FPE_FLTSUB 8
-*/
 
 // for SIGSEGV
 #define SEGV_MAPERR 1
