@@ -58,37 +58,7 @@ struct {
 #define SS_ONSTACK 1
 #define SS_DISABLE 0
 
-struct interr_frame {
-    void * ip; // instruction pointer
-    unsigned long cs; // code segment
-    unsigned long flags; // check flags, e.g. LT IZ ...
-    void * sp; // stack pointer
-    unsigned long ss; // stack segment
-} __attribute__((packed));
-
-struct {
-    unsigned long edi, esi;
-    void * ebp, *esp;
-    unsigned long ebx, edx, ecx, eax;
-
-    struct interr_frame iret_frame;
-}  __attribute__((packed)) typedef __gregcontext_t;
-
-struct {
-    unsigned long _[128];
-} __attribute__((packed)) typedef __fpcontext_t;
-
-struct {
-    __gregcontext_t gregs;
-    __attribute__((aligned(16))) __fpcontext_t fregs;
-} typedef mcontext_t;
-
-struct ucontext_t {
-    struct ucontext_t * uc_link;
-    sigset_t uc_sigmask;
-    stack_t uc_stack;
-    mcontext_t uc_mcontext;
-} typedef ucontext_t;
+#include <sys/ucontext.h>
 
 // sigset_t would force 8 byte alignment
 // which ig good idea, but we don't use it and it raises the kernel's process_t size by 256 bytes

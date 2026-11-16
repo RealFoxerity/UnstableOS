@@ -589,8 +589,8 @@ void signal_dispatch_sa(process_t * group, thread_t * thread) {
         },
     };
 
-    memcpy(&sss->__ctx.uc_mcontext.gregs, &thread->context, sizeof(__gregcontext_t));
-    memcpy(&sss->__ctx.uc_mcontext.fregs, &thread->fpu_context, sizeof(__fpcontext_t));
+    memcpy(&sss->__ctx.uc_mcontext.__gregs, &thread->context, sizeof(__gregcontext_t));
+    memcpy(&sss->__ctx.uc_mcontext.fpregs, &thread->fpu_context, sizeof(fpregset_t));
 
     sss->__info = thread->sa_info_to_be_handled;
 
@@ -618,11 +618,11 @@ void signal_dispatch_sa(process_t * group, thread_t * thread) {
     IA_32_EFL_STATUS_SIGN     \
 )
 static void sigreturn_restore_context(__gregcontext_t * target_ctx, const mcontext_t * source_ctx) {
-    memcpy(target_ctx, &source_ctx->gregs, sizeof(__gregcontext_t) - sizeof(struct interr_frame));
-    target_ctx->iret_frame.ip     = source_ctx->gregs.iret_frame.ip;
-    target_ctx->iret_frame.sp     = source_ctx->gregs.iret_frame.sp;
+    memcpy(target_ctx, &source_ctx->__gregs, sizeof(__gregcontext_t) - sizeof(struct interr_frame));
+    target_ctx->iret_frame.ip     = source_ctx->__gregs.iret_frame.ip;
+    target_ctx->iret_frame.sp     = source_ctx->__gregs.iret_frame.sp;
     target_ctx->iret_frame.flags &= ~SAFE_EFL_MASK; // remove all status flags
-    target_ctx->iret_frame.flags |= source_ctx->gregs.iret_frame.flags & SAFE_EFL_MASK;
+    target_ctx->iret_frame.flags |= source_ctx->__gregs.iret_frame.flags & SAFE_EFL_MASK;
 
     if ((uintptr_t)source_ctx & 0xF)
         return;
@@ -630,12 +630,12 @@ static void sigreturn_restore_context(__gregcontext_t * target_ctx, const mconte
     if (fxsave_available)
         asm volatile(
             "fxrstor %0"
-            ::"m"(source_ctx->fregs)
+            ::"m"(source_ctx->fpregs)
         );
     else
         asm volatile(
             "frstor %0"
-            ::"m"(source_ctx->fregs)
+            ::"m"(source_ctx->fpregs)
         );
 }
 

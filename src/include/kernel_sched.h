@@ -101,7 +101,7 @@ struct thread_t {
 
     // either for fxsave and fxrstor (full 512 bytes, incl sse and mmx)
     // or for fsave and frstor (max 108 bytes, x87 only)
-    alignas(16) __fpcontext_t fpu_context;
+    alignas(16) fpregset_t fpu_context;
 
 
     // do not dereference in the kernel!
