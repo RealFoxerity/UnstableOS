@@ -376,7 +376,7 @@ void com_recv_byte(unsigned char com) { // called by interrupt
         return;
     }
     if (inb(com_addresses[com] + COM_DELTA_IIR) & COM_IIR_NO_PENDING)
-        return;
+        goto end;
 
     if (com_driver_thread == NULL) {
         spinlock_acquire(&scheduler_lock);
@@ -390,6 +390,8 @@ void com_recv_byte(unsigned char com) { // called by interrupt
     __atomic_store_n(&com_pending_ports[com], 1, __ATOMIC_RELEASE);
     com_driver_thread->status = SCHED_RUNNABLE;
     spinlock_release(&com_driver_lock);
+
+    end:
     if (com == 0)
         pic_send_eoi(PIC_INTERR_COM1);
     if (com == 1)
