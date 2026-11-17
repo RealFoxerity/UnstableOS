@@ -5,9 +5,9 @@
 #include "include/timer.h"
 #include <stdint.h>
 #include <sys/types.h>
+#include <time.h>
 
 // TODO: probably not thread safe, redo?
-// TODO: test if 12 hour format actually works, i have a feeling it doesn't :P
 #define kprintf(fmt, ...) kprintf("CMOS: "fmt, ##__VA_ARGS__)
 
 static char nmi_enabled = 1;
@@ -156,30 +156,6 @@ static inline void rtc_set_options(char binary, char longhours, char square_wave
     enable_interrupts();
 }
 
-
-static int days_in_month(int month, int year) { // 1 being January, year being an actual year (e.g. 1972)
-    if (month <= 7) {
-        if (month == 2) {
-            if (year % 4 == 0 && year % 100 != 0) return 29;
-            else return 28;
-        } else {
-            if (month % 2 == 1) return 31;
-            else return 30;
-        }
-    } else {
-        if (month % 2 == 0) return 31;
-        else return 30;
-    }
-}
-
-static inline int days_to_month(int month, int year) {
-    int days = 0;
-    for (int i = 1; i < month; i++) {
-        days += days_in_month(i, year);
-    }
-    return days;
-}
-
 time_t rtc_get_time() {
     static char shown_info = 0;
     disable_interrupts();
@@ -203,7 +179,13 @@ time_t rtc_get_time() {
         monthday = bcd_to_int(monthday);
         month = bcd_to_int(month);
     }
-    if (!rtc_uses_24h && hours & 0x80) hours = ((hours & 0x7F) + 12) % 24;
+    if (!rtc_uses_24h) {
+        unsigned char h = hours & 0x7F;
+        if (hours & 0x80 && h != 12) {
+            hours = h + 12;
+        } else if (!(hours & 0x80) && hours == 12)
+            hours = 0;
+    }
 
     int actual_year; // year from 1970 to calculate time
     if (year >= 70) actual_year = year - 70;
@@ -211,13 +193,16 @@ time_t rtc_get_time() {
 
     if (actual_year < 30 + 26) kprintf("Warning: Invalid RTC year (%d)!\n", 1970+actual_year); // 2026
 
-    time_t timestamp =
-        actual_year * 365.25 * 24 * 60 * 60 +
-        days_to_month(month, 1970+actual_year) * 24 * 60 * 60 +
-        (monthday - 1) * 24 * 60 * 60 +
-        hours * 60 * 60 +
-        minutes * 60 +
-        seconds;
+    struct tm time = {
+        .tm_year = actual_year + 70,
+        .tm_mon = month - 1,
+        .tm_mday = monthday,
+        .tm_hour = hours,
+        .tm_min = minutes,
+        .tm_sec = seconds,
+    };
+    time_t timestamp = mktime(&time);
+
     if (!shown_info) {
         kprintf("RTC date %d %02d/%02d %02d:%02d:%02d - epoch %llu\n", 1970+actual_year, monthday, month, hours, minutes, seconds, timestamp);
         shown_info = 1;
