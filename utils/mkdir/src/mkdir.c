@@ -68,6 +68,7 @@ int parse_arg(const char * arg, struct arg * out) {
                 op++;
             case '=':
                 if (state != 1) {
+                    selector = 7;
                     if (arg[i] == '=')
                         return 0;
                     adjust_to_umask = 1;
