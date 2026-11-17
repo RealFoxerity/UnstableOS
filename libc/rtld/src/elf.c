@@ -43,19 +43,22 @@ struct dso * loadelf(int fd) {
     struct dso * dso = alloc(sizeof(struct dso));
     memset(dso, 0, sizeof(struct dso));
     assert(dso);
-    dso->load_base = last_page;
 
     struct elf_header ehdr;
 
     assert(pread(fd, &ehdr, sizeof(struct elf_header), 0) == sizeof(struct elf_header));
     assert(memcmp(&ehdr.magic, ELF_MAGIC, sizeof(ehdr.magic)) == 0);
 
-    // obviously the dynamic linker won't be loading position dependant files
-    assert(ehdr.object_type        == ELF_OBJ_DYN);
+    // obviously the dynamic linker won't be loading position dependant dsos
+    assert(ehdr.object_type        == ELF_OBJ_DYN || (fd == exec_fd && ehdr.object_type == ELF_OBJ_EXEC));
 
     assert(ehdr.elf_header_version == ELF_HEADER_VERSION && ehdr.elf_version == ELF_VERSION);
     assert(ehdr.arch_isa           == ELF_ISA_X86        && ehdr.arch        == ELF_ARCH_32);
 
+    if (ehdr.object_type == ELF_OBJ_EXEC)
+        last_page = 0;
+
+    dso->load_base = last_page;
     dso->_start = last_page + ehdr.program_entry_offset;
 
     dso->dvtid = dvt_idx; // it's possible that the executable has no TLS section and yet wants a TLS relocation
@@ -267,13 +270,14 @@ struct dso * loadelf(int fd) {
         }
     }
     dynamic_end_1:
+    // TCC likes to emit (non-PIE) ELFs with NULL start, 0 size, and 8 entry size
     if ((!dso->rel.reltable_start || !dso->rel.reltable_size || !dso->rel.entry_size) &&
-        !(dso->rel.reltable_start == NULL && dso->rel.reltable_size == 0 && dso->rel.entry_size == 0)) {
+        !(dso->rel.reltable_start == NULL && dso->rel.reltable_size == 0 /*&& dso->rel.entry_size == 0*/)) {
         dbg_print("rtld: Error: Object missing parts of needed REL info!\n");
         abort();
     }
     if ((!dso->rela.reltable_start || !dso->rela.reltable_size || !dso->rela.reltable_size) &&
-        !(dso->rela.reltable_start == NULL && dso->rela.reltable_size == 0 && dso->rela.entry_size == 0)) {
+        !(dso->rela.reltable_start == NULL && dso->rela.reltable_size == 0 /*&& dso->rela.entry_size == 0*/)) {
         dbg_print("rtld: Error: Object missing parts of needed RELA info!\n");
         abort();
     }
