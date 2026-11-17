@@ -534,8 +534,8 @@ int __printf_handle_fmt(char * buf, struct fmt * fmt, void ** args, size_t writt
                         *buf++ = fmt->fmt;
                     }
                     itoax(tempuintmax, buf);
-                    if (fmt->fmt == 'X') {
-                        while (*buf) *buf++ = toupper(*buf);
+                    if (fmt->fmt == 'x') {
+                        while (*buf) *buf++ = tolower(*buf);
                     }
                     break;
             }
@@ -544,11 +544,11 @@ int __printf_handle_fmt(char * buf, struct fmt * fmt, void ** args, size_t writt
                 obuf += 2; // temporarily remove/"hide" the 0x
             }
             unsigned_prec:
-            if (strlen(buf) < target_precision) {
-                size_t len = strlen(buf);
+            if (strlen(obuf) < target_precision) {
+                size_t len = strlen(obuf);
                 size_t offset = target_precision - len;
-                memmove(buf + offset, buf, len + 1);
-                memset(buf, '0', offset);
+                memmove(obuf + offset, obuf, len + 1);
+                memset(obuf, '0', offset);
             }
             if ((fmt->fmt == 'x' || fmt->fmt == 'X') && fmt->alt_form)
                 obuf -= 2; // restore back the 0x
@@ -755,8 +755,7 @@ int vfprintf(FILE * restrict stream, const char * restrict format, va_list args)
         const char * __fmt_buf = fmt_buf; // we might need to change it when padding
 
         if (padding != -1 && !fmt.rightpad && len < padding) {
-            if (fmt.zeropad && fmt.alt_form && tolower(fmt.fmt) == 'x') {
-                // [+- ]0x always gets pushed to the left
+            if (fmt.zeropad) {
                 switch (*__fmt_buf) {
                     case '+':
                     case '-':
@@ -768,6 +767,9 @@ int vfprintf(FILE * restrict stream, const char * restrict format, va_list args)
                         __fmt_buf++;
                         padding = padding >= 1 ? padding - 1 : 0;
                     default:
+                        // [+- ]0x always gets pushed to the left
+                        if (!(fmt.alt_form && tolower(fmt.fmt) == 'x'))
+                            break;
                         if (stream && (written = fwrite(__fmt_buf, 1, 2, stream)) != 2) {
                             if (written == -1)
                                 return total_written;

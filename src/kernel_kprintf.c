@@ -206,8 +206,7 @@ void __attribute__((format(printf, 1, 2))) kprintf(const char * format, ...) {
         const char * __fmt_buf = fmt_buf; // we might need to change it when padding
 
         if (padding != -1 && !fmt.rightpad && len < padding) {
-            if (fmt.zeropad && fmt.alt_form && tolower(fmt.fmt) == 'x') {
-                // [+- ]0x always gets pushed to the left
+            if (fmt.zeropad) {
                 switch (*__fmt_buf) {
                     case '+':
                     case '-':
@@ -217,6 +216,9 @@ void __attribute__((format(printf, 1, 2))) kprintf(const char * format, ...) {
                         __fmt_buf++;
                         padding = padding >= 1 ? padding - 1 : 0;
                     default:
+                        // [+- ]0x always gets pushed to the left
+                        if (!(fmt.alt_form && tolower(fmt.fmt) == 'x'))
+                            break;
                         kprintf_write(__fmt_buf, 2);
                         len -= 2;
                         __fmt_buf += 2;
