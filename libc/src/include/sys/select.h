@@ -3,7 +3,7 @@
 #include <signal.h>
 #include <time.h>
 
-#define FD_SETSIZE 128 // same as OPEN_MAX
+#define FD_SETSIZE 256 // same as OPEN_MAX
 typedef struct {unsigned long __fds[FD_SETSIZE/sizeof(unsigned long)/8];} fd_set;
 struct timeval {
     time_t tv_sec;

@@ -14,7 +14,7 @@
 
 #define HOST_NAME_MAX 255
 
-#define OPEN_MAX 128
+#define OPEN_MAX 256
 #define STREAM_MAX 0xFFFFFFFF // no limit, see stdio.h for FOPEN_MAX
 
 #define TTY_NAME_MAX 32
