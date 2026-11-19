@@ -107,10 +107,13 @@ static void tmpfs_free_file(struct tmpfs_sb * tmpfs, tmpfile_t * file) {
 static void tmpfs_free_tree(struct tmpfs_sb * tmpfs, tmpfile_t * file) {
     if (file == NULL)
         return;
-    tmpfs_free_tree(tmpfs, file->children);
-    file->children = NULL;
-    tmpfs_free_tree(tmpfs, file->next);
-    tmpfs_free_file(tmpfs, file);
+    while (file) {
+        struct tmpfile_t * next = file->next;
+        tmpfs_free_tree(tmpfs, file->children);
+        file->children = NULL;
+        tmpfs_free_file(tmpfs, file);
+        file = next;
+    }
 }
 
 static int tmpfs_deinit(superblock_t * sb) {
