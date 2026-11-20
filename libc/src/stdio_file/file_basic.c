@@ -105,6 +105,7 @@ static FILE * fdopen_parsed(int fildes, int flags) {
     new_file->fd = fildes;
     new_file->mode = flags;
 
+    new_file->buffered = _IOFBF;
     if (isatty(fildes))
         new_file->buffered = _IOLBF;
 
