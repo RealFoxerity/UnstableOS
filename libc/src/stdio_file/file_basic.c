@@ -444,27 +444,41 @@ int fflush(FILE *stream) {
             pthread_mutex_unlock(&stream->mutex);
             return 0;
         }
-        size_t written = 0;
-        if (stream->buf.tail > stream->buf.head) {
+        while (REMAIN(&stream->buf, stream->buf.size)) {
+            ssize_t written = 0;
+
             written = write(stream->fd,
-                stream->buf.buf + stream->buf.head,
-                stream->buf.tail - stream->buf.head);
-        } else {
+                    stream->buf.buf + stream->buf.head,
+                    (stream->buf.tail > stream->buf.head ?
+                            stream->buf.tail : stream->buf.size) - stream->buf.head);
+            if (written < 0) {
+                if (___get_errno() == EINTR)
+                    continue;
+                stream->buf.head = stream->buf.tail = 0;
+                stream->was_error = 1;
+                pthread_mutex_unlock(&stream->mutex);
+                return EOF;
+            }
+            stream->buf.head += written;
+            if (stream->buf.tail >= stream->buf.head)
+                continue;
+
             written = write(stream->fd,
-                stream->buf.buf + stream->buf.head,
-                stream->buf.size - stream->buf.head);
-            written += write(stream->fd,
                 stream->buf.buf,
                 stream->buf.tail);
+
+            if (written < 0) {
+                if (___get_errno() == EINTR)
+                    continue;
+                stream->buf.head = stream->buf.tail = 0;
+                stream->was_error = 1;
+                pthread_mutex_unlock(&stream->mutex);
+                return EOF;
+            }
+
+            stream->buf.head = written;
         }
-        size_t original_size = REMAIN(&stream->buf, stream->buf.size);
         stream->buf.head = stream->buf.tail = 0;
-        if (written < original_size) {
-            // error or incomplete write on a stream is ub
-            stream->was_error = 1;
-            pthread_mutex_unlock(&stream->mutex);
-            return EOF;
-        }
     } else {
         // some fucked up state, just a fallback piece of code
         stream->current_mode = 0;
@@ -537,16 +551,27 @@ size_t fread(void *restrict ptr, size_t size, size_t nitems, FILE *restrict stre
             goto unlock;
         }
 
-        ssize_t read_bytes = read(stream->fd, ptr, total_len);
-        if (read_bytes == 0)
-            stream->was_eof = 1;
-        else if (read_bytes < 0)
-            stream->was_error = 1;
-        else {
-            stream->current_offset += read_bytes;
-            if (read_bytes != total_len)
+        while (total_len) {
+            ssize_t read_bytes = read(stream->fd, ptr, total_len);
+            if (read_bytes < 0) {
+                if (___get_errno() == EINTR) {
+                    if (total_len == size * nitems) {
+                        pthread_mutex_unlock(&stream->mutex);
+                        ___set_errno(EINTR);
+                        return EOF;
+                    }
+                    continue;
+                }
+                stream->was_error = 1;
+                break;
+            }
+            if (read_bytes == 0) {
                 stream->was_eof = 1;
+                break;
+            }
+            stream->current_offset += read_bytes;
             total_len -= read_bytes;
+            ptr += read_bytes;
         }
         goto unlock;
     }
@@ -631,14 +656,29 @@ size_t fwrite(const void *restrict ptr, size_t size, size_t nitems, FILE *restri
             }
             goto unlock;
         }
-        ssize_t written_bytes = write(stream->fd, ptr, total_len);
-        if (written_bytes < 0)
-            stream->was_error = 1;
-        else {
-            stream->current_offset += written_bytes;
-            if (written_bytes != total_len)
+
+        while (total_len) {
+            ssize_t written_bytes = write(stream->fd, ptr, total_len);
+            if (written_bytes < 0) {
+                if (___get_errno() == EINTR) {
+                    if (total_len == size * nitems) {
+                        pthread_mutex_unlock(&stream->mutex);
+                        ___set_errno(EINTR);
+                        return EOF;
+                    }
+                    continue;
+                }
+                stream->was_error = 1;
+                break;
+            }
+            if (written_bytes == 0) {
                 stream->was_eof = 1;
+                break;
+            }
+
+            stream->current_offset += written_bytes;
             total_len -= written_bytes;
+            ptr += written_bytes;
         }
         goto unlock;
     }
