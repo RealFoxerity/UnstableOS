@@ -7,6 +7,8 @@
 #include <dirent.h>
 #include <libgen.h>
 #include <assert.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 
 static const char * valid_options = "fipHLPRrvxh";
 
@@ -153,13 +155,14 @@ int do_copy(int basefd, const char * file, int dest_folder_fd, const char * dest
         }
     }
 
-    char * dupfile = strdup(file);
-    char * base = dupfile ? basename(dupfile) : NULL;
+    static char dupfile[PATH_MAX];
+    strcpy(dupfile, file);
+    char * base = basename(dupfile);
     char is_unnamed = base ? !strcmp(base, "/") || !strcmp(base, "//") || !strcmp(base, ".") || !strcmp(base, "..") : 0;
-    free(dupfile);
+    dest_file = dest_file ? dest_file : base;
 
     int ok;
-    if (!is_unnamed && ((ok = fstatat(dest_folder_fd, dest_file ? dest_file : file, &st2, flag)) == 0 || errno != ENOENT)) {
+    if (!is_unnamed && ((ok = fstatat(dest_folder_fd, dest_file, &st2, flag)) == 0 || errno != ENOENT)) {
         if (ok != 0) {
             general_dst_error:
             fprintf(stderr, "cp: %s: %s\n", dstpath, strerror(errno));
@@ -185,7 +188,7 @@ int do_copy(int basefd, const char * file, int dest_folder_fd, const char * dest
                 close(srcfd);
                 return 1;
             }
-            if (unlinkat(dest_folder_fd, dest_file ? dest_file : file, S_ISDIR(st2.st_mode) ? AT_REMOVEDIR : 0) < 0)
+            if (unlinkat(dest_folder_fd, dest_file, S_ISDIR(st2.st_mode) ? AT_REMOVEDIR : 0) < 0)
                 goto general_dst_error;
         } else if (!S_ISDIR(st.st_mode) && interactive && !prompt_user(dstpath, "overwrite")) {
             fprintf(stderr, "cp: %s: %s\n", dstpath, strerror(EEXIST));
@@ -204,11 +207,11 @@ int do_copy(int basefd, const char * file, int dest_folder_fd, const char * dest
     switch (st.st_mode & S_IFMT) {
         case S_IFREG:
             // AT_SYMLINK_NOFOLLOW in case we raced with something else
-            dstfd = openat(dest_folder_fd, dest_file ? dest_file : file, O_WRONLY | O_TRUNC | O_CREAT, st.st_mode & 07777);
+            dstfd = openat(dest_folder_fd, dest_file, O_WRONLY | O_TRUNC | O_CREAT, st.st_mode & 07777);
             if (dstfd < 0) {
-                if (!unlink_dest || unlinkat(dest_folder_fd, dest_file ? dest_file : file, 0) < 0)
+                if (!unlink_dest || unlinkat(dest_folder_fd, dest_file, 0) < 0)
                     goto general_dst_error;
-                dstfd = openat(dest_folder_fd, dest_file ? dest_file : file, O_WRONLY | O_TRUNC | O_CREAT, st.st_mode & 07777);
+                dstfd = openat(dest_folder_fd, dest_file, O_WRONLY | O_TRUNC | O_CREAT, st.st_mode & 07777);
                 if (dstfd < 0)
                     goto general_dst_error;
             }
@@ -221,11 +224,11 @@ int do_copy(int basefd, const char * file, int dest_folder_fd, const char * dest
         case S_IFDIR:
             // our openat acts as mkdir and we need the fd as soon as possible
             if (!is_unnamed &&
-                (dstfd = openat(dest_folder_fd, dest_file ? dest_file : file, O_WRONLY | O_DIRECTORY | O_CREAT,
+                (dstfd = openat(dest_folder_fd, dest_file, O_WRONLY | O_DIRECTORY | O_CREAT,
                 (st.st_mode & ~(preserve_attrs ? 0 : mask)) | S_IRWXU)) < 0)
             {
                 if (errno == EEXIST) // write into
-                    dstfd = openat(dest_folder_fd, dest_file ? dest_file : file, O_WRONLY | O_DIRECTORY);
+                    dstfd = openat(dest_folder_fd, dest_file, O_WRONLY | O_DIRECTORY);
                 if (dstfd < 0)
                     goto general_dst_error;
             }
@@ -268,7 +271,7 @@ int do_copy(int basefd, const char * file, int dest_folder_fd, const char * dest
                 goto general_src_error;
             break;
         case S_IFIFO:
-            if (mkfifoat(dest_folder_fd, dest_file ? dest_file : file, st.st_mode & ~(preserve_attrs ? 0 : mask)) < 0)
+            if (mkfifoat(dest_folder_fd, dest_file, st.st_mode & ~(preserve_attrs ? 0 : mask)) < 0)
                 goto general_dst_error;
             break;
         case S_IFLNK:
@@ -276,13 +279,13 @@ int do_copy(int basefd, const char * file, int dest_folder_fd, const char * dest
             if (ret < 0)
                 goto general_src_error;
             linkbuf[ret] = '\0';
-            if (symlinkat(linkbuf, dest_folder_fd, dest_file ? dest_file : file) < 0)
+            if (symlinkat(linkbuf, dest_folder_fd, dest_file) < 0)
                 goto general_dst_error;
             ret = 0;
             break;
         case S_IFCHR:
         case S_IFBLK:
-            if (mknodat(dest_folder_fd, dest_file ? dest_file : file, st.st_mode, st.st_rdev) < 0)
+            if (mknodat(dest_folder_fd, dest_file, st.st_mode, st.st_rdev) < 0)
                 goto general_dst_error;
             break;
         //case S_IFSOCK:
@@ -294,17 +297,17 @@ int do_copy(int basefd, const char * file, int dest_folder_fd, const char * dest
         return ret;
 
     struct timespec times[2] = {{.tv_sec = st.st_atime}, {.tv_sec = st.st_mtime}};
-    if (utimensat(dest_folder_fd, dest_file ? dest_file : file, times, AT_SYMLINK_NOFOLLOW) < 0) {
+    if (utimensat(dest_folder_fd, dest_file, times, AT_SYMLINK_NOFOLLOW) < 0) {
         fprintf(stderr, "cp: Failed to preserve times of %s: %s\n", srcpath, strerror(errno));
         ret++;
     }
 
-    if (fchownat(dest_folder_fd, dest_file ? dest_file : file, st.st_uid, st.st_gid, AT_SYMLINK_NOFOLLOW) < 0) {
+    if (fchownat(dest_folder_fd, dest_file, st.st_uid, st.st_gid, AT_SYMLINK_NOFOLLOW) < 0) {
         fprintf(stderr, "cp: Failed to preserve ownership of %s: %s\n", srcpath, strerror(errno));
         ret++;
     }
 
-    if (fchmodat(dest_folder_fd, dest_file ? dest_file : file, st.st_mode, AT_SYMLINK_NOFOLLOW) < 0) {
+    if (fchmodat(dest_folder_fd, dest_file, st.st_mode, AT_SYMLINK_NOFOLLOW) < 0) {
         fprintf(stderr, "cp: Failed to preserve permissions of %s: %s\n", srcpath, strerror(errno));
         ret++;
     }
@@ -403,7 +406,7 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
-    char dest_fd = open(dest, O_WRONLY | O_DIRECTORY);
+    int dest_fd = open(dest, O_WRONLY | O_DIRECTORY);
     if (dest_fd < 0 && files > 2) {
         fprintf(stderr, "cp: open(%s): %s\n", dest, strerror(errno));
         return 1;
@@ -428,11 +431,11 @@ int main(int argc, char ** argv) {
             char * dupfile = strdup(argv[i]);
             char * base = dupfile ? basename(dupfile) : NULL;
             char is_unnamed = base ? !strcmp(base, "/") || !strcmp(base, "//") || !strcmp(base, ".") || !strcmp(base, "..") : 0;
-            free(dupfile);
             if (!is_unnamed) {
                 strncat(dstpath, "/", PATH_MAX - (dbuf - dstpath) - 1);
-                strncat(dstpath, argv[i], PATH_MAX - (dbuf - dstpath) - 1 -1);
+                strncat(dstpath, base ? base : argv[i], PATH_MAX - (dbuf - dstpath) - 1 -1);
             }
+            free(dupfile);
         }
 
         if (do_copy(AT_FDCWD, argv[i],
