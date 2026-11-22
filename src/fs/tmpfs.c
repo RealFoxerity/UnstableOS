@@ -105,14 +105,22 @@ static void tmpfs_free_file(struct tmpfs_sb * tmpfs, tmpfile_t * file) {
 }
 
 static void tmpfs_free_tree(struct tmpfs_sb * tmpfs, tmpfile_t * file) {
-    if (file == NULL)
-        return;
+    if (file && file->parent)
+        file->parent->children = NULL;
+    for (tmpfile_t * f = file; f; f = f->next)
+        f->parent = NULL;
+
     while (file) {
-        struct tmpfile_t * next = file->next;
-        tmpfs_free_tree(tmpfs, file->children);
-        file->children = NULL;
+        while (file->children)
+            file = file->children;
+
+        tmpfile_t * parent = file->parent;
+        tmpfile_t * next = file->next;
+
         tmpfs_free_file(tmpfs, file);
-        file = next;
+        if (!next)
+            parent->children = NULL;
+        file = next ? next : parent;
     }
 }
 
