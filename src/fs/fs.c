@@ -596,9 +596,12 @@ int sys_unlinkat(int fd, const char *path, int flags) {
     __atomic_add_fetch(&ino->instances, 1, __ATOMIC_ACQUIRE);
     spinlock_release(&current_process->lock);
 
+    // we want to return more useful errors like EISDIR or EROFS before EACCES
+    // so slightly relaxed checks all around
     inode_t * unlinked_parent = NULL;
     if (*safe_path && safe_path != file_frag) {
-        int ret = openat_inode(ino, safe_path, O_WRONLY | O_DIRECTORY, 0, &unlinked_parent, 1);
+        // this should be O_WRONLY instead of O_SEARCH, but we want the errors
+        int ret = openat_inode(ino, safe_path, O_SEARCH | O_DIRECTORY, 0, &unlinked_parent, 1);
         close_inode(ino);
         if (ret < 0 || unlinked_parent == NULL) {
             kfree(safe_path);
@@ -606,11 +609,11 @@ int sys_unlinkat(int fd, const char *path, int flags) {
         }
     } else {
         unlinked_parent = ino;
-        if (inode_check_perm(unlinked_parent, W_OK, AT_EACCESS)) {
-            close_inode(ino);
-            kfree(safe_path);
-            return -EACCES;
-        }
+        //if (inode_check_perm(unlinked_parent, W_OK, AT_EACCESS)) {
+        //    close_inode(unlinked_parent);
+        //    kfree(safe_path);
+        //    return -EACCES;
+        //}
     }
 
     if (unlinked_parent->backing_superblock->mount_options & MOUNT_RDONLY) {
@@ -635,6 +638,13 @@ int sys_unlinkat(int fd, const char *path, int flags) {
         unlinked_parent->backing_superblock->funcs &&
         unlinked_parent->backing_superblock->funcs->unlink
     ) {
+        if (inode_check_perm(unlinked_parent, W_OK, AT_EACCESS)) {
+            close_inode(unlinked);
+            close_inode(unlinked_parent);
+            kfree(safe_path);
+            return -EACCES;
+        }
+
         if (!unlinked_parent->backing_superblock->funcs->unlink_opened_supported) {
             close_inode(unlinked);
             unlinked = NULL;
