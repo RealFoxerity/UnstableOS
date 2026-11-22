@@ -119,10 +119,10 @@ int do_copy(int basefd, const char * file, int dest_folder_fd, const char * dest
             return 1;
     }
 
-    if (S_ISDIR(st.st_mode) && dest_file) {
-        fprintf(stderr, "cp: %s: %s\n", dstpath, strerror(ENOTDIR));
-        return 1;
-    }
+    //if (S_ISDIR(st.st_mode) && dest_file) {
+    //    fprintf(stderr, "cp: %s: %s\n", dstpath, strerror(ENOTDIR));
+    //    return 1;
+    //}
 
     if (S_ISDIR(st.st_mode) && !recurse) {
         fprintf(stderr, "cp: %s: '-R' not specified, skipping\n", srcpath);
@@ -142,11 +142,11 @@ int do_copy(int basefd, const char * file, int dest_folder_fd, const char * dest
             close(srcfd);
             return 0;
         }
-        if (S_ISDIR(st.st_mode) && dest_file) {
-            fprintf(stderr, "cp: %s: %s\n", dstpath, strerror(ENOTDIR));
-            close(srcfd);
-            return 1;
-        }
+        //if (S_ISDIR(st.st_mode) && dest_file) {
+        //    fprintf(stderr, "cp: %s: %s\n", dstpath, strerror(ENOTDIR));
+        //    close(srcfd);
+        //    return 1;
+        //}
 
         if (S_ISDIR(st.st_mode) && !recurse) {
             fprintf(stderr, "cp: %s: '-R' not specified, skipping\n", srcpath);
