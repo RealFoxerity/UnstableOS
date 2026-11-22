@@ -193,7 +193,7 @@ void print_help() {
 }
 
 int main(int argc, char ** argv) {
-    if (argc < 2 || argc > 5) {
+    if (argc < 2) {
         usage:
         fprintf(stderr, "Usage: %s [-m mode,...] [-p] folder...\n%s -h for more information\n", argv[0], argv[0]);
         return 1;
