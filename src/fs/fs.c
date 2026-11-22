@@ -1301,7 +1301,7 @@ int inode_check_perm(inode_t * inode, unsigned int amode, int flag) {
 }
 
 int sys_faccessat(int fd, const char *path, int amode, int flag) {
-    flag &= AT_EACCESS;
+    flag &= AT_EACCESS | AT_SYMLINK_NOFOLLOW;
     amode &= R_OK | W_OK | X_OK;
     if (amode == 0)
         flag |= O_PATH;
