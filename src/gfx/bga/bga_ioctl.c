@@ -7,6 +7,7 @@
 #include <string.h>
 #include <errno.h>
 #include <bits/ioctl/fb_ioctl.h>
+#include "kernel_tty_io.h"
 
 long bga_ioctl(file_descriptor_t * file, unsigned long cmd, void * arg) {
     struct vesa_modeline *line = arg;
@@ -51,7 +52,12 @@ long bga_ioctl(file_descriptor_t * file, unsigned long cmd, void * arg) {
             if (!paging_check_address_range(arg, sizeof(struct vesa_modeline), 0, 0))
                 return -EFAULT;
 
-            return bga_set_res(line->horizontal, line->vertical);
+            int ret = bga_set_res(line->horizontal, line->vertical);
+            if (!ret) {
+                tty_change_fbcon_sz(&(struct winsize){
+                .ws_row = line->horizontal / console_font_width,
+                .ws_col = line->vertical / console_font_width});
+            }
         default:
             return -ENOTTY;
     }

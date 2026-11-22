@@ -115,6 +115,8 @@ void tty_register(tty_t * tty, dev_t minor);
 
 void tty_alloc_kernel_console();
 
+void tty_change_fbcon_sz(const struct winsize * ws);
+
 // specify 0 for no timeout -> wait forever
 // specify -1 in timespec->tv_nsec to return on empty buffer
 // otherwise blocks until timeout expires

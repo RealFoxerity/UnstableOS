@@ -5,7 +5,7 @@
 #include <string.h>
 #include <errno.h>
 #include <bits/ioctl/fb_ioctl.h>
-
+#include "kernel_tty_io.h"
 
 extern const struct VBE_modes_list * vbe_current_mode;
 extern size_t vbe_mode_count;
@@ -64,6 +64,11 @@ long vbe_ioctl(file_descriptor_t * file, unsigned long cmd, void * arg) {
             spinlock_acquire(&gfx_spinlock);
             int ret = vbe_set_info(this);
             spinlock_release(&gfx_spinlock);
+            if (!ret) {
+                tty_change_fbcon_sz(&(struct winsize){
+                .ws_row = this->info.width / console_font_width,
+                .ws_col = this->info.height / console_font_width});
+            }
             return ret ? : -EIO;
         default:
             return -ENOTTY;

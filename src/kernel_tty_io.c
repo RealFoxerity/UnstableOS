@@ -85,6 +85,24 @@ ECHOCTL \
 
 #define TERMIOS_VALID_CFLAGS (0x1FFF)
 
+void tty_change_fbcon_sz(const struct winsize * ws) {
+    for (int i = 0; i < __TTY_CONSOLE; i++) {
+        if (!terminals[DEV_TTY_0 + i])
+            continue;
+        char sig = 1;
+        if (memcmp(ws, &(struct winsize){
+            .ws_col = (unsigned short)terminals[DEV_TTY_0 + i]->width,
+            .ws_row = (unsigned short)terminals[DEV_TTY_0 + i]->height,
+            }, sizeof(struct winsize)) == 0)
+            sig = 0;
+
+        __atomic_store_n(&terminals[DEV_TTY_0 + i]->width, ws->ws_col, __ATOMIC_RELEASE);
+        __atomic_store_n(&terminals[DEV_TTY_0 + i]->height, ws->ws_row, __ATOMIC_RELEASE);
+        if (sig)
+            signal_process_group(terminals[DEV_TTY_0 + i]->foreground_pgrp, &(siginfo_t) {.si_signo = SIGWINCH});
+    }
+}
+
 long tty_ioctl(file_descriptor_t * file, unsigned long request, void * arg) {
     kassert(file);
     kassert(file->inode);

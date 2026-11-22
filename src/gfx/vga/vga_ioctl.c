@@ -8,6 +8,7 @@
 #include <bits/ioctl/fb_ioctl.h>
 #include <string.h>
 #include <errno.h>
+#include <kernel_tty_io.h>
 
 enum vga_display_modes {
     VGA_13,
@@ -196,6 +197,9 @@ long vga_ioctl(file_descriptor_t * file, unsigned long cmd, void * arg) {
                 default:
                     return -EINVAL;
             }
+            tty_change_fbcon_sz(&(struct winsize){
+                .ws_row = vga_modes[(uintptr_t)arg].width / console_font_width,
+                .ws_col = vga_modes[(uintptr_t)arg].height / console_font_width});
             return 0;
         case FB_GET_MODELINE:
             if (arg == NULL)
