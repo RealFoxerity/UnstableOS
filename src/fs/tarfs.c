@@ -11,6 +11,8 @@
 
 #include "dev_ops.h"
 
+#define kprintf(fmt, ...) kprintf("tarfs: " fmt, ##__VA_ARGS__)
+
 // TODO: among others, do header checksum, supposedly it's a sum of the header as an octal string
 // TODO: this "driver" assumes that folders will have their entries before a file using them
 // I am unsure whether this will always be the case and/or if it is standardised
@@ -94,6 +96,29 @@ static struct tar_node * create_new_node(const char * path, const char * next_sl
     return new;
 }
 
+static struct tar_node * get_node(struct tar_node * root, const char * path) {
+    kassert(root && path);
+    struct tar_node * cur = root;
+    char * duppath = strdup(path);
+    char * saved = NULL;
+    char * tok = strtok_r(duppath, "/", &saved);
+    do {
+        if (!S_ISDIR(cur->mode))
+            return NULL;
+        if (!strcmp(tok, "."))
+            continue;
+        if (!strcmp(tok, "..")) {
+            cur = cur->upper;
+            continue;
+        }
+        cur = cur->inner;
+        while (cur && strcmp(cur->path_fragment, tok) != 0)
+            cur = cur->next;
+    } while (cur && !!((tok = strtok_r(NULL, "/", &saved))));
+    kfree(duppath);
+    return cur;
+}
+
 static char tar_add_cached_path(struct tar_node * root, const char * path, ustar_hdr * hdr, off_t record_offset) {
     kassert(root);
     kassert(path);
@@ -139,8 +164,21 @@ static char tar_add_cached_path(struct tar_node * root, const char * path, ustar
             record_offset -= sizeof(ustar_hdr) - offsetof(ustar_hdr, linked_file_name);
             break;
         case USTAR_HARD_LINK:
+            if (hdr->linked_file_name[99] != '\0') {
+                kprintf("We don't yet support long symlink targets (>99 chars)\n");
+                return -1;
+            }
+            struct tar_node * dest = get_node(root, hdr->linked_file_name);
+            if (!dest) {
+                kprintf("Failed to find hardlink destination\n");
+                return -1;
+            }
+            mode = dest->mode & S_IFMT;
+            record_offset = dest->record_offset;
+            size = dest->size;
+            break;
         default:
-            kprintf("We don't support hard links");
+            kprintf("Unknown file type %#02hhx", hdr->type);
             return -1;
     }
 
@@ -230,10 +268,10 @@ int tar_load_fs(superblock_t * sb) {
     file_descriptor_t * tar_fd = sb->fd;
 
     off_t tarfs_size = seek_file(tar_fd, 0, SEEK_END);
-    kprintf("tar fs size: %llu\n", tarfs_size);
+    kprintf("archive size: %llu\n", tarfs_size);
 
     if (tarfs_size < sizeof(ustar_hdr)) {
-        kprintf("Tar archive truncated!\n");
+        kprintf("archive truncated!\n");
         return -EIO;
     }
 
@@ -258,21 +296,21 @@ int tar_load_fs(superblock_t * sb) {
             nullblock_count ++;
             if (nullblock_count == 2) {
                 if (curr_offset != tarfs_size)
-                    kprintf("Info: %llu bytes of unused padding after USTAR initramfs\n", tarfs_size - curr_offset);
+                    kprintf("Info: %llu bytes of unused padding\n", tarfs_size - curr_offset);
                 break;
             }
             continue;
             definitely_broken:
             kfree(path);
             tar_free_node(sb->data);
-            kprintf("Tar archive corrupted/not in USTAR format!\n");
+            kprintf("archive corrupted/not in USTAR format!\n");
             return -EIO;
         }
         memcpy(path, hdr.file_name, sizeof(hdr.file_name));
         memcpy(path + sizeof(hdr.file_name), hdr.filename_prefix, sizeof(hdr.filename_prefix));
         size_t file_length = oct2int(hdr.file_size, sizeof(hdr.file_size));
         if (curr_offset + file_length > tarfs_size) {
-            kprintf("Warning: USTAR entry %s truncated by %llu bytes, skipping remaining!\n",
+            kprintf("Warning: entry %s truncated by %llu bytes, skipping remaining!\n",
                 path, curr_offset + file_length - tarfs_size);
             break;
         }
@@ -281,7 +319,7 @@ int tar_load_fs(superblock_t * sb) {
             archive_length += 512 - (file_length%512);
 
         if (tar_add_cached_path(sb->data, path, &hdr, curr_offset-512) != 0) {
-            kprintf("Failed to build internal tar structures - failed on path %s!\n", path);
+            kprintf("Failed to build internal structures - failed on path %s!\n", path);
             tar_free_node(sb->data);
             return -EIO;
         }
@@ -302,8 +340,8 @@ static char is_valid_node(const struct tar_node * root, const struct tar_node * 
 
     const struct tar_node * temp = curr;
     while (temp != root) {
-        if (temp->upper == NULL) panic("Tried using unlinked TARFS node!");
-        if (temp->path_fragment == NULL) panic("Tried using anonymous TARFS node!");
+        if (temp->upper == NULL) panic("Tried using unlinked node!");
+        if (temp->path_fragment == NULL) panic("Tried using anonymous node!");
 
         if (temp->upper == temp) return 0; // root is not the correct one for curr
         temp = temp->upper;
