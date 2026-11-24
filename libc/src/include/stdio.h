@@ -16,7 +16,7 @@
 
 #define EOF (-1)
 
-#define FILE_UNGETC_ARR_SIZE 128
+#define FILE_UNGETC_ARR_SIZE 127
 
 #define BUFSIZ 1024
 #define FOPEN_MAX 0xFFFFFFFF // no limit
@@ -39,10 +39,12 @@ struct FILE {
         unsigned char * buf;
         size_t head;
         size_t tail;
+        // the buf is actually size+1 large, but our ring buffer forces it to be size of usable space
+        // except for fmemopen() where ring buffers aren't used so size is correct
         size_t size;
     } buf;
     struct {
-        unsigned char buf[FILE_UNGETC_ARR_SIZE];
+        unsigned char buf[FILE_UNGETC_ARR_SIZE+1];
         size_t head;
         size_t tail;
     } ungetc_buf;

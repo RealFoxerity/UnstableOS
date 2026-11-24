@@ -10,15 +10,15 @@
 #include <assert.h>
 
 #define EMPTY(tq) ((tq)->head == (tq)->tail)
-#define FULL(tq, max_size) (((tq)->head == 0 && (tq)->tail == (max_size) - 1) || (tq)->tail == (tq)->head - 1)
+#define FULL(tq, max_size) (((tq)->head == 0 && (tq)->tail == (max_size) + 1 - 1) || (tq)->tail == (tq)->head - 1)
 #define REMAIN(tq, max_size) (\
     (tq)->head <= (tq)->tail ? \
         ((tq)->tail - (tq)->head) : \
-        ((max_size) - (tq)->head + (tq)->tail)\
+        ((max_size) + 1 - (tq)->head + (tq)->tail)\
     )// how many elements still in queue
-#define INC(tq, max_size) ((tq)->tail = ((tq)->tail+1)%(max_size))
-#define DEC(tq, max_size) ((tq)->head = ((tq)->head+1)%(max_size))
-#define DEC_LAST(tq, max_size) ((tq)->tail = ((max_size) + (tq)->tail-1)%(max_size))
+#define INC(tq, max_size) ((tq)->tail = ((tq)->tail+1)%((max_size)+1))
+#define DEC(tq, max_size) ((tq)->head = ((tq)->head+1)%((max_size)+1))
+#define DEC_LAST(tq, max_size) ((tq)->tail = ((max_size) + 1 + (tq)->tail-1)%((max_size)+1))
 
 static unsigned char file_get_ungetc(FILE * stream) {
     DEC_LAST(&stream->ungetc_buf, FILE_UNGETC_ARR_SIZE);

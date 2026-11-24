@@ -39,15 +39,15 @@ extern char is_klibc;
 } while (0);
 
 #define EMPTY(tq) ((tq)->head == (tq)->tail)
-#define FULL(tq, max_size) (((tq)->head == 0 && (tq)->tail == (max_size) - 1) || (tq)->tail == (tq)->head - 1)
+#define FULL(tq, max_size) (((tq)->head == 0 && (tq)->tail == (max_size) + 1 - 1) || (tq)->tail == (tq)->head - 1)
 #define REMAIN(tq, max_size) (\
     (tq)->head <= (tq)->tail ? \
         ((tq)->tail - (tq)->head) : \
-        ((max_size) - (tq)->head + (tq)->tail)\
+        ((max_size) + 1 - (tq)->head + (tq)->tail)\
     )// how many elements still in queue
-#define INC(tq, max_size) ((tq)->tail = ((tq)->tail+1)%(max_size))
-#define DEC(tq, max_size) ((tq)->head = ((tq)->head+1)%(max_size))
-#define DEC_LAST(tq, max_size) ((tq)->tail = ((max_size) + (tq)->tail-1)%(max_size))
+#define INC(tq, max_size) ((tq)->tail = ((tq)->tail+1)%((max_size)+1))
+#define DEC(tq, max_size) ((tq)->head = ((tq)->head+1)%((max_size)+1))
+#define DEC_LAST(tq, max_size) ((tq)->tail = ((max_size) + 1 + (tq)->tail-1)%((max_size)+1))
 
 
 FILE * __files = NULL;
@@ -115,7 +115,7 @@ static FILE * fdopen_parsed(int fildes, int flags) {
         ___set_errno(ENOMEM);
         return NULL;
     }
-    new_file->buf.size = BUFSIZ;
+    new_file->buf.size = BUFSIZ - 1;
     new_file->buf.alloced_buf = 1;
 
     // a noop, but for non-seekable will return -1 with ESPIPE in errno
@@ -725,7 +725,7 @@ int setvbuf(FILE *restrict stream, char *restrict buf, int type, size_t size) {
         fflush(stream);
     if (stream->buf.alloced_buf)
         free(stream->buf.buf);
-    stream->buf.size = size;
+    stream->buf.size = size - 1;
     if (buf)
         stream->buf.buf = (unsigned char*)buf;
     else
